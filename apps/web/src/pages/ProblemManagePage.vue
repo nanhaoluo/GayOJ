@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Download, Eye, EyeOff, History, Loader2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import BaseModal from '@/components/BaseModal.vue';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import { API_BASE, apiRequest, formatDate, getStoredAuthToken, problemTypeLabel } from '@/services/api';
 import type {
@@ -51,6 +52,10 @@ const importing = ref(false);
 const uploadingTestData = ref(false);
 const testDataFile = ref<File | null>(null);
 const testDataInput = ref<HTMLInputElement | null>(null);
+const editorOpen = ref(false);
+const importOpen = ref(false);
+const historyOpen = ref(false);
+const testDataOpen = ref(false);
 
 const form = reactive({
   title: '',
@@ -211,7 +216,34 @@ function editProblem(problem: ProblemAdminDetail) {
   error.value = '';
   testDataFile.value = null;
   if (testDataInput.value) testDataInput.value.value = '';
-  void loadProblemVersions(problem.id);
+  if (historyOpen.value) void loadProblemVersions(problem.id);
+  else versions.value = [];
+}
+
+function openCreateProblem() {
+  resetForm();
+  editorOpen.value = true;
+}
+
+function openEditProblem(problem: ProblemAdminDetail | null = selectedProblem.value) {
+  if (!problem) return;
+  editProblem(problem);
+  editorOpen.value = true;
+}
+
+function openImportModal() {
+  importOpen.value = true;
+}
+
+function openHistoryModal() {
+  if (!selectedProblem.value) return;
+  historyOpen.value = true;
+  void loadProblemVersions(selectedProblem.value.id);
+}
+
+function openTestDataModal() {
+  if (!selectedProblem.value) return;
+  testDataOpen.value = true;
 }
 
 function versionActionLabel(action: ProblemVersion['action']): string {
@@ -403,6 +435,7 @@ async function uploadProblemTestData() {
     testDataFile.value = null;
     if (testDataInput.value) testDataInput.value.value = '';
     await loadProblems();
+    testDataOpen.value = false;
   } catch (err) {
     error.value = err instanceof Error ? err.message : '测试数据上传失败。';
   } finally {
@@ -537,6 +570,7 @@ async function saveProblem() {
     selectedId.value = saved.id;
     mode.value = 'edit';
     await loadProblems();
+    editorOpen.value = false;
   } catch (err) {
     error.value = err instanceof Error ? err.message : '题目保存失败。';
   } finally {
@@ -587,23 +621,36 @@ onMounted(() => {
         <span class="eyebrow">Problem Management</span>
         <h1>题目管理</h1>
       </div>
-      <button class="secondary-action" type="button" @click="loadProblems">
-        <RefreshCw :size="16" />刷新
-      </button>
+      <div class="inline-actions">
+        <button class="secondary-action" type="button" @click="openImportModal">
+          <Upload :size="16" />导入
+        </button>
+        <button class="secondary-action" type="button" :disabled="exporting" @click="exportProblems('all')">
+          <Loader2 v-if="exporting" :size="16" class="spin" />
+          <Download v-else :size="16" />
+          导出
+        </button>
+        <button class="secondary-action" type="button" @click="loadProblems">
+          <RefreshCw :size="16" />刷新
+        </button>
+        <button class="primary-action" type="button" @click="openCreateProblem">
+          <Plus :size="16" />新建
+        </button>
+      </div>
     </section>
 
     <p v-if="error" class="form-error">{{ error }}</p>
     <p v-if="notice" class="form-success">{{ notice }}</p>
 
-    <section class="problem-editor-grid">
+    <section class="problem-workbench">
       <aside class="panel problem-manager-list">
         <div class="panel-head">
           <div>
-            <h2>题库条目</h2>
-            <p>{{ problems.length }} 题</p>
+            <h2>题库</h2>
+            <p>{{ filteredProblems.length }} / {{ problems.length }} 题</p>
           </div>
-          <button class="secondary-action" type="button" @click="resetForm">
-            <Plus :size="16" />新建
+          <button class="secondary-action" type="button" @click="openCreateProblem">
+            <Plus :size="16" />新增
           </button>
         </div>
         <label class="search-box compact-search">
@@ -632,115 +679,96 @@ onMounted(() => {
         </div>
       </aside>
 
-      <section class="panel problem-form-panel">
-        <div class="panel-head">
-          <div>
-            <h2>{{ mode === 'edit' ? '编辑题目' : '新建题目' }}</h2>
-            <p>{{ selectedId || '未分配题号' }}</p>
+      <section class="panel problem-summary-panel">
+        <template v-if="selectedProblem">
+          <div class="problem-summary-head">
+            <ProblemTypeIcon :type="selectedProblem.type" />
+            <div>
+              <span class="eyebrow">{{ selectedProblem.id }}</span>
+              <h2>{{ selectedProblem.title }}</h2>
+              <p>
+                {{ problemTypeLabel(selectedProblem.type) }} · {{ selectedProblem.difficulty }} ·
+                {{ selectedProblem.visible ? '公开' : '已下线' }}
+              </p>
+            </div>
           </div>
-          <div class="inline-actions">
-            <button class="secondary-action" type="button" @click="resetForm">
-              <Plus :size="16" />清空
+
+          <div class="summary-action-bar">
+            <button class="primary-action" type="button" @click="openEditProblem()">
+              <Save :size="16" />编辑
+            </button>
+            <button class="secondary-action" type="button" @click="openHistoryModal">
+              <History :size="16" />版本
             </button>
             <button
-              v-if="mode === 'edit' && selectedProblem"
-              class="secondary-action danger-action"
+              v-if="selectedProblem.type === 'code'"
+              class="secondary-action"
               type="button"
-              @click="deleteProblem(selectedProblem)"
+              @click="openTestDataModal"
             >
+              <Upload :size="16" />测试数据
+            </button>
+            <button class="secondary-action" type="button" :disabled="exporting" @click="exportProblems('selected')">
+              <Download :size="16" />导出当前
+            </button>
+            <button class="secondary-action danger-action" type="button" @click="deleteProblem(selectedProblem)">
               <Trash2 :size="16" />下线
             </button>
           </div>
-        </div>
 
-        <div class="problem-io-block">
-          <div class="field-head">
-            <strong>导入导出</strong>
-            <div class="inline-actions">
-              <button class="secondary-action" type="button" :disabled="exporting" @click="exportProblems('all')">
-                <Loader2 v-if="exporting" :size="15" class="spin" />
-                <Download v-else :size="15" />
-                全部
-              </button>
-              <button
-                class="secondary-action"
-                type="button"
-                :disabled="exporting || !selectedProblem"
-                @click="exportProblems('selected')"
-              >
-                <Download :size="15" />
-                当前
-              </button>
+          <div class="summary-stat-grid">
+            <div>
+              <span>标签</span>
+              <strong>{{ selectedProblem.tags.length }}</strong>
+            </div>
+            <div>
+              <span>样例</span>
+              <strong>{{ selectedProblem.samples.length }}</strong>
+            </div>
+            <div>
+              <span>选项</span>
+              <strong>{{ selectedProblem.options.length }}</strong>
+            </div>
+            <div>
+              <span>测试数据</span>
+              <strong>{{ selectedProblem.test_data ? selectedProblem.test_data.case_count : 0 }}</strong>
             </div>
           </div>
-          <div class="problem-io-grid">
-            <label>格式
-              <select v-model="ioFormat">
-                <option v-for="item in packageFormats" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </label>
-            <label>冲突
-              <select v-model="importStrategy">
-                <option v-for="item in importStrategies" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </label>
-          </div>
-          <label class="problem-io-textarea">
-            内容
-            <textarea v-model="importContent" rows="5" />
-          </label>
-          <div class="inline-actions">
-            <button class="secondary-action" type="button" :disabled="importing || !importContent.trim()" @click="importProblems(true)">
-              <Loader2 v-if="importing" :size="15" class="spin" />
-              <Search v-else :size="15" />
-              预检
-            </button>
-            <button class="primary-action" type="button" :disabled="importing || !importContent.trim()" @click="importProblems(false)">
-              <Loader2 v-if="importing" :size="15" class="spin" />
-              <Upload v-else :size="15" />
-              导入
-            </button>
-          </div>
-          <div v-if="importResult" class="import-result-list">
-            <div v-for="item in importResult.items" :key="`${item.action}-${item.source_id}-${item.target_id}`">
-              <strong>{{ importActionLabel(item.action) }}</strong>
-              <span>{{ item.source_id || '-' }} → {{ item.target_id || '-' }} · {{ item.title }}</span>
-            </div>
-          </div>
-        </div>
 
-        <div v-if="mode === 'edit' && selectedProblem" class="version-history-block">
-          <div class="field-head">
-            <strong><History :size="16" />版本历史</strong>
-            <button class="secondary-action" type="button" @click="loadProblemVersions(selectedProblem.id)">
-              <RefreshCw :size="15" />刷新
-            </button>
-          </div>
-          <div class="version-history-list">
-            <div v-for="version in versions" :key="version.id" class="version-history-row">
-              <div>
-                <strong>V{{ version.version }} · {{ version.snapshot.title }}</strong>
-                <span>
-                  {{ versionActionLabel(version.action) }} · {{ problemTypeLabel(version.snapshot.type) }} ·
-                  {{ formatDate(version.saved_at) }}
-                </span>
-              </div>
-              <button
-                class="secondary-action"
-                type="button"
-                :disabled="versionRestoringId === version.id"
-                @click="restoreVersion(version)"
-              >
-                <Loader2 v-if="versionRestoringId === version.id" :size="15" class="spin" />
-                <RotateCcw v-else :size="15" />
-                回滚
-              </button>
+          <div class="summary-section">
+            <div class="field-head">
+              <strong>标签</strong>
             </div>
-            <p v-if="versionLoading" class="empty-state"><Loader2 :size="16" class="spin" /> 正在加载版本</p>
-            <p v-if="!versionLoading && versions.length === 0" class="empty-state">尚无历史版本。</p>
+            <div v-if="selectedProblem.tags.length" class="tag-line compact-tags">
+              <span v-for="tag in selectedProblem.tags" :key="tag">{{ tag }}</span>
+            </div>
+            <p v-else class="empty-state">暂无标签。</p>
           </div>
-        </div>
 
+          <div class="summary-section">
+            <div class="field-head">
+              <strong>题面预览</strong>
+            </div>
+            <p class="summary-text">{{ selectedProblem.statement || '暂无题面内容。' }}</p>
+          </div>
+        </template>
+        <div v-else class="empty-state summary-empty">
+          <strong>先选择一道题</strong>
+          <span>列表只保留检索和选择，编辑、导入、历史和测试数据通过按钮打开。</span>
+          <button class="primary-action" type="button" @click="openCreateProblem">
+            <Plus :size="16" />新建题目
+          </button>
+        </div>
+      </section>
+    </section>
+
+    <BaseModal
+      :open="editorOpen"
+      :title="mode === 'edit' ? '编辑题目' : '新建题目'"
+      :description="selectedId || '保存后生成题号'"
+      size="xl"
+      @close="editorOpen = false"
+    >
         <form class="submit-form problem-form" @submit.prevent="saveProblem">
           <div class="form-grid two">
             <label>标题<input v-model="form.title" required /></label>
@@ -814,38 +842,6 @@ onMounted(() => {
                 </button>
               </div>
             </div>
-            <div v-if="mode === 'edit' && selectedProblem" class="field-block testdata-block">
-              <div class="field-head">
-                <strong>测试数据 ZIP</strong>
-                <button
-                  class="secondary-action"
-                  type="button"
-                  :disabled="!selectedTestData"
-                  @click="downloadProblemTestData(selectedProblem)"
-                >
-                  <Download :size="15" />下载
-                </button>
-              </div>
-              <div class="testdata-actions">
-                <label class="file-picker">
-                  <Upload :size="16" />
-                  <span>{{ testDataFile?.name || '选择 ZIP' }}</span>
-                  <input ref="testDataInput" type="file" accept=".zip,application/zip" @change="selectTestDataFile" />
-                </label>
-                <button class="primary-action" type="button" :disabled="uploadingTestData || !testDataFile" @click="uploadProblemTestData">
-                  <Loader2 v-if="uploadingTestData" :size="16" class="spin" />
-                  <Upload v-else :size="16" />
-                  上传
-                </button>
-              </div>
-              <div v-if="selectedTestData" class="testdata-meta">
-                <span>{{ selectedTestData.filename }}</span>
-                <span>{{ selectedTestData.case_count }} 组</span>
-                <span>{{ formatBytes(selectedTestData.size_bytes) }}</span>
-                <span>{{ formatDate(selectedTestData.uploaded_at) }}</span>
-              </div>
-              <p v-else class="empty-state">未上传测试数据。</p>
-            </div>
             <label>在线评测配置 JSON<textarea v-model="form.codeJudgeConfigText" class="code-config-editor" rows="6" /></label>
           </template>
 
@@ -914,7 +910,132 @@ onMounted(() => {
             保存题目
           </button>
         </form>
-      </section>
-    </section>
+    </BaseModal>
+
+    <BaseModal
+      :open="importOpen"
+      title="导入题目"
+      description="先预检，再决定是否写入题库"
+      size="lg"
+      @close="importOpen = false"
+    >
+      <div class="problem-io-block compact-block">
+        <div class="problem-io-grid">
+          <label>格式
+            <select v-model="ioFormat">
+              <option v-for="item in packageFormats" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>冲突
+            <select v-model="importStrategy">
+              <option v-for="item in importStrategies" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+        </div>
+        <label class="problem-io-textarea">
+          内容
+          <textarea v-model="importContent" rows="8" />
+        </label>
+        <div class="inline-actions">
+          <button class="secondary-action" type="button" :disabled="importing || !importContent.trim()" @click="importProblems(true)">
+            <Loader2 v-if="importing" :size="15" class="spin" />
+            <Search v-else :size="15" />
+            预检
+          </button>
+          <button class="primary-action" type="button" :disabled="importing || !importContent.trim()" @click="importProblems(false)">
+            <Loader2 v-if="importing" :size="15" class="spin" />
+            <Upload v-else :size="15" />
+            导入
+          </button>
+        </div>
+        <div v-if="importResult" class="import-result-list">
+          <div v-for="item in importResult.items" :key="`${item.action}-${item.source_id}-${item.target_id}`">
+            <strong>{{ importActionLabel(item.action) }}</strong>
+            <span>{{ item.source_id || '-' }} → {{ item.target_id || '-' }} · {{ item.title }}</span>
+          </div>
+        </div>
+      </div>
+    </BaseModal>
+
+    <BaseModal
+      :open="historyOpen"
+      title="版本历史"
+      :description="selectedProblem ? `${selectedProblem.id} · ${selectedProblem.title}` : ''"
+      size="lg"
+      @close="historyOpen = false"
+    >
+      <div class="version-history-block compact-block">
+        <div class="field-head">
+          <strong><History :size="16" />历史版本</strong>
+          <button v-if="selectedProblem" class="secondary-action" type="button" @click="loadProblemVersions(selectedProblem.id)">
+            <RefreshCw :size="15" />刷新
+          </button>
+        </div>
+        <div class="version-history-list">
+          <div v-for="version in versions" :key="version.id" class="version-history-row">
+            <div>
+              <strong>V{{ version.version }} · {{ version.snapshot.title }}</strong>
+              <span>
+                {{ versionActionLabel(version.action) }} · {{ problemTypeLabel(version.snapshot.type) }} ·
+                {{ formatDate(version.saved_at) }}
+              </span>
+            </div>
+            <button
+              class="secondary-action"
+              type="button"
+              :disabled="versionRestoringId === version.id"
+              @click="restoreVersion(version)"
+            >
+              <Loader2 v-if="versionRestoringId === version.id" :size="15" class="spin" />
+              <RotateCcw v-else :size="15" />
+              回滚
+            </button>
+          </div>
+          <p v-if="versionLoading" class="empty-state"><Loader2 :size="16" class="spin" /> 正在加载版本</p>
+          <p v-if="!versionLoading && versions.length === 0" class="empty-state">尚无历史版本。</p>
+        </div>
+      </div>
+    </BaseModal>
+
+    <BaseModal
+      :open="testDataOpen"
+      title="测试数据"
+      :description="selectedProblem ? `${selectedProblem.id} · ${selectedProblem.title}` : ''"
+      size="md"
+      @close="testDataOpen = false"
+    >
+      <div v-if="selectedProblem" class="field-block compact-block testdata-block">
+        <div class="field-head">
+          <strong>测试数据 ZIP</strong>
+          <button
+            class="secondary-action"
+            type="button"
+            :disabled="!selectedTestData"
+            @click="downloadProblemTestData(selectedProblem)"
+          >
+            <Download :size="15" />下载
+          </button>
+        </div>
+        <div class="testdata-actions">
+          <label class="file-picker">
+            <Upload :size="16" />
+            <span>{{ testDataFile?.name || '选择 ZIP' }}</span>
+            <input ref="testDataInput" type="file" accept=".zip,application/zip" @change="selectTestDataFile" />
+          </label>
+          <button class="primary-action" type="button" :disabled="uploadingTestData || !testDataFile" @click="uploadProblemTestData">
+            <Loader2 v-if="uploadingTestData" :size="16" class="spin" />
+            <Upload v-else :size="16" />
+            上传
+          </button>
+        </div>
+        <div v-if="selectedTestData" class="testdata-meta">
+          <span>{{ selectedTestData.filename }}</span>
+          <span>{{ selectedTestData.case_count }} 组</span>
+          <span>{{ formatBytes(selectedTestData.size_bytes) }}</span>
+          <span>{{ formatDate(selectedTestData.uploaded_at) }}</span>
+        </div>
+        <p v-else class="empty-state">未上传测试数据。</p>
+      </div>
+    </BaseModal>
   </div>
 </template>

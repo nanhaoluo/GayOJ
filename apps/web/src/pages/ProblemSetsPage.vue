@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ClipboardList, Plus } from 'lucide-vue-next';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { ClipboardList, Eye, Plus } from 'lucide-vue-next';
+import { onMounted, reactive, ref } from 'vue';
 import { RouterLink } from 'vue-router';
+import BaseModal from '@/components/BaseModal.vue';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type { ProblemSet, ProblemSummary } from '@/services/types';
@@ -10,6 +11,8 @@ const sets = ref<ProblemSet[]>([]);
 const problems = ref<ProblemSummary[]>([]);
 const error = ref('');
 const createOpen = ref(false);
+const detailOpen = ref(false);
+const selectedSet = ref<ProblemSet | null>(null);
 const form = reactive({
   title: '',
   description: '',
@@ -17,8 +20,6 @@ const form = reactive({
   visibility: 'public',
   problem_ids: [] as string[],
 });
-
-const problemOptions = computed(() => problems.value.map((item) => `${item.id} ${item.title}`));
 
 async function load() {
   const [setData, problemData] = await Promise.all([
@@ -33,6 +34,11 @@ function toggleProblem(problemId: string) {
   const index = form.problem_ids.indexOf(problemId);
   if (index >= 0) form.problem_ids.splice(index, 1);
   else form.problem_ids.push(problemId);
+}
+
+function openSetDetail(set: ProblemSet) {
+  selectedSet.value = set;
+  detailOpen.value = true;
 }
 
 async function createSet() {
@@ -62,16 +68,42 @@ onMounted(load);
         <span class="eyebrow">Problem Sets</span>
         <h1>题单与试卷</h1>
       </div>
-      <button class="primary-action" @click="createOpen = !createOpen"><Plus :size="18" />创建题单</button>
+      <button class="primary-action" type="button" @click="createOpen = true"><Plus :size="18" />创建题单</button>
     </section>
 
-    <section v-if="createOpen" class="panel form-panel">
-      <div class="panel-head">
-        <div>
-          <h2>创建题单</h2>
-          <p>支持公开题单、试卷和作业类型</p>
-        </div>
+    <p v-if="error" class="form-error">{{ error }}</p>
+
+    <section class="panel set-list-panel">
+      <div class="set-table-row set-table-head">
+        <span>名称</span>
+        <span>类型</span>
+        <span>题量</span>
+        <span>更新</span>
+        <span>操作</span>
       </div>
+      <div v-for="set in sets" :key="set.id" class="set-table-row">
+        <div>
+          <strong>{{ set.title }}</strong>
+          <span>{{ set.description || '暂无描述' }}</span>
+        </div>
+        <span class="difficulty">{{ set.type }}</span>
+        <span>{{ set.problems.length }} 题</span>
+        <span v-if="set.due_at">截止 {{ formatDate(set.due_at) }}</span>
+        <span v-else>{{ formatDate(set.updated_at) }}</span>
+        <button class="secondary-action" type="button" @click="openSetDetail(set)">
+          <Eye :size="16" />查看
+        </button>
+      </div>
+      <p v-if="sets.length === 0" class="empty-text">暂无题单。</p>
+    </section>
+
+    <BaseModal
+      :open="createOpen"
+      title="创建题单"
+      description="填写基本信息后再选择题目"
+      size="lg"
+      @close="createOpen = false"
+    >
       <form class="submit-form" @submit.prevent="createSet">
         <label>标题<input v-model="form.title" required placeholder="例如：动态规划基础训练" /></label>
         <label>描述<textarea v-model="form.description" rows="3" placeholder="训练目标、适用对象和注意事项"></textarea></label>
@@ -80,7 +112,7 @@ onMounted(load);
           <button type="button" :class="{ active: form.type === 'exam' }" @click="form.type = 'exam'">试卷</button>
           <button type="button" :class="{ active: form.type === 'assignment' }" @click="form.type = 'assignment'">作业</button>
         </div>
-        <div class="checkbox-grid">
+        <div class="checkbox-grid modal-choice-grid">
           <label v-for="problem in problems" :key="problem.id" class="choice-line">
             <input
               type="checkbox"
@@ -92,20 +124,24 @@ onMounted(load);
         </div>
         <button class="primary-action full" type="submit"><ClipboardList :size="18" />保存</button>
       </form>
-      <p v-if="error" class="form-error">{{ error }}</p>
-    </section>
+    </BaseModal>
 
-    <section class="dashboard-grid">
-      <article v-for="set in sets" :key="set.id" class="panel set-card">
-        <div class="panel-head">
-          <div>
-            <h2>{{ set.title }}</h2>
-            <p>{{ set.description || '暂无描述' }}</p>
-          </div>
-          <span class="difficulty">{{ set.type }}</span>
+    <BaseModal
+      :open="detailOpen"
+      :title="selectedSet?.title || '题单详情'"
+      :description="selectedSet ? `${selectedSet.type} · ${selectedSet.problems.length} 题` : ''"
+      size="lg"
+      @close="detailOpen = false"
+    >
+      <section v-if="selectedSet" class="set-detail-view">
+        <div class="set-meta">
+          <span>{{ selectedSet.problems.length }} 题</span>
+          <span v-if="selectedSet.due_at">截止 {{ formatDate(selectedSet.due_at) }}</span>
+          <span v-else>更新 {{ formatDate(selectedSet.updated_at) }}</span>
         </div>
+        <p>{{ selectedSet.description || '暂无描述' }}</p>
         <div class="problem-short-list">
-          <RouterLink v-for="problem in set.problems" :key="problem.id" :to="`/problems/${problem.id}`">
+          <RouterLink v-for="problem in selectedSet.problems" :key="problem.id" :to="`/problems/${problem.id}`">
             <ProblemTypeIcon :type="problem.type" />
             <div>
               <strong>{{ problem.id }} · {{ problem.title }}</strong>
@@ -113,12 +149,7 @@ onMounted(load);
             </div>
           </RouterLink>
         </div>
-        <div class="set-meta">
-          <span>{{ set.problems.length }} 题</span>
-          <span v-if="set.due_at">截止 {{ formatDate(set.due_at) }}</span>
-          <span v-else>更新 {{ formatDate(set.updated_at) }}</span>
-        </div>
-      </article>
-    </section>
+      </section>
+    </BaseModal>
   </div>
 </template>
