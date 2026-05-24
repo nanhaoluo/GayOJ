@@ -67,6 +67,7 @@ class JsonJudgeQueue:
         job: JudgeQueueJob,
         *,
         previous_submission: Submission | None = None,
+        previous_job: JudgeQueueJob | None = None,
     ) -> JudgeQueueJob:
         if self.repository.get_submission(submission.id):
             self.repository.update_submission(submission)
@@ -80,9 +81,12 @@ class JsonJudgeQueue:
         job_id: str | None = None,
         *,
         previous_submission: Submission | None = None,
+        previous_job: JudgeQueueJob | None = None,
     ) -> None:
         if job_id:
             self.repository.delete_judge_queue_job(job_id)
+        if previous_job is not None:
+            self.repository.add_judge_queue_job(previous_job)
         if previous_submission is None:
             self.repository.delete_submission(submission_id)
             return
@@ -115,21 +119,42 @@ class RedisJudgeQueue(JsonJudgeQueue):
         job: JudgeQueueJob,
         *,
         previous_submission: Submission | None = None,
+        previous_job: JudgeQueueJob | None = None,
     ) -> JudgeQueueJob:
-        stored = super().enqueue_code_submission(submission, job, previous_submission=previous_submission)
+        stored = super().enqueue_code_submission(
+            submission,
+            job,
+            previous_submission=previous_submission,
+            previous_job=previous_job,
+        )
         if not REDIS_URL:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable("GAYOJ_REDIS_URL is required for the Redis judge queue backend")
         try:
             import redis  # type: ignore[import-not-found]
         except ImportError as exc:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable("Install the optional redis package to use GAYOJ_JUDGE_QUEUE_BACKEND=redis") from exc
         client = redis.Redis.from_url(REDIS_URL)
         try:
             client.rpush(self.topic, stored.model_dump_json())
         except Exception as exc:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable(f"Failed to publish judge queue job to Redis topic {self.topic}") from exc
         return stored
 
@@ -143,17 +168,33 @@ class KafkaJudgeQueue(JsonJudgeQueue):
         job: JudgeQueueJob,
         *,
         previous_submission: Submission | None = None,
+        previous_job: JudgeQueueJob | None = None,
     ) -> JudgeQueueJob:
-        stored = super().enqueue_code_submission(submission, job, previous_submission=previous_submission)
+        stored = super().enqueue_code_submission(
+            submission,
+            job,
+            previous_submission=previous_submission,
+            previous_job=previous_job,
+        )
         if not KAFKA_BOOTSTRAP_SERVERS:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable(
                 "GAYOJ_KAFKA_BOOTSTRAP_SERVERS is required for the Kafka judge queue backend"
             )
         try:
             from kafka import KafkaProducer  # type: ignore[import-not-found]
         except ImportError as exc:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable(
                 "Install the optional kafka-python package to use GAYOJ_JUDGE_QUEUE_BACKEND=kafka"
             ) from exc
@@ -163,7 +204,12 @@ class KafkaJudgeQueue(JsonJudgeQueue):
             future.get(timeout=10)
             producer.flush(timeout=10)
         except Exception as exc:
-            self.rollback_code_submission(submission.id, stored.id, previous_submission=previous_submission)
+            self.rollback_code_submission(
+                submission.id,
+                stored.id,
+                previous_submission=previous_submission,
+                previous_job=previous_job,
+            )
             raise QueueBackendUnavailable(f"Failed to publish judge queue job to Kafka topic {self.topic}") from exc
         finally:
             producer.close(timeout=10)

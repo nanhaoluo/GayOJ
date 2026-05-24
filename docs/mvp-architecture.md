@@ -165,15 +165,15 @@
 - 队列任务不复制 `source_code`，worker 只能通过提交记录引用读取源码；普通题面接口仍不返回 `judge_config`。
 - JSON 开发存储对旧快照做读时迁移：缺少 `judge_queue_jobs` 时，会为已有 `queued`/`judging` 代码提交派生队列任务并回填 `queue_job_id`、`queued_at`。
 - 后续 PostgreSQL 队列迁移会固化同名表和调度索引；JSON 导出脚本保持提交源码只作为文本数据导出，不触发本地执行。
-- `GAYOJ_JUDGE_QUEUE_BACKEND=json` 是本地默认；`redis`/`kafka` 作为可选发布适配入口，发布失败时 API 返回 503，避免假入队。
+- `GAYOJ_JUDGE_QUEUE_BACKEND=json` 是本地默认；`redis`/`kafka` 作为可选发布适配入口，发布失败时 API 返回 503，并回滚本地提交与队列任务元数据，避免假入队。
 
 ## P4-02 judge worker 服务
 
 - 新增 `apps/judge/worker.py` 作为独立 judge worker 队列入口，运行时通过仓储接口访问 JSON 开发队列，不嵌入 API 进程。
 - worker 会注册或更新自己的 `judge_nodes` 心跳，并按语言过滤领取 `judge_queue_jobs.status=pending` 的代码提交。
-- 领取成功后只把提交状态更新为 `judging`，返回 `submission_id`、`problem_id`、`language`、`source_ref`、资源限制和 `testdata_ref` 这类任务元数据。
+- 默认 `--once` 路径领取成功后只把提交状态更新为 `judging`，返回 `submission_id`、`problem_id`、`language`、`source_ref`、资源限制和 `testdata_ref` 这类任务元数据。
 - worker 输出和普通 API 响应都不返回用户源代码全文或客观题 `judge_config`；代码题配置仅用于生成 worker 任务元数据。
-- P4-02 队列入口仍是 claim-only 阶段，不编译、不运行、不本地判分；具体编译运行继续由 `apps/judge/gayoj_judge` 的沙箱执行链路承接。
+- 显式使用 `--execute` 时，worker 会在独立进程内调用 worker 侧 Docker 沙箱执行链路并回写最终结果；API、Web、离线 CLI 仍不编译、不运行、不本地判分。
 - JSON 存储结构保持兼容：旧 `submissions` 队列状态读时迁入 `judge_queue_jobs`，不要求删除或重建 `apps/api/storage/dev-db.json`。
 
 ## P4-03 Docker 沙箱最小实现
@@ -196,10 +196,10 @@
 
 - 新增 `apps/judge/gayoj_judge` 作为独立 judge worker 侧模块，API 仍只负责把代码题提交写入 `queued` 状态。
 - worker 通过注入的 `SandboxExecutor` 执行编译与测试点运行，聚合 `accepted`、`wrong_answer`、`compile_error`、`time_limit_exceeded`、`memory_limit_exceeded`、`runtime_error` 等状态。
-- 每个测试点回写结构化详情，包括用例编号、分值、耗时、内存、输出预览和错误信息，最终状态与总分写回提交记录。
-- 若提交存在 `queue_job_id`，worker 会把对应队列任务标记为 `completed`；沙箱系统错误会标记为 `failed` 并保留错误摘要。
+- 每个测试点回写结构化详情，包括用例编号、分值、耗时、内存、退出码、用户输出预览和错误信息；不会回写隐藏输入或期望输出预览，最终状态与总分写回提交记录。
+- 若提交存在 `queue_job_id`，worker 会把对应队列任务标记为 `completed`；沙箱或 worker 系统错误会标记为 `failed` 并保留通用错误摘要，避免任务长期停留在 `leased`。
 - 代码题隐藏测试点只从管理端保存的 `judge_config.test_cases` 或 worker 可用的评测元数据读取；普通题面、题单、比赛和离线 CLI 仍不泄露或处理这些规则。
-- 当前实现固定 worker 聚合与回写契约，并提供 `DockerSandboxPointExecutor` 适配 Docker 沙箱执行器；生产级镜像发布策略、语言版本策略和分布式队列消费仍需后续任务继续完善。
+- 当前实现固定 worker 聚合与回写契约，并提供 `DockerSandboxPointExecutor` 适配 Docker 沙箱执行器；生产级语言版本策略和 Redis/Kafka worker 消费仍需后续任务继续完善。
 
 ## P4-06 评测节点心跳与调度
 

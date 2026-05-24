@@ -34,6 +34,10 @@ from .models import (
 ROOT = Path(__file__).resolve().parents[1]
 STORAGE_PATH = ROOT / "storage" / "dev-db.json"
 LANGUAGE_CODES = ("c", "cpp", "java", "python")
+DEMO_USERNAMES = {"alice", "coach", "judge", "admin"}
+LEGACY_DEMO_PASSWORD_HASHES = {
+    "pbkdf2_sha256$gayoj-demo-salt$c1570f6999257d09d37c38805485340bf93efbe239c3003df724aee4e0a11e14",
+}
 
 
 def now() -> datetime:
@@ -515,6 +519,9 @@ class Store:
                     changed = True
             for user in data.get("users", []):
                 if "password_hash" not in user:
+                    user["password_hash"] = _seed_password()
+                    changed = True
+                elif user.get("username") in DEMO_USERNAMES and user.get("password_hash") in LEGACY_DEMO_PASSWORD_HASHES:
                     user["password_hash"] = _seed_password()
                     changed = True
                 for key, default in {

@@ -59,7 +59,7 @@ P4-02 adds an independent judge worker entrypoint that can claim queued code sub
 npm run smoke:judge-worker
 ```
 
-The smoke test uses a temporary JSON store, creates one queued code submission, runs `apps/judge/worker.py --once`, and verifies the submission is only moved to `judging`. The claim event prints a redacted source reference only; it does not echo submitted code or the `source_code` storage field. Actual compilation and test-point execution are handled by the P4-05 worker runner, not by API, Web, or the offline CLI.
+The smoke test uses a temporary JSON store, creates queued code submissions, runs `apps/judge/worker.py --once`, and verifies the default CLI path only moves a task to `judging`. It also exercises `JudgeWorker.execute_once(...)` with an injected sandbox executor to verify worker-side result writeback without requiring Docker. The claim event prints a redacted source reference only; it does not echo submitted code or the `source_code` storage field.
 
 ## Compiler configuration management
 
@@ -386,7 +386,8 @@ The default local backend is `json`. `GAYOJ_JUDGE_QUEUE_BACKEND=redis|kafka`
 selects the optional publishing adapters while preserving the same repository
 metadata for monitor and worker compatibility. Missing or unavailable external
 brokers fail the code-submit request with 503 instead of silently pretending the
-job was published.
+job was published; the API also rolls back the local submission and queue-job
+metadata, or restores the previous submission/job when a rejudge enqueue fails.
 
 ## P4-02 Judge worker service
 
@@ -394,10 +395,13 @@ job was published.
 judge node heartbeat, leases a pending JSON queue job for a supported language,
 and moves the matching code submission from `queued` to `judging`.
 
-This entrypoint is claim-only: it returns task metadata such as `source_ref`,
-limits, and `testdata_ref`, but it does not compile, run, or locally judge user
-code. Existing `apps/api/storage/dev-db.json` snapshots remain compatible because
-the implementation reuses `submissions`, `judge_queue_jobs`, and `judge_nodes`.
+By default this entrypoint is claim-only: it returns task metadata such as
+`source_ref`, limits, and `testdata_ref`, but it does not compile, run, or
+locally judge user code. Starting it with `--execute` runs the claimed task
+through the worker-side Docker sandbox and writes the final result back to the
+submission and queue job. Existing `apps/api/storage/dev-db.json` snapshots
+remain compatible because the implementation reuses `submissions`,
+`judge_queue_jobs`, and `judge_nodes`.
 
 ## P4-03 Docker sandbox executor
 
@@ -430,14 +434,16 @@ small Python case inside Docker after the runner image has been built.
 code submissions. The API still only creates `queued` code submissions and queue
 jobs; a separate judge worker calls `judge_submission(...)`, runs an injected
 sandbox executor, aggregates per-test-point details, and writes back
-`AC/WA/CE/TLE/MLE/RE` style statuses.
+`AC/WA/CE/TLE/MLE/RE` style statuses. Worker-side failures are converted into
+structured `system_error` results so leased jobs do not stay stuck indefinitely.
 
 The worker accepts hidden test cases from management-only code `judge_config`
 through `test_cases` (falling back to public samples for local smoke tests). It
-does not expose `judge_config` through ordinary problem APIs. The
+does not expose `judge_config` through ordinary problem APIs, and public
+submission details do not include hidden input or expected-output previews. The
 `DockerSandboxPointExecutor` adapter can feed the existing Docker sandbox into
-the P4-05 aggregator; production-grade runner images, language-version policy,
-and distributed queue consumption remain separate integration work.
+the P4-05 aggregator; production-grade language-version policy and external
+Redis/Kafka worker consumption remain separate integration work.
 
 ## P4-06 Judge node heartbeat and scheduling
 

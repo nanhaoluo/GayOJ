@@ -18,6 +18,8 @@ if str(API_ROOT) not in sys.path:
 from app.db.json_repository import JsonRepository, now  # noqa: E402
 from app.db.repository import Repository  # noqa: E402
 from app.models import JudgeNode, JudgeQueueJob, Problem, Submission  # noqa: E402
+from gayoj_judge import DockerSandboxExecutor, judge_submission  # noqa: E402
+from gayoj_judge.runner import SandboxExecutor  # noqa: E402
 
 
 DEFAULT_LANGUAGES = ("cpp", "c", "java", "python")
@@ -86,6 +88,16 @@ def public_task_payload(task: JudgeTask) -> dict[str, Any]:
     return payload
 
 
+def submission_event_payload(submission: Submission) -> dict[str, Any]:
+    return {
+        "id": submission.id,
+        "status": submission.status,
+        "score": submission.score,
+        "max_score": submission.max_score,
+        "queue_job_id": submission.queue_job_id,
+    }
+
+
 class JudgeWorker:
     def __init__(
         self,
@@ -123,20 +135,31 @@ class JudgeWorker:
         return self.repository.update_judge_node(node)
 
     def claim_once(self) -> JudgeTask | None:
+        task, _failed_submission = self._claim_once_with_failure()
+        return task
+
+    def _claim_once_with_failure(self) -> tuple[JudgeTask | None, Submission | None]:
         self.heartbeat(load=0.0)
         claimed = self.repository.claim_next_judge_queue_job(node_id=self.worker_id)
         if claimed is None:
             self.heartbeat(load=0.0)
-            return None
+            return None, None
         queue_job, submission = claimed
 
         problem = self.repository.get_problem(submission.problem_id)
         if problem is None:
-            raise RuntimeError(f"Problem {submission.problem_id} for submission {submission.id} was not found")
-        judge_config = self.repository.get_problem_judge_config(problem.id)
-        task = build_task(submission, problem, judge_config, queue_job)
+            failed = self._mark_claimed_submission_failed(submission, queue_job)
+            self.heartbeat(load=0.0)
+            return None, failed
+        try:
+            judge_config = self.repository.get_problem_judge_config(problem.id)
+            task = build_task(submission, problem, judge_config, queue_job)
+        except Exception:  # noqa: BLE001 - invalid worker metadata should fail the leased job, not leave it stuck.
+            failed = self._mark_claimed_submission_failed(submission, queue_job)
+            self.heartbeat(load=0.0)
+            return None, failed
         self.heartbeat(load=1.0)
-        return task
+        return task, None
 
     def _queue_job_for_submission(self, submission: Submission) -> JudgeQueueJob | None:
         if submission.queue_job_id:
@@ -153,7 +176,14 @@ class JudgeWorker:
         )
 
     def poll_once(self) -> dict[str, Any]:
-        task = self.claim_once()
+        task, failed_submission = self._claim_once_with_failure()
+        if failed_submission is not None:
+            return {
+                "event": "failed",
+                "worker_id": self.worker_id,
+                "submission": submission_event_payload(failed_submission),
+                "boundary": "claim_only_no_execution",
+            }
         if task is None:
             return {
                 "event": "idle",
@@ -167,6 +197,77 @@ class JudgeWorker:
             "task": public_task_payload(task),
             "boundary": "claim_only_no_execution",
         }
+
+    def execute_once(self, executor: SandboxExecutor) -> dict[str, Any]:
+        task, failed_submission = self._claim_once_with_failure()
+        if failed_submission is not None:
+            return {
+                "event": "failed",
+                "worker_id": self.worker_id,
+                "submission": submission_event_payload(failed_submission),
+                "boundary": "worker_sandbox_execution",
+            }
+        if task is None:
+            return {
+                "event": "idle",
+                "worker_id": self.worker_id,
+                "queue_depth": self.queue_depth(),
+                "boundary": "worker_sandbox_execution",
+            }
+        try:
+            submission = judge_submission(self.repository, task.submission_id, executor)
+            event = "judged"
+        except Exception:  # noqa: BLE001 - keep leased queue jobs from getting stuck on worker-side failures.
+            submission = self._mark_claimed_task_failed(task)
+            event = "failed"
+        self.heartbeat(load=0.0)
+        return {
+            "event": event,
+            "worker_id": self.worker_id,
+            "task": public_task_payload(task),
+            "submission": submission_event_payload(submission),
+            "boundary": "worker_sandbox_execution",
+        }
+
+    def _mark_claimed_task_failed(self, task: JudgeTask) -> Submission:
+        submission = self.repository.get_submission(task.submission_id)
+        if submission is None:
+            raise RuntimeError(f"Submission {task.submission_id} disappeared after claim")
+        job = self.repository.get_judge_queue_job(submission.queue_job_id) if submission.queue_job_id else None
+        return self._mark_claimed_submission_failed(submission, job)
+
+    def _mark_claimed_submission_failed(
+        self,
+        submission: Submission,
+        job: JudgeQueueJob | None,
+    ) -> Submission:
+        message = "Judge worker failed before completing the sandbox run."
+        submission.status = "system_error"
+        submission.score = 0
+        submission.details = [
+            {
+                "phase": "worker",
+                "status": "system_error",
+                "score": 0,
+                "max_score": submission.max_score,
+                "message": message,
+            }
+        ]
+        submission.message = message
+        submission.judged_at = now()
+        self.repository.update_submission(submission)
+        if job:
+            job.status = "failed"
+            job.completed_at = now()
+            job.last_error = message
+            self.repository.update_judge_queue_job(job)
+        self.repository.add_audit(
+            None,
+            "submission.code.judge_failed",
+            f"submission:{submission.id}",
+            {"problem_id": submission.problem_id, "worker_id": self.worker_id},
+        )
+        return submission
 
 
 def default_worker_id() -> str:
@@ -184,13 +285,26 @@ def print_event(event: dict[str, Any], *, json_output: bool) -> None:
             f"claimed {task['submission_id']} for problem {task['problem_id']} "
             f"({task['language']}); code execution is deferred to sandbox stage"
         )
+    elif event["event"] in {"judged", "failed"}:
+        submission = event["submission"]
+        task = event.get("task")
+        if task:
+            print(
+                f"{event['event']} {task['submission_id']} for problem {task['problem_id']} "
+                f"({task['language']}): {submission['status']} {submission['score']}/{submission['max_score']}"
+            )
+        else:
+            print(
+                f"{event['event']} {submission['id']}: "
+                f"{submission['status']} {submission['score']}/{submission['max_score']}"
+            )
     else:
         print(f"idle; queue_depth={event['queue_depth']}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="gayoj judge worker. P4-02 claims queued code submissions but does not execute user code.",
+        description="gayoj judge worker. Claims queued code submissions and can execute them only inside the worker sandbox.",
     )
     parser.add_argument(
         "--storage",
@@ -206,6 +320,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated languages this worker can claim.",
     )
     parser.add_argument("--once", action="store_true", help="Run a single poll and exit.")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="After claiming a task, run it through the worker-side Docker sandbox and write back the result.",
+    )
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Seconds between polls in loop mode.")
     parser.add_argument("--max-iterations", type=int, default=0, help="Optional loop iteration limit.")
     parser.add_argument("--json", action="store_true", help="Print one JSON event per poll.")
@@ -222,10 +341,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         languages=parse_languages(args.languages),
     )
 
+    executor = DockerSandboxExecutor() if args.execute else None
     iterations = 1 if args.once else args.max_iterations
     completed = 0
     while True:
-        event = worker.poll_once()
+        event = worker.execute_once(executor) if executor is not None else worker.poll_once()
         print_event(event, json_output=args.json)
         completed += 1
         if iterations and completed >= iterations:

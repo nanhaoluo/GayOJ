@@ -237,7 +237,25 @@ def build_task(submission: Any, problem: Any, judge_config: dict[str, Any]) -> C
 
 def run_test_points(task: CodeJudgeTask, executor: SandboxExecutor) -> dict[str, Any]:
     max_score = sum(test_case.score for test_case in task.test_cases)
-    compile_result = executor.compile(task)
+    try:
+        compile_result = executor.compile(task)
+    except Exception:  # noqa: BLE001 - worker must convert sandbox setup failures into judge results.
+        return {
+            "status": "system_error",
+            "score": 0,
+            "max_score": max_score,
+            "message": "Sandbox executor failed before running test points.",
+            "details": [
+                {
+                    "phase": "compile",
+                    "status": "system_error",
+                    "score": 0,
+                    "max_score": max_score,
+                    "time_ms": 0,
+                    "message": "Sandbox executor failed before running test points.",
+                }
+            ],
+        }
     artifact = compile_result.artifact
     if not compile_result.ok:
         if artifact is not None:
@@ -268,9 +286,9 @@ def run_test_points(task: CodeJudgeTask, executor: SandboxExecutor) -> dict[str,
         for index, test_case in enumerate(task.test_cases, start=1):
             try:
                 outcome = executor.run(task, artifact, test_case)
-            except Exception as exc:  # noqa: BLE001 - worker must convert sandbox failures into judge results.
+            except Exception:  # noqa: BLE001 - worker must convert sandbox failures into judge results.
                 status = "system_error"
-                message = f"Sandbox executor failed: {exc}"
+                message = "Sandbox executor failed while running a test point."
                 if final_status == "accepted":
                     final_status = status
                     final_message = message
@@ -285,8 +303,6 @@ def run_test_points(task: CodeJudgeTask, executor: SandboxExecutor) -> dict[str,
                         "memory_kb": 0,
                         "exit_code": None,
                         "message": message,
-                        "input_preview": _preview(test_case.input),
-                        "expected_preview": _preview(test_case.expected_output),
                         "actual_preview": "",
                         "stderr_preview": "",
                     }
@@ -320,8 +336,6 @@ def run_test_points(task: CodeJudgeTask, executor: SandboxExecutor) -> dict[str,
                     "memory_kb": outcome.memory_kb,
                     "exit_code": outcome.exit_code,
                     "message": message,
-                    "input_preview": _preview(test_case.input),
-                    "expected_preview": _preview(test_case.expected_output),
                     "actual_preview": _preview(outcome.stdout),
                     "stderr_preview": _preview(outcome.stderr),
                 }

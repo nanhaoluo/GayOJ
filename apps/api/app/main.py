@@ -392,7 +392,8 @@ def enqueue_code_submission_job(
     if not submission.language or not submission.source_code:
         raise ValueError("Code submission must include language and source_code")
 
-    previous_submission = submission.model_copy(deep=True)
+    previous_submission = store.get_submission(submission.id)
+    previous_job = store.get_judge_queue_job(previous_submission.queue_job_id) if previous_submission and previous_submission.queue_job_id else None
     queued_at = now()
     submission.status = "queued"
     submission.score = 0
@@ -418,7 +419,12 @@ def enqueue_code_submission_job(
     job.leased_at = None
     job.completed_at = None
     submission.queue_job_id = job.id
-    queue.enqueue_code_submission(submission, job, previous_submission=previous_submission)
+    queue.enqueue_code_submission(
+        submission,
+        job,
+        previous_submission=previous_submission,
+        previous_job=previous_job,
+    )
     return submission
 
 

@@ -19,6 +19,25 @@ if str(JUDGE_ROOT) not in sys.path:
     sys.path.insert(0, str(JUDGE_ROOT))
 
 from worker import JudgeWorker  # noqa: E402
+from gayoj_judge import CodeJudgeTask, CodeTestCase, CompileOutcome, RunOutcome  # noqa: E402
+
+
+class FakeWorkerExecutor:
+    def __init__(self) -> None:
+        self.compiled = False
+        self.runs: list[str] = []
+        self.cleaned = False
+
+    def compile(self, task: CodeJudgeTask) -> CompileOutcome:
+        self.compiled = True
+        return CompileOutcome(ok=True, artifact={"submission_id": task.submission_id})
+
+    def run(self, task: CodeJudgeTask, artifact: object, test_case: CodeTestCase) -> RunOutcome:
+        self.runs.append(test_case.id)
+        return RunOutcome(status="accepted", stdout=test_case.expected_output, time_ms=8, memory_kb=1024)
+
+    def cleanup(self, artifact: object) -> None:
+        self.cleaned = True
 
 
 def submit_code(client: TestClient, auth_headers, language: str = "python") -> dict[str, object]:
@@ -103,6 +122,111 @@ def test_worker_respects_language_filter(client: TestClient, auth_headers, store
     assert task is not None
     assert task.submission_id == queued["id"]
     assert store.get_submission(str(queued["id"])).status == "judging"
+
+
+def test_worker_execute_once_runs_sandbox_contract_and_writes_back_result(
+    client: TestClient,
+    auth_headers,
+    store,
+) -> None:
+    queued = submit_code(client, auth_headers, "python")
+    executor = FakeWorkerExecutor()
+    worker = JudgeWorker(
+        store,
+        worker_id="execute-worker",
+        name="execute worker",
+        languages=["python"],
+    )
+
+    event = worker.execute_once(executor)
+
+    assert event["event"] == "judged"
+    assert event["worker_id"] == "execute-worker"
+    assert event["boundary"] == "worker_sandbox_execution"
+    assert event["task"]["submission_id"] == queued["id"]
+    assert event["task"]["source_ref"] == f"submission:{queued['id']}:source"
+    assert event["submission"]["status"] == "accepted"
+    assert executor.compiled is True
+    assert executor.runs == ["sample-1", "sample-2"]
+    assert executor.cleaned is True
+
+    stored = store.get_submission(str(queued["id"]))
+    assert stored is not None
+    assert stored.status == "accepted"
+    assert stored.score == stored.max_score == 100
+    assert stored.judged_at is not None
+    assert [item["status"] for item in stored.details] == ["accepted", "accepted"]
+    assert all("input_preview" not in item for item in stored.details)
+    assert all("expected_preview" not in item for item in stored.details)
+    job = store.get_judge_queue_job(str(stored.queue_job_id))
+    assert job is not None
+    assert job.status == "completed"
+    node = next(item for item in store.list_judge_nodes() if item.id == "execute-worker")
+    assert node.load == 0.0
+
+
+def test_worker_execute_once_marks_claimed_job_failed_when_task_cannot_be_built(
+    client: TestClient,
+    auth_headers,
+    store,
+) -> None:
+    queued = submit_code(client, auth_headers, "python")
+    problem = store.get_problem("P1001")
+    assert problem is not None
+    problem.samples = []
+    store.update_problem(problem)
+    worker = JudgeWorker(
+        store,
+        worker_id="broken-worker",
+        name="broken worker",
+        languages=["python"],
+    )
+
+    event = worker.execute_once(FakeWorkerExecutor())
+
+    assert event["event"] == "failed"
+    assert event["submission"]["status"] == "system_error"
+    stored = store.get_submission(str(queued["id"]))
+    assert stored is not None
+    assert stored.status == "system_error"
+    assert stored.score == 0
+    assert stored.judged_at is not None
+    assert stored.message == "Judge worker failed before completing the sandbox run."
+    job = store.get_judge_queue_job(str(stored.queue_job_id))
+    assert job is not None
+    assert job.status == "failed"
+    assert job.completed_at is not None
+    assert job.last_error == stored.message
+
+
+def test_worker_poll_once_marks_claimed_job_failed_when_problem_metadata_is_invalid(
+    client: TestClient,
+    auth_headers,
+    store,
+) -> None:
+    queued = submit_code(client, auth_headers, "python")
+    problem = store.get_problem("P1001")
+    assert problem is not None
+    problem.type = "blank"  # type: ignore[assignment]
+    store.update_problem(problem)
+    worker = JudgeWorker(
+        store,
+        worker_id="poll-failure-worker",
+        name="poll failure worker",
+        languages=["python"],
+    )
+
+    event = worker.poll_once()
+
+    assert event["event"] == "failed"
+    assert event["boundary"] == "claim_only_no_execution"
+    assert event["submission"]["id"] == queued["id"]
+    stored = store.get_submission(str(queued["id"]))
+    assert stored is not None
+    assert stored.status == "system_error"
+    job = store.get_judge_queue_job(str(stored.queue_job_id))
+    assert job is not None
+    assert job.status == "failed"
 
 
 def test_worker_cli_claims_task_from_json_store(tmp_path: Path) -> None:

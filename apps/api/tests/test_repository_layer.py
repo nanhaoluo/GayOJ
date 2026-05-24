@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
+from app.auth import verify_password
 from app.db import JsonRepository, Repository, seed_data
 from app.models import Problem, ProblemTestData
 
@@ -83,6 +84,26 @@ def test_json_repository_migrates_legacy_embedded_judge_config(tmp_path: Path) -
     assert after["problem_judge_config"]["P1002"]["answers"]["edge_formula"] == ["legacy-answer"]
     assert repository.get_problem("P1002").judge_config == {}
     assert repository.get_problem_judge_config("P1002")["answers"]["edge_formula"] == ["legacy-answer"]
+
+
+def test_json_repository_migrates_legacy_demo_password_hashes(tmp_path: Path) -> None:
+    legacy_hash = "pbkdf2_sha256$gayoj-demo-salt$c1570f6999257d09d37c38805485340bf93efbe239c3003df724aee4e0a11e14"
+    data = seed_data()
+    data["users"][0]["username"] = "alice"
+    data["users"][0]["password_hash"] = legacy_hash
+    data["users"][1]["username"] = "custom"
+    data["users"][1]["password_hash"] = legacy_hash
+    target = tmp_path / "legacy-demo-passwords.json"
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    repository: Repository = JsonRepository(target)
+
+    alice = repository.get_user_by_username("alice")
+    custom = repository.get_user_by_username("custom")
+    assert alice is not None
+    assert custom is not None
+    assert verify_password("gayoj123", alice.password_hash)
+    assert custom.password_hash == legacy_hash
 
 
 def test_json_repository_stores_new_problem_judge_config_separately(tmp_path: Path) -> None:

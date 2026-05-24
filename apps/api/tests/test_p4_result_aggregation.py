@@ -102,6 +102,9 @@ def test_worker_reports_wrong_answer_from_output_mismatch() -> None:
     assert result["score"] == 50
     assert result["max_score"] == 100
     assert result["details"][1]["status"] == "wrong_answer"
+    assert "input_preview" not in result["details"][1]
+    assert "expected_preview" not in result["details"][1]
+    assert result["details"][1]["actual_preview"] == "5\n"
 
 
 def test_worker_reports_compile_error_without_running_tests() -> None:
@@ -175,3 +178,49 @@ def test_worker_marks_queue_job_failed_on_system_error(client: TestClient, auth_
     assert job is not None
     assert job.status == "failed"
     assert job.last_error == "system_error"
+
+
+def test_worker_converts_compile_executor_exception_to_system_error() -> None:
+    class BrokenExecutor(FakePointExecutor):
+        def compile(self, task: CodeJudgeTask) -> CompileOutcome:
+            raise RuntimeError("docker daemon unavailable")
+
+    task = CodeJudgeTask(
+        submission_id="S1",
+        problem_id="P1",
+        language="python",
+        source_code="print(1)\n",
+        time_limit_ms=1000,
+        memory_limit_mb=128,
+        test_cases=[CodeTestCase(id="case-1", input="hidden", expected_output="hidden", score=100)],
+    )
+
+    result = run_test_points(task, BrokenExecutor())
+
+    assert result["status"] == "system_error"
+    assert result["score"] == 0
+    assert result["details"][0]["status"] == "system_error"
+    assert "docker daemon unavailable" not in result["message"]
+
+
+def test_worker_converts_run_executor_exception_without_leaking_internal_error() -> None:
+    class BrokenRunExecutor(FakePointExecutor):
+        def run(self, task: CodeJudgeTask, artifact: Any, test_case: CodeTestCase) -> RunOutcome:
+            raise RuntimeError("C:/secret/host/path leaked")
+
+    task = CodeJudgeTask(
+        submission_id="S1",
+        problem_id="P1",
+        language="python",
+        source_code="print(1)\n",
+        time_limit_ms=1000,
+        memory_limit_mb=128,
+        test_cases=[CodeTestCase(id="case-1", input="hidden", expected_output="hidden", score=100)],
+    )
+
+    result = run_test_points(task, BrokenRunExecutor())
+
+    assert result["status"] == "system_error"
+    assert result["details"][0]["status"] == "system_error"
+    assert result["details"][0]["message"] == "Sandbox executor failed while running a test point."
+    assert "C:/secret/host/path" not in result["details"][0]["message"]
