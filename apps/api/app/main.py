@@ -49,6 +49,7 @@ from .models import (
     Discussion,
     DiscussionCreate,
     DiscussionReplyCreate,
+    DEFAULT_STUDENT_SCHOOL,
     HealthResponse,
     LoginRequest,
     LoginResponse,
@@ -131,8 +132,12 @@ app.add_middleware(
 )
 
 
-def problem_summary(problem: Problem, submissions: list[Submission]) -> ProblemSummary:
-    related = [s for s in submissions if s.problem_id == problem.id]
+def student_user_ids(store: Repository) -> set[str]:
+    return {user.id for user in store.list_users() if user.role == "student"}
+
+
+def problem_summary(problem: Problem, submissions: list[Submission], participant_ids: set[str] | None = None) -> ProblemSummary:
+    related = [s for s in submissions if s.problem_id == problem.id and (participant_ids is None or s.user_id in participant_ids)]
     return ProblemSummary(
         id=problem.id,
         title=problem.title,
@@ -468,6 +473,27 @@ def profile_user(user: User) -> UserProfile:
     return UserProfile(**public_user(user).model_dump(), email=user.email)
 
 
+def ensure_student_school(user: User) -> bool:
+    if user.role != "student":
+        return False
+    if user.school.strip():
+        return False
+    user.school = DEFAULT_STUDENT_SCHOOL
+    return True
+
+
+def require_student_permissions(*permissions: str):
+    def dependency(user: User = Depends(require_permissions(*permissions))) -> User:
+        if user.role != "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only student accounts can participate",
+            )
+        return user
+
+    return dependency
+
+
 def query_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -528,10 +554,11 @@ def is_login_locked(user: User, current: datetime) -> bool:
 def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
     problems = {p.id: p for p in store.list_problems() if p.visible}
     submissions = store.list_submissions()
+    participant_ids = student_user_ids(store)
     return ContestDetail(
         **contest.model_dump(),
         problems=[
-            problem_summary(problems[pid], submissions)
+            problem_summary(problems[pid], submissions, participant_ids)
             for pid in contest.problem_ids
             if pid in problems
         ],
@@ -541,10 +568,11 @@ def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
 def problem_set_detail(problem_set: ProblemSet, store: Repository) -> ProblemSetDetail:
     problems = {p.id: p for p in store.list_problems() if p.visible}
     submissions = store.list_submissions()
+    participant_ids = student_user_ids(store)
     return ProblemSetDetail(
         **problem_set.model_dump(),
         problems=[
-            problem_summary(problems[pid], submissions)
+            problem_summary(problems[pid], submissions, participant_ids)
             for pid in problem_set.problem_ids
             if pid in problems
         ],
@@ -687,7 +715,12 @@ def change_my_password(
 
 
 @app.get("/api/v1/users/me/profile", response_model=UserProfile)
-def get_my_profile(user: User = Depends(get_current_user)) -> UserProfile:
+def get_my_profile(
+    user: User = Depends(get_current_user),
+    store: Repository = Depends(get_repository),
+) -> UserProfile:
+    if ensure_student_school(user):
+        store.update_user(user)
     return profile_user(user)
 
 
@@ -700,9 +733,11 @@ def update_my_profile(
     update = payload.model_dump(exclude_unset=True, exclude_none=True)
     for key, value in update.items():
         setattr(user, key, value)
-    if update:
+    defaulted_school = ensure_student_school(user)
+    if update or defaulted_school:
         store.update_user(user)
-        store.add_audit(user.id, "user.profile.update", f"user:{user.id}", {"fields": sorted(update)})
+        if update:
+            store.add_audit(user.id, "user.profile.update", f"user:{user.id}", {"fields": sorted(update)})
     return profile_user(user)
 
 
@@ -716,6 +751,7 @@ def list_problems(
 ) -> list[ProblemSummary]:
     selected_tags = normalize_tag_filters(tag, tags)
     submissions = store.list_submissions()
+    participant_ids = student_user_ids(store)
     items = []
     for problem in store.list_problems():
         if not problem.visible:
@@ -726,7 +762,7 @@ def list_problems(
             continue
         if selected_tags and not all(item in problem.tags for item in selected_tags):
             continue
-        items.append(problem_summary(problem, submissions))
+        items.append(problem_summary(problem, submissions, participant_ids))
     return items
 
 
@@ -1268,7 +1304,7 @@ def list_judge_languages(store: Repository = Depends(get_repository)) -> list[Co
 def submit_code(
     problem_id: str,
     payload: CodeSubmitRequest,
-    user: User = Depends(require_permissions("submission:create")),
+    user: User = Depends(require_student_permissions("submission:create")),
     store: Repository = Depends(get_repository),
 ) -> Submission:
     problem = store.get_problem(problem_id)
@@ -1313,7 +1349,7 @@ def submit_code(
 def submit_objective(
     problem_id: str,
     payload: ObjectiveSubmitRequest,
-    user: User = Depends(require_permissions("submission:create")),
+    user: User = Depends(require_student_permissions("submission:create")),
     store: Repository = Depends(get_repository),
 ) -> Submission:
     problem = store.get_problem(problem_id)
@@ -1418,9 +1454,12 @@ def standings(contest_id: str, store: Repository = Depends(get_repository)) -> l
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     users = {u.id: u for u in store.list_users()}
+    participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
     rows: dict[str, dict[str, Any]] = {}
     for submission in store.list_submissions():
         if submission.contest_id != contest_id:
+            continue
+        if submission.user_id not in participant_ids:
             continue
         row = rows.setdefault(
             submission.user_id,
@@ -1445,7 +1484,7 @@ def standings(contest_id: str, store: Repository = Depends(get_repository)) -> l
 def create_clarification(
     contest_id: str,
     payload: ClarificationCreate,
-    user: User = Depends(require_permissions("clarification:create")),
+    user: User = Depends(require_student_permissions("clarification:create")),
     store: Repository = Depends(get_repository),
 ) -> Clarification:
     if not store.get_contest(contest_id):
@@ -1501,7 +1540,7 @@ def reply_clarification(
 
 @app.get("/api/v1/rankings", response_model=list[RankingRow])
 def rankings(store: Repository = Depends(get_repository)) -> list[RankingRow]:
-    users = store.list_users()
+    users = [user for user in store.list_users() if user.role == "student"]
     submissions = store.list_submissions()
     rows = []
     for user in users:
@@ -1530,9 +1569,12 @@ def coach_analytics(
 ) -> CoachAnalyticsResponse:
     submissions = store.list_submissions()
     users = [u for u in store.list_users() if u.role == "student"]
+    participant_ids = {user.id for user in users}
     tag_counts: dict[str, dict[str, int]] = {}
     problems = {p.id: p for p in store.list_problems()}
     for submission in submissions:
+        if submission.user_id not in participant_ids:
+            continue
         problem = problems.get(submission.problem_id)
         if not problem:
             continue
@@ -1566,7 +1608,7 @@ def coach_analytics(
         )
     return CoachAnalyticsResponse(
         class_size=len(users),
-        active_students=len({s.user_id for s in submissions}),
+        active_students=len({s.user_id for s in submissions if s.user_id in participant_ids}),
         assignments=assignment_cards,
         teams=teams,
         tag_mastery=[{"tag": tag, **value} for tag, value in tag_counts.items()],
@@ -1847,6 +1889,7 @@ def admin_update_user_role(
 
     old_role = target.role
     target.role = payload.role
+    ensure_student_school(target)
     store.update_user(target)
     store.add_audit(
         user.id,
@@ -2136,7 +2179,7 @@ def mark_notification_read(
 
 @app.get("/api/v1/training/offline-pack", response_model=OfflinePackResponse)
 def offline_pack(
-    user: User = Depends(require_permissions("training:offline")),
+    user: User = Depends(require_student_permissions("training:offline")),
     store: Repository = Depends(get_repository),
 ) -> OfflinePackResponse:
     store.add_audit(user.id, "training.offline_pack", "training:objective")
@@ -2148,7 +2191,7 @@ def offline_pack(
 @app.post("/api/v1/offline-results/sync", response_model=OfflineResultSyncResponse)
 def sync_offline_results(
     payload: OfflineResultSyncRequest,
-    user: User = Depends(require_permissions("training:offline")),
+    user: User = Depends(require_student_permissions("training:offline")),
     store: Repository = Depends(get_repository),
 ) -> OfflineResultSyncResponse:
     synced: list[Submission] = []

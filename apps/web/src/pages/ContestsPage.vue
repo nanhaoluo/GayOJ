@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { MessageSquare, Send, Trophy } from 'lucide-vue-next';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type { Clarification, Contest } from '@/services/types';
+import { authState } from '@/stores/auth';
 
 const contests = ref<Contest[]>([]);
 const standings = ref<Array<Record<string, unknown>>>([]);
@@ -15,6 +16,8 @@ const replyText = ref<Record<string, string>>({});
 const error = ref('');
 const standingsOpen = ref(false);
 const clarificationOpen = ref(false);
+
+const canAskClarification = computed(() => authState.user?.role === 'student');
 
 async function load() {
   contests.value = await apiRequest<Contest[]>('/contests', { auth: false });
@@ -44,6 +47,10 @@ async function openClarifications(id: string) {
 
 async function submitClarification() {
   if (!selected.value || !question.value.trim()) return;
+  if (!canAskClarification.value) {
+    error.value = authState.user ? '只有选手账号可以发起比赛提问。' : '请先登录选手账号后再提问。';
+    return;
+  }
   error.value = '';
   try {
     await apiRequest<Clarification>(`/contests/${selected.value}/clarifications`, {
@@ -147,7 +154,8 @@ onMounted(load);
       size="lg"
       @close="clarificationOpen = false"
     >
-      <form class="reply-form" @submit.prevent="submitClarification">
+      <p v-if="!canAskClarification" class="empty-text">只有选手账号可以发起比赛提问；裁判和管理员可在下方回复。</p>
+      <form v-else class="reply-form" @submit.prevent="submitClarification">
         <input v-model="question" placeholder="向裁判提问" />
         <button class="primary-action" type="submit"><Send :size="17" />提交</button>
       </form>

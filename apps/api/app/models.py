@@ -30,6 +30,8 @@ JudgeQueueJobStatus = Literal["pending", "leased", "completed", "failed"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
 
+DEFAULT_STUDENT_SCHOOL = "GayOJ University (GOJU)"
+
 
 class User(BaseModel):
     id: str

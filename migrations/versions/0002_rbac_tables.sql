@@ -37,10 +37,10 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 INSERT INTO roles (code, name, description)
 VALUES
-    ('student', 'Student', 'Submit problems and join public training flows'),
-    ('coach', 'Coach', 'Manage training content, teams, and assignments'),
-    ('judge', 'Judge', 'Monitor contests and override judging outcomes'),
-    ('admin', 'Admin', 'Operate the whole gayoj instance')
+    ('student', 'Student', 'Only participant role for contests, submissions, and training'),
+    ('coach', 'Coach', 'Manage training content, teams, and assignments without participating'),
+    ('judge', 'Judge', 'Monitor contests and override judging outcomes without participating'),
+    ('admin', 'Admin + Judge', 'Operate the instance with merged judge authority')
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name,
     description = EXCLUDED.description,
@@ -76,17 +76,11 @@ VALUES
     ('student', 'training:offline'),
     ('student', 'contest:join'),
     ('coach', 'problem:read'),
-    ('coach', 'submission:create'),
-    ('coach', 'training:offline'),
-    ('coach', 'contest:join'),
     ('coach', 'problem:create'),
     ('coach', 'problem:edit:own'),
     ('coach', 'contest:manage'),
     ('coach', 'team:manage'),
     ('judge', 'problem:read'),
-    ('judge', 'submission:create'),
-    ('judge', 'training:offline'),
-    ('judge', 'contest:join'),
     ('judge', 'problem:create'),
     ('judge', 'problem:edit:own'),
     ('judge', 'problem:edit:all'),
@@ -94,9 +88,6 @@ VALUES
     ('judge', 'submission:override'),
     ('judge', 'clarification:reply'),
     ('admin', 'problem:read'),
-    ('admin', 'submission:create'),
-    ('admin', 'training:offline'),
-    ('admin', 'contest:join'),
     ('admin', 'problem:create'),
     ('admin', 'problem:edit:own'),
     ('admin', 'problem:edit:all'),

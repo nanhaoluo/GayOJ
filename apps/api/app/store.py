@@ -16,6 +16,7 @@ from .models import (
     Clarification,
     CompilerConfig,
     Contest,
+    DEFAULT_STUDENT_SCHOOL,
     Discussion,
     JudgeQueueJob,
     JudgeNode,
@@ -35,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STORAGE_PATH = ROOT / "storage" / "dev-db.json"
 LANGUAGE_CODES = ("c", "cpp", "java", "python")
 DEMO_USERNAMES = {"alice", "coach", "judge", "admin"}
+LEGACY_DEFAULT_STUDENT_SCHOOLS = {"gayoj Training Team"}
 LEGACY_DEMO_PASSWORD_HASHES = {
     "pbkdf2_sha256$gayoj-demo-salt$c1570f6999257d09d37c38805485340bf93efbe239c3003df724aee4e0a11e14",
 }
@@ -225,7 +227,7 @@ def seed_data() -> dict[str, Any]:
             username="alice",
             display_name="Alice Chen",
             role="student",
-            school="gayoj Training Team",
+            school=DEFAULT_STUDENT_SCHOOL,
             rating=1580,
             solved=1,
             email="alice@example.com",
@@ -533,6 +535,12 @@ class Store:
                     if key not in user:
                         user[key] = default
                         changed = True
+                if user.get("role") == "student" and (
+                    not str(user.get("school", "")).strip()
+                    or str(user.get("school", "")).strip() in LEGACY_DEFAULT_STUDENT_SCHOOLS
+                ):
+                    user["school"] = DEFAULT_STUDENT_SCHOOL
+                    changed = True
             if self._migrate_system_config(data, seeded["system_config"]):
                 changed = True
             if self._migrate_problem_judge_config(data):

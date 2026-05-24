@@ -5,6 +5,7 @@ import { apiRequest } from '@/services/api';
 import type { PasswordChangeRequest, PublicUser, UserProfile, UserProfileUpdate } from '@/services/types';
 import { setCurrentUser } from '@/stores/auth';
 
+const defaultStudentSchool = 'GayOJ University (GOJU)';
 const profile = ref<UserProfile | null>(null);
 const loading = ref(true);
 const saving = ref(false);
@@ -28,6 +29,7 @@ const roleLabel = computed(() => {
   const map = { student: '选手', coach: '教练', judge: '裁判', admin: '管理员' };
   return profile.value ? map[profile.value.role] : '-';
 });
+const isStudent = computed(() => profile.value?.role === 'student');
 
 const initials = computed(() => {
   const name = profile.value?.display_name || profile.value?.username || 'ct';
@@ -138,7 +140,7 @@ onMounted(loadProfile);
         </div>
         <div class="profile-meta-list">
           <span><BadgeCheck :size="16" />{{ profile.permissions.length }} permissions</span>
-          <span><School :size="16" />{{ profile.school || '未填写学校/组织' }}</span>
+          <span><School :size="16" />{{ profile.school || (isStudent ? defaultStudentSchool : '未填写学校/组织') }}</span>
           <span><Mail :size="16" />{{ profile.email || '未填写邮箱' }}</span>
         </div>
       </article>
@@ -147,13 +149,16 @@ onMounted(loadProfile);
         <div class="panel-head">
           <div>
             <h2>资料</h2>
-            <p>展示名称、学校/组织和联系邮箱</p>
+            <p>{{ isStudent ? '选手默认挂靠 GOJU，可自行更改学校' : '展示名称、组织和联系邮箱' }}</p>
           </div>
           <UserRoundCog :size="20" />
         </div>
         <form class="submit-form" @submit.prevent="saveProfile">
           <label>展示名称<input v-model="form.display_name" required maxlength="80" /></label>
-          <label>学校/组织<input v-model="form.school" maxlength="120" /></label>
+          <label>
+            {{ isStudent ? '学校' : '组织' }}
+            <input v-model="form.school" :placeholder="isStudent ? defaultStudentSchool : '未填写组织'" maxlength="120" />
+          </label>
           <label>邮箱<input v-model="form.email" type="email" maxlength="254" /></label>
           <button class="primary-action full" type="submit" :disabled="saving">
             <Save :size="17" />

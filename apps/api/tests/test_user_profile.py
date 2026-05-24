@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from app.db import Repository
+from app.models import DEFAULT_STUDENT_SCHOOL
 
 
 def test_user_can_view_and_update_own_profile(
@@ -18,6 +19,7 @@ def test_user_can_view_and_update_own_profile(
     assert payload["username"] == "alice"
     assert payload["email"] == "alice@example.com"
     assert payload["role"] == "student"
+    assert payload["school"] == DEFAULT_STUDENT_SCHOOL
     assert "submission:create" in payload["permissions"]
     assert "password_hash" not in payload
 
@@ -48,6 +50,7 @@ def test_user_can_view_and_update_own_profile(
     assert alice is not None
     assert alice.email == "alice.settings@example.com"
     assert alice.display_name == "Alice Settings"
+    assert alice.school == "gayoj Updated Team"
 
     audit_logs, total = store.list_audit_logs(action="user.profile.update")
     assert total == 1
@@ -99,4 +102,42 @@ def test_profile_update_validates_user_controlled_fields(
     assert alice.role == "student"
     assert alice.rating == 1580
     assert alice.email == "alice@example.com"
+
+
+def test_student_profile_backfills_default_school_when_missing(
+    client: TestClient,
+    auth_headers,
+    store: Repository,
+) -> None:
+    alice = store.get_user("u-student")
+    assert alice is not None
+    alice.school = ""
+    store.update_user(alice)
+
+    profile = client.get("/api/v1/users/me/profile", headers=auth_headers("alice"))
+
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["school"] == DEFAULT_STUDENT_SCHOOL
+    assert store.get_user("u-student").school == DEFAULT_STUDENT_SCHOOL  # type: ignore[union-attr]
+
+
+def test_role_change_to_student_assigns_default_school(
+    client: TestClient,
+    auth_headers,
+    store: Repository,
+) -> None:
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.school = ""
+    store.update_user(coach)
+
+    response = client.patch(
+        "/api/v1/admin/users/u-coach/role",
+        headers=auth_headers("admin"),
+        json={"role": "student"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["role"] == "student"
+    assert response.json()["school"] == DEFAULT_STUDENT_SCHOOL
 

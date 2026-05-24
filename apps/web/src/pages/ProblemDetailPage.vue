@@ -7,6 +7,7 @@ import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, problemTypeLabel } from '@/services/api';
 import type { CompilerLanguage, ProblemDetail, Submission } from '@/services/types';
+import { authState } from '@/stores/auth';
 
 const route = useRoute();
 const problem = ref<ProblemDetail | null>(null);
@@ -29,6 +30,7 @@ int main() {
 const answers = reactive<Record<string, unknown>>({});
 
 const isObjective = computed(() => problem.value && problem.value.type !== 'code');
+const canParticipate = computed(() => authState.user?.role === 'student');
 
 async function load() {
   loading.value = true;
@@ -66,6 +68,10 @@ function toggleChoice(key: string) {
 
 async function submit() {
   if (!problem.value) return;
+  if (!canParticipate.value) {
+    error.value = authState.user ? '只有选手账号可以参赛提交。' : '请先登录选手账号后再提交。';
+    return;
+  }
   submitting.value = true;
   error.value = '';
   try {
@@ -147,7 +153,8 @@ onMounted(load);
           </div>
         </div>
 
-        <form class="submit-form" @submit.prevent="submit">
+        <p v-if="!canParticipate" class="empty-text">只有选手账号可以参赛提交。教练、裁判和管理员账号用于管理与裁判工作。</p>
+        <form v-else class="submit-form" @submit.prevent="submit">
         <template v-if="problem.type === 'code'">
           <label>
             语言

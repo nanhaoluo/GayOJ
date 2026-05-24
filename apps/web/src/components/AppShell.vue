@@ -47,6 +47,13 @@ const roleLabel = computed(() => {
   return authState.user ? map[authState.user.role] : '未登录';
 });
 
+const demoAccounts = [
+  { username: 'alice', label: '选手' },
+  { username: 'coach', label: '教练' },
+  { username: 'judge', label: '裁判' },
+  { username: 'admin', label: '管理' },
+];
+
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
   if (path === '/admin') return route.path === '/admin';
@@ -87,6 +94,18 @@ onMounted(() => {
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
+
+      <div v-if="!authState.user" class="sidebar-shortcuts">
+        <button
+          v-for="account in demoAccounts"
+          :key="account.username"
+          type="button"
+          class="secondary-action compact full"
+          @click="quickLogin(account.username)"
+        >
+          {{ account.label }}
+        </button>
+      </div>
     </aside>
 
     <div class="workspace">

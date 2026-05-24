@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from app.auth import verify_password
 from app.db import JsonRepository, Repository, seed_data
-from app.models import Problem, ProblemTestData
+from app.models import DEFAULT_STUDENT_SCHOOL, Problem, ProblemTestData
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +23,7 @@ def test_json_repository_loads_current_dev_db_snapshot(tmp_path: Path) -> None:
     assert repository.get_user_by_username("alice")
     assert repository.get_problem("P1001")
     assert repository.get_system_config()["site_name"] == "gayoj"
+    assert repository.get_user_by_username("alice").school == DEFAULT_STUDENT_SCHOOL  # type: ignore[union-attr]
     after = json.loads(target.read_text(encoding="utf-8"))
     assert set(before) <= set(after)
     assert "problem_versions" in after
@@ -47,8 +48,22 @@ def test_json_repository_backfills_legacy_json_defaults(tmp_path: Path) -> None:
     alice = repository.get_user_by_username("alice")
     assert alice is not None
     assert alice.password_hash.startswith("pbkdf2_sha256$")
+    assert alice.school == DEFAULT_STUDENT_SCHOOL
     assert repository.get_system_config()["site_name"] == "gayoj"
     assert repository.list_notifications("u-student")
+
+
+def test_json_repository_migrates_legacy_default_student_school(tmp_path: Path) -> None:
+    data = seed_data()
+    data["users"][0]["school"] = "gayoj Training Team"
+    target = tmp_path / "legacy-student-school.json"
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    repository: Repository = JsonRepository(target)
+
+    alice = repository.get_user_by_username("alice")
+    assert alice is not None
+    assert alice.school == DEFAULT_STUDENT_SCHOOL
 
 
 def test_json_repository_backfills_partial_system_config(tmp_path: Path) -> None:

@@ -53,14 +53,14 @@ a {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr);
 }
 
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 20px 16px;
+  padding: 16px 10px;
   border-right: 1px solid var(--line);
   background: color-mix(in oklch, var(--surface) 82%, white 18%);
 }
@@ -68,14 +68,15 @@ a {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  margin-bottom: 24px;
+  gap: 9px;
+  min-height: 44px;
+  margin-bottom: 16px;
+  padding: 0 6px;
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: var(--radius);
@@ -92,23 +93,43 @@ a {
 .brand span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .nav-list {
   display: grid;
+  gap: 5px;
+}
+
+.sidebar-shortcuts {
+  display: grid;
   gap: 6px;
+  margin-top: 14px;
+}
+
+.sidebar-shortcuts .secondary-action.compact.full {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .nav-item {
-  min-height: 44px;
+  min-height: 40px;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 0 12px;
+  gap: 8px;
+  padding: 0 9px;
   border-radius: var(--radius);
   color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.nav-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -2270,6 +2291,7 @@ pre {
   .sidebar {
     position: static;
     height: auto;
+    padding: 14px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }

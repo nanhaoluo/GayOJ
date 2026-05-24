@@ -18,10 +18,10 @@ class RoleDef(TypedDict):
 
 
 ROLES: list[RoleDef] = [
-    {"code": "student", "name": "Student", "description": "Submit problems and join public training flows"},
-    {"code": "coach", "name": "Coach", "description": "Manage training content, teams, and assignments"},
-    {"code": "judge", "name": "Judge", "description": "Monitor contests and override judging outcomes"},
-    {"code": "admin", "name": "Admin", "description": "Operate the whole gayoj instance"},
+    {"code": "student", "name": "Student", "description": "Only participant role for contests, submissions, and training"},
+    {"code": "coach", "name": "Coach", "description": "Manage training content, teams, and assignments without participating"},
+    {"code": "judge", "name": "Judge", "description": "Monitor contests and override judging outcomes without participating"},
+    {"code": "admin", "name": "Admin + Judge", "description": "Operate the instance with merged judge authority"},
 ]
 
 PERMISSIONS: list[PermissionDef] = [
@@ -74,12 +74,8 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
     },
     "coach": {
         "problem:read",
-        "submission:create",
         "submission:read:own",
         "submission:read:all",
-        "training:offline",
-        "contest:join",
-        "clarification:create",
         "problem:create",
         "problem:edit:own",
         "tag:manage",
@@ -94,12 +90,8 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
     },
     "judge": {
         "problem:read",
-        "submission:create",
         "submission:read:own",
         "submission:read:all",
-        "training:offline",
-        "contest:join",
-        "clarification:create",
         "problem:create",
         "problem:edit:own",
         "problem:edit:all",
@@ -114,7 +106,11 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
         "notification:read",
         "judge:monitor",
     },
-    "admin": {permission["code"] for permission in PERMISSIONS},
+    "admin": {
+        permission["code"]
+        for permission in PERMISSIONS
+        if permission["code"] not in {"submission:create", "training:offline", "contest:join", "clarification:create"}
+    },
 }
 
 

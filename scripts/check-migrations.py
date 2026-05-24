@@ -62,6 +62,13 @@ EXPECTED_PERMISSIONS = [
     "system:config",
 ]
 
+ROLE_BOUNDARY_TOKENS = [
+    "Only participant role for contests, submissions, and training",
+    "Manage training content, teams, and assignments without participating",
+    "Monitor contests and override judging outcomes without participating",
+    "Operate the instance with merged judge authority",
+]
+
 EXPECTED_INDEXES = [
     "idx_audit_logs_created",
     "idx_audit_logs_actor_created",
@@ -196,6 +203,9 @@ def main() -> int:
     for permission in EXPECTED_PERMISSIONS:
         if f"'{permission}'" not in normalized:
             fail(f"expected RBAC permission is missing: {permission}")
+    for token in ROLE_BOUNDARY_TOKENS:
+        if token.lower() not in normalized:
+            fail(f"expected participant-role boundary text is missing: {token}")
     for index in EXPECTED_INDEXES:
         if not re.search(rf"create\s+index\s+if\s+not\s+exists\s+{index}\b", normalized):
             fail(f"expected audit log index is missing: {index}")
@@ -205,6 +215,8 @@ def main() -> int:
             fail(f"{table} table block could not be parsed")
     if "insert into user_roles" not in normalized or "select id, role" not in normalized:
         fail("RBAC migration must backfill user_roles from existing users.role")
+    if "delete from role_permissions" not in normalized:
+        fail("participant role boundary migration must remove non-student participant grants")
 
     runner = RUNNER.read_text(encoding="utf-8")
     if "GAYOJ_DATABASE_URL" not in runner or "psql" not in runner:

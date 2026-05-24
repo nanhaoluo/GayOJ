@@ -17,6 +17,7 @@ PROBLEM_VERSIONS_MIGRATION = ROOT / "migrations" / "versions" / "0008_problem_ve
 PROBLEM_TEST_DATA_MIGRATION = ROOT / "migrations" / "versions" / "0009_problem_test_data.sql"
 JUDGE_QUEUE_MIGRATION = ROOT / "migrations" / "versions" / "0010_judge_queue_jobs.sql"
 COMPILER_CONFIG_MIGRATION = ROOT / "migrations" / "versions" / "0011_compiler_configs.sql"
+PARTICIPANT_BOUNDARY_MIGRATION = ROOT / "migrations" / "versions" / "0012_participant_role_boundaries.sql"
 CHECK_SCRIPT = ROOT / "scripts" / "check-migrations.py"
 RUNNER = ROOT / "scripts" / "db-migrate.ps1"
 
@@ -213,6 +214,25 @@ def test_compiler_config_migration_seeds_enabled_languages_and_table_constraints
         assert language in sql
     assert "insert into schema_migrations" in sql
     assert "0011" in sql
+
+
+def test_participant_role_boundary_migration_removes_non_student_grants() -> None:
+    sql = PARTICIPANT_BOUNDARY_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "only student accounts can participate" in sql
+    assert "delete from role_permissions" in sql
+    for permission in [
+        "submission:create",
+        "training:offline",
+        "contest:join",
+        "clarification:create",
+    ]:
+        assert permission in sql
+    for role in ["coach", "judge", "admin"]:
+        assert role in sql
+    assert "admin + judge" in sql
+    assert "insert into schema_migrations" in sql
+    assert "0012" in sql
 
 
 def test_migration_static_check_passes() -> None:
