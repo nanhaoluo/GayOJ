@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ClipboardCheck, Plus, UsersRound } from 'lucide-vue-next';
 import { onMounted, reactive, ref } from 'vue';
+import BaseModal from '@/components/BaseModal.vue';
 import { apiRequest } from '@/services/api';
 import type { ProblemSet, Team } from '@/services/types';
 
 const data = ref<Record<string, any> | null>(null);
 const problemSets = ref<ProblemSet[]>([]);
 const error = ref('');
+const assignmentOpen = ref(false);
+const masteryOpen = ref(false);
 const teamForm = reactive({ name: '', description: '' });
 const assignmentForm = reactive({
   title: '',
@@ -59,6 +62,7 @@ async function createAssignment() {
     });
     assignmentForm.title = '';
     assignmentForm.description = '';
+    assignmentOpen.value = false;
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建作业失败。';
@@ -75,26 +79,24 @@ onMounted(load);
         <span class="eyebrow">Coach Console</span>
         <h1>教练端</h1>
       </div>
+      <button class="primary-action" type="button" @click="assignmentOpen = true">
+        <Plus :size="18" />布置作业
+      </button>
     </section>
 
     <p v-if="error" class="form-error">{{ error }}</p>
 
     <template v-if="data">
-      <section class="metric-grid">
-        <article class="metric-panel">
-          <UsersRound :size="20" />
-          <span>学生规模</span>
-          <strong>{{ data.class_size }}</strong>
-        </article>
-        <article class="metric-panel">
-          <ClipboardCheck :size="20" />
-          <span>活跃学生</span>
-          <strong>{{ data.active_students }}</strong>
-        </article>
+      <section class="summary-strip">
+        <span>{{ data.class_size }} 名学生</span>
+        <span>{{ data.active_students }} 名活跃</span>
+        <button class="text-link" type="button" @click="masteryOpen = true">
+          <ClipboardCheck :size="15" />知识点掌握
+        </button>
       </section>
 
       <section class="dashboard-grid">
-        <div class="panel">
+        <div class="panel large-panel">
           <div class="panel-head">
             <div>
               <h2>训练作业</h2>
@@ -113,24 +115,6 @@ onMounted(load);
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h2>知识点掌握</h2>
-              <p>由提交记录聚合</p>
-            </div>
-          </div>
-          <div class="type-stat-list">
-            <div v-for="item in data.tag_mastery" :key="item.tag" class="type-stat-row">
-              <span>{{ item.tag }}</span>
-              <div class="bar-track">
-                <i :style="{ width: `${item.attempts ? (item.accepted / item.attempts) * 100 : 0}%` }"></i>
-              </div>
-              <strong>{{ item.accepted }}/{{ item.attempts }}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
               <h2>队伍管理</h2>
               <p>创建班级/队伍邀请码</p>
             </div>
@@ -142,35 +126,41 @@ onMounted(load);
               <b>{{ team.member_ids.length }} 人</b>
             </div>
           </div>
-          <form class="submit-form" @submit.prevent="createTeam">
+          <form class="submit-form" style="margin-top:14px" @submit.prevent="createTeam">
             <label>队伍名<input v-model="teamForm.name" required placeholder="新训练班" /></label>
             <label>描述<input v-model="teamForm.description" placeholder="队伍说明" /></label>
             <button class="secondary-action full" type="submit"><Plus :size="17" />创建队伍</button>
           </form>
         </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>布置作业</h2>
-              <p>基于题单发布训练任务</p>
-            </div>
-          </div>
-          <form class="submit-form" @submit.prevent="createAssignment">
-            <label>标题<input v-model="assignmentForm.title" required placeholder="作业标题" /></label>
-            <label>题单<select v-model="assignmentForm.problem_set_id">
-              <option v-for="set in problemSets" :key="set.id" :value="set.id">{{ set.title }}</option>
-            </select></label>
-            <label>队伍<select v-model="assignmentForm.team_id">
-              <option value="">全部学生</option>
-              <option v-for="team in data.teams" :key="team.id" :value="team.id">{{ team.name }}</option>
-            </select></label>
-            <label>截止时间<input v-model="assignmentForm.due_at" required type="datetime-local" /></label>
-            <label>说明<textarea v-model="assignmentForm.description" rows="3"></textarea></label>
-            <button class="primary-action full" type="submit"><Plus :size="17" />发布作业</button>
-          </form>
-        </div>
       </section>
     </template>
+
+    <BaseModal :open="masteryOpen" title="知识点掌握" description="由提交记录聚合" size="lg" @close="masteryOpen = false">
+      <div v-if="data" class="type-stat-list">
+        <div v-for="item in data.tag_mastery" :key="item.tag" class="type-stat-row">
+          <span>{{ item.tag }}</span>
+          <div class="bar-track">
+            <i :style="{ width: `${item.attempts ? (item.accepted / item.attempts) * 100 : 0}%` }"></i>
+          </div>
+          <strong>{{ item.accepted }}/{{ item.attempts }}</strong>
+        </div>
+      </div>
+    </BaseModal>
+
+    <BaseModal :open="assignmentOpen" title="布置作业" description="基于题单发布训练任务" size="md" @close="assignmentOpen = false">
+      <form class="submit-form" @submit.prevent="createAssignment">
+        <label>标题<input v-model="assignmentForm.title" required placeholder="作业标题" /></label>
+        <label>题单<select v-model="assignmentForm.problem_set_id">
+          <option v-for="set in problemSets" :key="set.id" :value="set.id">{{ set.title }}</option>
+        </select></label>
+        <label>队伍<select v-model="assignmentForm.team_id">
+          <option value="">全部学生</option>
+          <option v-for="team in data?.teams" :key="team.id" :value="team.id">{{ team.name }}</option>
+        </select></label>
+        <label>截止时间<input v-model="assignmentForm.due_at" required type="datetime-local" /></label>
+        <label>说明<textarea v-model="assignmentForm.description" rows="3"></textarea></label>
+        <button class="primary-action full" type="submit"><Plus :size="17" />发布作业</button>
+      </form>
+    </BaseModal>
   </div>
 </template>

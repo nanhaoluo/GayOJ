@@ -2,6 +2,7 @@
 import { Search, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import BaseModal from '@/components/BaseModal.vue';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import { apiRequest, problemTypeLabel } from '@/services/api';
 import type { ProblemSummary, TagTreeNode } from '@/services/types';
@@ -18,6 +19,7 @@ const q = ref('');
 const type = ref('');
 const loading = ref(false);
 const error = ref('');
+const filtersOpen = ref(false);
 
 function flattenTags(items: TagTreeNode[], depth = 0): FlatTag[] {
   return items.flatMap((tag) => [{ tag, depth }, ...flattenTags(tag.children, depth + 1)]);
@@ -79,6 +81,9 @@ onMounted(() => {
         <span class="eyebrow">Problem Bank</span>
         <h1>题库</h1>
       </div>
+      <button class="secondary-action" type="button" @click="filtersOpen = true">
+        <Search :size="16" />知识点
+      </button>
     </section>
 
     <section class="toolbar-panel">
@@ -95,12 +100,37 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="panel tag-filter-panel">
-      <div class="panel-head">
-        <div>
-          <h2>知识点筛选</h2>
-          <p>{{ selectedTags.length ? `已选 ${selectedTags.length} 个标签` : '全部标签' }}</p>
+    <section v-if="selectedTags.length" class="summary-strip">
+      <span>已选 {{ selectedTags.length }} 个知识点</span>
+      <button class="text-link" type="button" @click="clearFilters">
+        <X :size="15" />清除
+      </button>
+    </section>
+
+    <p v-if="error" class="form-error">{{ error }}</p>
+
+    <section class="problem-table panel">
+      <RouterLink v-for="problem in problems" :key="problem.id" :to="`/problems/${problem.id}`" class="problem-row">
+        <ProblemTypeIcon :type="problem.type" />
+        <div class="problem-main">
+          <strong>{{ problem.id }} · {{ problem.title }}</strong>
+          <span>{{ problem.tags.join(' / ') || '未分类' }}</span>
         </div>
+        <span class="difficulty">{{ problem.difficulty }}</span>
+        <span>{{ problemTypeLabel(problem.type) }}</span>
+        <span>{{ problem.accepted }}/{{ problem.attempts }}</span>
+      </RouterLink>
+      <p v-if="!problems.length && !loading" class="empty-text">没有匹配的题目。</p>
+    </section>
+
+    <BaseModal
+      :open="filtersOpen"
+      title="知识点筛选"
+      :description="selectedTags.length ? `已选 ${selectedTags.length} 个标签` : '全部标签'"
+      size="lg"
+      @close="filtersOpen = false"
+    >
+      <div class="modal-action-row">
         <button v-if="q || type || selectedTags.length" class="secondary-action" type="button" @click="clearFilters">
           <X :size="16" />清除
         </button>
@@ -120,22 +150,6 @@ onMounted(() => {
           <span>{{ item.tag.name }}</span>
         </label>
       </div>
-    </section>
-
-    <p v-if="error" class="form-error">{{ error }}</p>
-
-    <section class="problem-table panel">
-      <RouterLink v-for="problem in problems" :key="problem.id" :to="`/problems/${problem.id}`" class="problem-row">
-        <ProblemTypeIcon :type="problem.type" />
-        <div class="problem-main">
-          <strong>{{ problem.id }} · {{ problem.title }}</strong>
-          <span>{{ problem.tags.join(' / ') || '未分类' }}</span>
-        </div>
-        <span class="difficulty">{{ problem.difficulty }}</span>
-        <span>{{ problemTypeLabel(problem.type) }}</span>
-        <span>{{ problem.accepted }}/{{ problem.attempts }}</span>
-      </RouterLink>
-      <p v-if="!problems.length && !loading" class="empty-text">没有匹配的题目。</p>
-    </section>
+    </BaseModal>
   </div>
 </template>

@@ -444,6 +444,36 @@ p {
   gap: 14px;
 }
 
+.summary-strip {
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 80%, var(--surface-strong));
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.summary-strip span,
+.summary-strip button,
+.summary-strip a {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summary-strip span {
+  padding: 0 9px;
+  border-radius: 999px;
+  background: white;
+}
+
 .metric-panel,
 .panel,
 .toolbar-panel {
@@ -458,6 +488,11 @@ p {
   padding: 18px;
   display: grid;
   align-content: space-between;
+}
+
+.compact-metrics .metric-panel {
+  min-height: 104px;
+  box-shadow: none;
 }
 
 .metric-panel svg {
@@ -477,6 +512,11 @@ p {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+
+.single-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .panel {
@@ -2191,6 +2231,25 @@ pre {
   color: var(--muted);
   font-size: 12px;
   font-style: normal;
+}
+
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.modal-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.modal-action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .spin {

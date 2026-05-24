@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { CheckCircle2, ChevronLeft, ChevronRight, FileClock, KeyRound, Languages, RefreshCw, Save, Search, Server, ShieldCheck, UsersRound } from 'lucide-vue-next';
+import { CheckCircle2, ChevronLeft, ChevronRight, FileClock, KeyRound, Languages, Loader2, RefreshCw, Save, Search, Server, Settings, ShieldCheck, UsersRound } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import BaseModal from '@/components/BaseModal.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type {
@@ -35,6 +36,11 @@ const savingCompilerCode = ref('');
 const selectedCompilerCode = ref('');
 const compilerConfigs = ref<CompilerConfig[]>([]);
 const compilerLanguages = ref<CompilerLanguage[]>([]);
+const auditOpen = ref(false);
+const rbacOpen = ref(false);
+const statsOpen = ref(false);
+const configOpen = ref(false);
+const compilerOpen = ref(false);
 const config = reactive<SystemConfig>({
   site_name: 'gayoj',
   registration_enabled: true,
@@ -300,37 +306,38 @@ onMounted(load);
         <span class="eyebrow">Admin Console</span>
         <h1>管理端</h1>
       </div>
+      <div class="action-group">
+        <button class="secondary-action" type="button" @click="statsOpen = true">
+          <UsersRound :size="16" />概览
+        </button>
+        <button class="secondary-action" type="button" @click="rbacOpen = true">
+          <KeyRound :size="16" />权限矩阵
+        </button>
+        <button class="secondary-action" type="button" @click="auditOpen = true">
+          <FileClock :size="16" />审计日志
+        </button>
+        <button class="secondary-action" type="button" @click="configOpen = true">
+          <Settings :size="16" />系统配置
+        </button>
+        <button class="secondary-action" type="button" @click="compilerOpen = true">
+          <Languages :size="16" />编译器
+        </button>
+      </div>
     </section>
 
     <p v-if="error" class="form-error">{{ error }}</p>
     <p v-if="actionError" class="form-error">{{ actionError }}</p>
     <p v-if="notice" class="form-success">{{ notice }}</p>
 
-    <section v-if="!error" class="metric-grid">
-      <article class="metric-panel">
-        <UsersRound :size="20" />
-        <span>用户</span>
-        <strong>{{ users.length }}</strong>
-      </article>
-      <article class="metric-panel">
-        <ShieldCheck :size="20" />
-        <span>角色</span>
-        <strong>{{ roleOptions.length }}</strong>
-      </article>
-      <article class="metric-panel">
-        <Server :size="20" />
-        <span>节点</span>
-        <strong>{{ nodes.length }}</strong>
-      </article>
-      <article class="metric-panel">
-        <FileClock :size="20" />
-        <span>审计日志</span>
-        <strong>{{ logTotal }}</strong>
-      </article>
+    <section v-if="!error" class="summary-strip">
+      <span>{{ users.length }} 用户</span>
+      <span>{{ roleOptions.length }} 角色</span>
+      <span>{{ nodes.length }} 节点</span>
+      <span>{{ logTotal }} 审计日志</span>
     </section>
 
     <section v-if="!error" class="dashboard-grid">
-      <div class="panel">
+      <div class="panel large-panel">
         <div class="panel-head">
           <div>
             <h2>用户与角色</h2>
@@ -368,7 +375,7 @@ onMounted(load);
         <div class="panel-head">
           <div>
             <h2>评测节点</h2>
-            <p>在线、下线与负载</p>
+            <p>在线、下线与负载 ({{ nodes.length }})</p>
           </div>
         </div>
         <div class="list-stack">
@@ -409,85 +416,34 @@ onMounted(load);
           <p v-if="nodes.length === 0" class="empty-state">暂无评测节点心跳。</p>
         </div>
       </div>
+    </section>
 
-      <div class="panel large-panel">
-        <div class="panel-head">
-          <div>
-            <h2>角色权限矩阵</h2>
-            <p>来自运行时 RBAC 权限码模型</p>
-          </div>
-          <KeyRound :size="20" />
-        </div>
-        <div v-if="rbac" class="role-matrix">
-          <div class="role-matrix-row matrix-head">
-            <span>权限</span>
-            <span v-for="role in rbac.roles" :key="role.code">{{ roleLabel(role.code) }}</span>
-          </div>
-          <div v-for="permission in rbac.permissions" :key="permission.code" class="role-matrix-row">
-            <span class="permission-cell">
-              <strong>{{ permission.code }}</strong>
-              <em>{{ permission.description }}</em>
-            </span>
-            <span
-              v-for="role in rbac.roles"
-              :key="`${role.code}-${permission.code}`"
-              class="matrix-state"
-              :class="{ allowed: rbac.matrix[role.code]?.[permission.code] }"
-            >
-              {{ rbac.matrix[role.code]?.[permission.code] ? '允许' : '-' }}
-            </span>
-          </div>
-        </div>
-      </div>
+    <BaseModal :open="statsOpen" title="管理概览" description="概览数据按需查看" size="lg" @close="statsOpen = false">
+      <section class="metric-grid compact-metrics">
+        <article class="metric-panel">
+          <UsersRound :size="20" />
+          <span>用户</span>
+          <strong>{{ users.length }}</strong>
+        </article>
+        <article class="metric-panel">
+          <ShieldCheck :size="20" />
+          <span>角色</span>
+          <strong>{{ roleOptions.length }}</strong>
+        </article>
+        <article class="metric-panel">
+          <Server :size="20" />
+          <span>节点</span>
+          <strong>{{ nodes.length }}</strong>
+        </article>
+        <article class="metric-panel">
+          <FileClock :size="20" />
+          <span>审计日志</span>
+          <strong>{{ logTotal }}</strong>
+        </article>
+      </section>
+    </BaseModal>
 
-      <div class="panel large-panel">
-        <div class="panel-head">
-          <div>
-            <h2>操作审计</h2>
-            <p>敏感动作留痕</p>
-          </div>
-        </div>
-        <form class="audit-filter" @submit.prevent="applyAuditFilters">
-          <label>Action<input v-model="auditFilters.action" placeholder="system.config.update" /></label>
-          <label>Actor<input v-model="auditFilters.actor_id" placeholder="u-admin" /></label>
-          <label>Resource<input v-model="auditFilters.resource" placeholder="system:config" /></label>
-          <button class="secondary-action" type="submit"><Search :size="16" />筛选</button>
-        </form>
-        <div class="audit-table">
-          <div class="audit-row table-head">
-            <span>动作</span>
-            <span>资源</span>
-            <span>操作者</span>
-            <span>时间</span>
-          </div>
-          <div v-for="log in logs" :key="log.id" class="audit-row">
-            <strong>{{ log.action }}</strong>
-            <span>{{ log.resource }}</span>
-            <span>{{ log.actor_id ?? 'system' }}</span>
-            <span>{{ formatDate(log.created_at) }}</span>
-          </div>
-          <p v-if="logs.length === 0" class="empty-state">暂无匹配的审计日志。</p>
-        </div>
-        <div class="audit-pager">
-          <span>{{ logTotal === 0 ? 0 : logOffset + 1 }}-{{ Math.min(logOffset + logs.length, logTotal) }} / {{ logTotal }}</span>
-          <div>
-            <button class="secondary-action" type="button" :disabled="logOffset === 0" @click="pageAuditLogs(-1)">
-              <ChevronLeft :size="16" />上一页
-            </button>
-            <button class="secondary-action" type="button" :disabled="logOffset + logs.length >= logTotal" @click="pageAuditLogs(1)">
-              下一页<ChevronRight :size="16" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>系统配置</h2>
-            <p>站点参数、账号安全和提交限流</p>
-          </div>
-        </div>
+    <BaseModal :open="configOpen" title="系统配置" description="站点参数、账号安全和提交限流" size="lg" @close="configOpen = false">
         <form class="submit-form" @submit.prevent="saveConfig">
           <label>站点名称<input v-model="config.site_name" /></label>
           <label>默认语言
@@ -520,21 +476,17 @@ onMounted(load);
           </label>
           <button class="primary-action full" type="submit"><Save :size="17" />保存配置</button>
         </form>
-      </div>
+    </BaseModal>
 
-      <div class="panel large-panel">
-        <div class="panel-head">
-          <div>
-            <h2>编译器配置</h2>
-            <p>管理可用语言、版本与 worker 命令模板</p>
-            <p>{{ compilerLanguages.length }} 个公开语言，{{ enabledCompilerLanguages.length }} 个启用</p>
-          </div>
+    <BaseModal :open="compilerOpen" title="编译器配置" description="管理可用语言、版本与 worker 命令模板" size="xl" @close="compilerOpen = false">
+        <div class="modal-action-row">
           <button class="secondary-action" type="button" @click="load">
             <RefreshCw :size="16" />刷新
           </button>
         </div>
         <p v-if="compilerError" class="form-error">{{ compilerError }}</p>
         <p v-if="compilerNotice" class="form-success">{{ compilerNotice }}</p>
+        <p class="summary-strip">{{ compilerLanguages.length }} 个公开语言，{{ enabledCompilerLanguages.length }} 个启用</p>
         <div class="compiler-config-layout">
           <div class="compiler-config-list">
             <button
@@ -597,7 +549,65 @@ onMounted(load);
 
           <div v-else class="empty-state">暂无编译器配置。</div>
         </div>
+    </BaseModal>
+
+    <!-- Modals for quick access from header -->
+    <BaseModal :open="rbacOpen" title="角色权限矩阵" description="来自运行时 RBAC 权限码模型" size="lg" @close="rbacOpen = false">
+      <div v-if="rbac" class="role-matrix">
+        <div class="role-matrix-row matrix-head">
+          <span>权限</span>
+          <span v-for="role in rbac.roles" :key="role.code">{{ roleLabel(role.code) }}</span>
+        </div>
+        <div v-for="permission in rbac.permissions" :key="permission.code" class="role-matrix-row">
+          <span class="permission-cell">
+            <strong>{{ permission.code }}</strong>
+            <em>{{ permission.description }}</em>
+          </span>
+          <span
+            v-for="role in rbac.roles"
+            :key="`modal-${role.code}-${permission.code}`"
+            class="matrix-state"
+            :class="{ allowed: rbac.matrix[role.code]?.[permission.code] }"
+          >
+            {{ rbac.matrix[role.code]?.[permission.code] ? '允许' : '-' }}
+          </span>
+        </div>
       </div>
-    </section>
+    </BaseModal>
+
+    <BaseModal :open="auditOpen" title="操作审计" description="敏感动作留痕" size="lg" @close="auditOpen = false">
+      <form class="audit-filter" @submit.prevent="applyAuditFilters">
+        <label>Action<input v-model="auditFilters.action" placeholder="system.config.update" /></label>
+        <label>Actor<input v-model="auditFilters.actor_id" placeholder="u-admin" /></label>
+        <label>Resource<input v-model="auditFilters.resource" placeholder="system:config" /></label>
+        <button class="secondary-action" type="submit"><Search :size="16" />筛选</button>
+      </form>
+      <div class="audit-table">
+        <div class="audit-row table-head">
+          <span>动作</span>
+          <span>资源</span>
+          <span>操作者</span>
+          <span>时间</span>
+        </div>
+        <div v-for="log in logs" :key="'modal-' + log.id" class="audit-row">
+          <strong>{{ log.action }}</strong>
+          <span>{{ log.resource }}</span>
+          <span>{{ log.actor_id ?? 'system' }}</span>
+          <span>{{ formatDate(log.created_at) }}</span>
+        </div>
+        <p v-if="logs.length === 0" class="empty-state">暂无匹配的审计日志。</p>
+      </div>
+      <div class="audit-pager">
+        <span>{{ logTotal === 0 ? 0 : logOffset + 1 }}-{{ Math.min(logOffset + logs.length, logTotal) }} / {{ logTotal }}</span>
+        <div>
+          <button class="secondary-action" type="button" :disabled="logOffset === 0" @click="pageAuditLogs(-1)">
+            <ChevronLeft :size="16" />上一页
+          </button>
+          <button class="secondary-action" type="button" :disabled="logOffset + logs.length >= logTotal" @click="pageAuditLogs(1)">
+            下一页<ChevronRight :size="16" />
+          </button>
+        </div>
+      </div>
+    </BaseModal>
   </div>
 </template>

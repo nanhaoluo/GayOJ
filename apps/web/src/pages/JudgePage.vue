@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { Activity, Server } from 'lucide-vue-next';
 import { onMounted, ref } from 'vue';
+import BaseModal from '@/components/BaseModal.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type { JudgeMonitor } from '@/services/types';
 
 const data = ref<JudgeMonitor | null>(null);
 const error = ref('');
+const queueOpen = ref(false);
 
 onMounted(async () => {
   try {
@@ -24,36 +26,23 @@ onMounted(async () => {
         <span class="eyebrow">Judge Console</span>
         <h1>裁判端</h1>
       </div>
+      <button class="secondary-action" type="button" @click="queueOpen = true">
+        <Activity :size="16" />队列任务
+      </button>
     </section>
 
     <p v-if="error" class="form-error">{{ error }}</p>
 
     <template v-if="data">
-      <section class="metric-grid">
-        <article class="metric-panel">
-          <Activity :size="20" />
-          <span>队列深度</span>
-          <strong>{{ data.queue_depth }}</strong>
-        </article>
-        <article class="metric-panel">
-          <Activity :size="20" />
-          <span>待调度</span>
-          <strong>{{ data.queue.pending }}</strong>
-        </article>
-        <article class="metric-panel">
-          <Activity :size="20" />
-          <span>执行中</span>
-          <strong>{{ data.queue.leased }}</strong>
-        </article>
-        <article class="metric-panel">
-          <Server :size="20" />
-          <span>评测节点</span>
-          <strong>{{ data.judge_nodes.length }}</strong>
-        </article>
+      <section class="summary-strip">
+        <span>{{ data.queue_depth }} 队列深度</span>
+        <span>{{ data.queue.pending }} 待调度</span>
+        <span>{{ data.queue.leased }} 执行中</span>
+        <span>{{ data.judge_nodes.length }} 节点</span>
       </section>
 
       <section class="dashboard-grid">
-        <div class="panel">
+        <div class="panel large-panel">
           <div class="panel-head">
             <div>
               <h2>节点状态</h2>
@@ -76,23 +65,6 @@ onMounted(async () => {
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h2>队列任务</h2>
-              <p>{{ data.queue.backend }} · {{ data.queue.topic }}</p>
-            </div>
-          </div>
-          <div class="submission-feed">
-            <div v-for="job in data.queue.last_jobs" :key="job.id" class="submission-row">
-              <span>{{ job.problem_id }} · {{ job.language }}</span>
-              <StatusBadge :status="job.status" />
-              <strong>{{ job.assigned_node_id ?? '待分配' }}</strong>
-            </div>
-            <p v-if="data.queue.last_jobs.length === 0" class="empty-state">暂无代码评测队列任务。</p>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
               <h2>提交流</h2>
               <p>最近 10 条提交</p>
             </div>
@@ -107,5 +79,22 @@ onMounted(async () => {
         </div>
       </section>
     </template>
+
+    <BaseModal
+      :open="queueOpen"
+      title="队列任务"
+      :description="data ? `${data.queue.backend} · ${data.queue.topic}` : ''"
+      size="lg"
+      @close="queueOpen = false"
+    >
+      <div v-if="data" class="submission-feed">
+        <div v-for="job in data.queue.last_jobs" :key="job.id" class="submission-row">
+          <span>{{ job.problem_id }} · {{ job.language }}</span>
+          <StatusBadge :status="job.status" />
+          <strong>{{ job.assigned_node_id ?? '待分配' }}</strong>
+        </div>
+        <p v-if="data.queue.last_jobs.length === 0" class="empty-state">暂无代码评测队列任务。</p>
+      </div>
+    </BaseModal>
   </div>
 </template>
