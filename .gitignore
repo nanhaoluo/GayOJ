@@ -1,0 +1,12 @@
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.learnings/
+apps/api/storage/dev-db.json
+apps/api/storage/objects/
+offline-pack.json
+offline-results.json

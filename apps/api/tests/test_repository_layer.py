@@ -1,0 +1,167 @@
+﻿from __future__ import annotations
+
+import json
+from pathlib import Path
+from datetime import datetime, timezone
+
+from app.db import JsonRepository, Repository, seed_data
+from app.models import Problem, ProblemTestData
+
+
+ROOT = Path(__file__).resolve().parents[3]
+DEV_DB = ROOT / "apps" / "api" / "storage" / "dev-db.json"
+
+
+def test_json_repository_loads_current_dev_db_snapshot(tmp_path: Path) -> None:
+    target = tmp_path / "dev-db.json"
+    target.write_text(DEV_DB.read_text(encoding="utf-8"), encoding="utf-8")
+    before = json.loads(target.read_text(encoding="utf-8"))
+
+    repository: Repository = JsonRepository(target)
+
+    assert repository.get_user_by_username("alice")
+    assert repository.get_problem("P1001")
+    assert repository.get_system_config()["site_name"] == "gayoj"
+    after = json.loads(target.read_text(encoding="utf-8"))
+    assert set(before) <= set(after)
+    assert "problem_versions" in after
+    assert "problem_test_data" in after
+    blank_problem = next(problem for problem in after["problems"] if problem["id"] == "P1002")
+    assert "judge_config" not in blank_problem
+    assert after["problem_judge_config"]["P1002"]["answers"]["edge_formula"]
+    assert repository.get_problem("P1002").judge_config == {}
+    assert repository.get_problem_judge_config("P1002")["answers"]["edge_formula"]
+
+
+def test_json_repository_backfills_legacy_json_defaults(tmp_path: Path) -> None:
+    data = seed_data()
+    data.pop("notifications")
+    data.pop("system_config")
+    data["users"][0].pop("password_hash")
+    target = tmp_path / "legacy-dev-db.json"
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    repository: Repository = JsonRepository(target)
+
+    alice = repository.get_user_by_username("alice")
+    assert alice is not None
+    assert alice.password_hash.startswith("pbkdf2_sha256$")
+    assert repository.get_system_config()["site_name"] == "gayoj"
+    assert repository.list_notifications("u-student")
+
+
+def test_json_repository_backfills_partial_system_config(tmp_path: Path) -> None:
+    data = seed_data()
+    data["system_config"] = {"site_name": "Legacy gayoj"}
+    target = tmp_path / "partial-config-dev-db.json"
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    repository: Repository = JsonRepository(target)
+
+    config = repository.get_system_config()
+    assert config["site_name"] == "Legacy gayoj"
+    assert config["default_language"] == "cpp"
+    assert config["judge_submit_rate_limit_per_minute"] == 10
+    after = json.loads(target.read_text(encoding="utf-8"))
+    assert after["system_config"]["objective_submit_rate_limit_per_minute"] == 30
+
+
+def test_json_repository_migrates_legacy_embedded_judge_config(tmp_path: Path) -> None:
+    data = seed_data()
+    configs = data.pop("problem_judge_config")
+    for problem in data["problems"]:
+        problem["judge_config"] = configs[problem["id"]]
+    data["problems"][1]["judge_config"]["answers"]["edge_formula"] = ["legacy-answer"]
+    target = tmp_path / "legacy-embedded-dev-db.json"
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    repository: Repository = JsonRepository(target)
+    repository.list_problems()
+
+    after = json.loads(target.read_text(encoding="utf-8"))
+    assert all("judge_config" not in problem for problem in after["problems"])
+    assert after["problem_judge_config"]["P1002"]["answers"]["edge_formula"] == ["legacy-answer"]
+    assert repository.get_problem("P1002").judge_config == {}
+    assert repository.get_problem_judge_config("P1002")["answers"]["edge_formula"] == ["legacy-answer"]
+
+
+def test_json_repository_stores_new_problem_judge_config_separately(tmp_path: Path) -> None:
+    repository: Repository = JsonRepository(tmp_path / "dev-db.json")
+    problem = Problem(
+        id="P9001",
+        title="临时单选题",
+        type="single_choice",
+        statement="请选择 A。",
+        options=[{"key": "A", "text": "A"}],
+        author_id="u-coach",
+        judge_config={"answer": "A", "score": 100},
+        created_at=datetime.now(timezone.utc),
+    )
+
+    repository.add_problem(problem)
+
+    data = json.loads((tmp_path / "dev-db.json").read_text(encoding="utf-8"))
+    stored_problem = next(item for item in data["problems"] if item["id"] == "P9001")
+    assert "judge_config" not in stored_problem
+    assert data["problem_judge_config"]["P9001"] == {"answer": "A", "score": 100}
+    assert repository.get_problem("P9001").judge_config == {}
+    assert repository.get_problem_judge_config("P9001")["answer"] == "A"
+
+
+def test_json_repository_stores_problem_test_data_metadata(tmp_path: Path) -> None:
+    target = tmp_path / "dev-db.json"
+    repository: Repository = JsonRepository(target)
+    uploaded_at = datetime.now(timezone.utc)
+    metadata = ProblemTestData(
+        problem_id="P1001",
+        filename="cases.zip",
+        object_key="testdata/P1001/hash.zip",
+        storage_backend="local",
+        bucket="gayoj-testdata",
+        archive_format="zip",
+        size_bytes=128,
+        sha256="hash",
+        file_count=2,
+        input_files=1,
+        output_files=1,
+        case_count=1,
+        case_names=["1"],
+        uploaded_by="u-admin",
+        uploaded_at=uploaded_at,
+    )
+
+    saved = repository.set_problem_test_data(metadata)
+
+    assert saved.problem_id == "P1001"
+    assert repository.get_problem_test_data("P1001") == metadata
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["problem_test_data"]["P1001"]["object_key"] == "testdata/P1001/hash.zip"
+
+
+def test_json_repository_records_problem_versions_and_restores_snapshots(tmp_path: Path) -> None:
+    target = tmp_path / "dev-db.json"
+    repository: Repository = JsonRepository(target)
+    problem = repository.get_problem("P1003")
+    assert problem is not None
+    problem.judge_config = repository.get_problem_judge_config(problem.id)
+
+    version = repository.add_problem_version(problem, "u-admin", "update")
+    changed = problem.model_copy(deep=True)
+    changed.title = "二分查找适用条件（改动后）"
+    changed.statement = "临时改动题面。"
+    changed.judge_config = {"answer": "A", "score": 100}
+    repository.update_problem(changed)
+
+    restored = repository.restore_problem_version(problem.id, version.id)
+
+    assert restored is not None
+    assert restored.title == problem.title
+    assert restored.statement == problem.statement
+    assert repository.get_problem_judge_config(problem.id)["answer"] == "B"
+    versions = repository.list_problem_versions(problem.id)
+    assert versions[0].snapshot.judge_config["answer"] == "B"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    stored_problem = next(item for item in data["problems"] if item["id"] == problem.id)
+    assert "judge_config" not in stored_problem
+    assert data["problem_versions"][0]["snapshot"]["judge_config"]["answer"] == "B"
+

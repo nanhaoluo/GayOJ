@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    environment:
+      GAYOJ_ENV: ${GAYOJ_ENV:-development}
+      GAYOJ_SECRET_KEY: ${GAYOJ_SECRET_KEY:-dev-only-replace-with-a-random-token}
+      GAYOJ_TOKEN_TTL_HOURS: ${GAYOJ_TOKEN_TTL_HOURS:-12}
+      GAYOJ_OFFLINE_PACK_SECRET: ${GAYOJ_OFFLINE_PACK_SECRET:-dev-only-replace-with-offline-pack-secret}
+      GAYOJ_API_CORS_ORIGINS: ${GAYOJ_API_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080}
+    ports:
+      - "${GAYOJ_COMPOSE_API_PORT:-8000}:8000"
+    volumes:
+      - gayoj-api-storage:/app/apps/api/storage
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    depends_on:
+      - api
+    ports:
+      - "${GAYOJ_COMPOSE_WEB_PORT:-8080}:80"
+
+volumes:
+  gayoj-api-storage:

@@ -1,0 +1,40 @@
+{
+  "name": "gayoj",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev:web": "vite --config apps/web/vite.config.ts",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "preview:web": "vite preview --config apps/web/vite.config.ts",
+    "typecheck": "vue-tsc --noEmit -p apps/web/tsconfig.json",
+    "smoke:web-renderer": "tsx scripts/check-web-renderer.mjs",
+    "smoke:api": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-api.ps1",
+    "smoke:judge-worker": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-judge-worker.ps1",
+    "smoke:judge-sandbox": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-judge-sandbox.ps1",
+    "build:judge-runner": "docker build -f deploy/Dockerfile.judge-runner -t gayoj/judge-runner:ubuntu24.04 .",
+    "export:openapi": "py -3.12 scripts/export-openapi.py",
+    "check:openapi": "py -3.12 scripts/export-openapi.py --check",
+    "check:migrations": "py -3.12 scripts/check-migrations.py",
+    "export:dev-db-sql": "py -3.12 scripts/export-dev-db-sql.py",
+    "migrate:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/db-migrate.ps1",
+    "dev:api": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-api.ps1",
+    "check:api": "py -3.12 -m compileall apps/api apps/judge tools/offline-cli && py -3.12 -m pytest"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.17.0",
+    "lucide-vue-next": "^0.468.0",
+    "markdown-it": "^14.2.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "tsx": "^4.22.3",
+    "vue-tsc": "^3.3.1"
+  }
+}

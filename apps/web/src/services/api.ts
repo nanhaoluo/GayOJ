@@ -1,0 +1,79 @@
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+export const AUTH_TOKEN_KEY = 'gayoj_token';
+const LEGACY_AUTH_TOKEN_KEY = 'gayoj_token';
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+type RequestOptions = RequestInit & {
+  auth?: boolean;
+};
+
+export function getStoredAuthToken(): string | null {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token) return token;
+  const legacyToken = localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  if (legacyToken) {
+    localStorage.setItem(AUTH_TOKEN_KEY, legacyToken);
+  }
+  return legacyToken;
+}
+
+export function setStoredAuthToken(token: string): void {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+}
+
+export function clearStoredAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!headers.has('Content-Type') && options.body && !isFormData) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const token = getStoredAuthToken();
+  if (options.auth !== false && token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    throw new ApiError(response.status, data?.detail ?? response.statusText);
+  }
+  return data as T;
+}
+
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+export function problemTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    code: '代码题',
+    blank: '填空题',
+    single_choice: '单选题',
+    multiple_choice: '多选题',
+  };
+  return labels[type] ?? type;
+}

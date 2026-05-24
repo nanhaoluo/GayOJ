@@ -1,0 +1,2 @@
+﻿"""gayoj FastAPI application package."""
+
