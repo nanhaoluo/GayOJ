@@ -171,6 +171,33 @@ def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient
     assert contest.rejudge_by == "u-admin"
 
 
+def test_contest_unfreeze_requires_manage_permission(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.frozen = True
+    contest.frozen_at = datetime(2026, 5, 26, 4, 0, tzinfo=timezone.utc)
+    contest.frozen_by = "u-admin"
+    store.update_contest(contest)
+
+    forbidden = client.post(
+        "/api/v1/contests/C1001/unfreeze",
+        headers=auth_headers("alice"),
+        json={"reason": "student cannot unfreeze"},
+    )
+    assert forbidden.status_code == 403
+
+    unfreeze = client.post(
+        "/api/v1/contests/C1001/unfreeze",
+        headers=auth_headers("admin"),
+        json={"reason": "manual unfreeze"},
+    )
+    assert unfreeze.status_code == 200, unfreeze.text
+    payload = unfreeze.json()
+    assert payload["frozen"] is False
+    assert payload["freeze_disabled"] is True
+    assert payload["frozen_at"] is None
+
+
 def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
@@ -331,6 +358,115 @@ def test_acm_standings_hide_submissions_after_freeze(client: TestClient, store) 
     assert alice["problems"]["P1002"]["attempts"] == 1
     assert alice["problems"]["P1002"]["accepted_at"] is None
     assert alice["problems"]["P1002"]["status"] == "wrong_answer"
+
+
+def test_acm_standings_show_full_board_to_judge_after_freeze(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = True
+    contest.frozen_at = start_at + timedelta(minutes=60)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-FULL-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=30),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-FULL-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=70),
+            judged_at=start_at + timedelta(minutes=70),
+        )
+    )
+
+    student_response = client.get("/api/v1/contests/C1001/standings", headers=auth_headers("alice"))
+    judge_response = client.get("/api/v1/contests/C1001/standings", headers=auth_headers("judge"))
+
+    assert student_response.status_code == 200, student_response.text
+    assert judge_response.status_code == 200, judge_response.text
+
+    student_row = next(row for row in student_response.json() if row["user_id"] == "u-student")
+    judge_row = next(row for row in judge_response.json() if row["user_id"] == "u-student")
+
+    assert student_row["solved"] == 0
+    assert student_row["problems"]["P1002"]["accepted_at"] is None
+
+    assert judge_row["solved"] == 1
+    assert judge_row["problems"]["P1002"]["accepted_at"] is not None
+
+
+def test_acm_default_freeze_window_hides_late_submissions_without_manual_freeze(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    current = datetime.now(timezone.utc)
+    start_at = current - timedelta(minutes=90)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=2)
+    contest.frozen = False
+    contest.freeze_disabled = False
+    contest.frozen_at = None
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-AUTO-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=45),
+            judged_at=start_at + timedelta(minutes=45),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-AUTO-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=75),
+            judged_at=start_at + timedelta(minutes=75),
+        )
+    )
+
+    standings = client.get("/api/v1/contests/C1001/standings")
+    detail = client.get("/api/v1/contests/C1001")
+
+    assert standings.status_code == 200, standings.text
+    assert detail.status_code == 200, detail.text
+
+    alice = next(row for row in standings.json() if row["user_id"] == "u-student")
+    assert alice["solved"] == 0
+    assert alice["problems"]["P1001"]["accepted_at"] is None
+
+    contest_payload = detail.json()
+    assert contest_payload["freeze_active"] is True
+    assert contest_payload["freeze_effective_at"] is not None
 
 
 def test_private_contest_standings_follow_visibility_and_permission(client: TestClient, auth_headers, store) -> None:

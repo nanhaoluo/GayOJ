@@ -525,6 +525,7 @@ class Contest(BaseModel):
     status: Literal["scheduled", "running", "ended"]
     visibility: Literal["public", "private"] = "public"
     frozen: bool = False
+    freeze_disabled: bool = False
     frozen_at: datetime | None = None
     frozen_by: str | None = None
     freeze_reason: str = ""
@@ -544,6 +545,8 @@ class ContestCreate(BaseModel):
 
 class ContestDetail(Contest):
     problems: list[ProblemSummary] = Field(default_factory=list)
+    freeze_active: bool = False
+    freeze_effective_at: datetime | None = None
 
 
 class StandingProblemResult(BaseModel):
@@ -595,6 +598,15 @@ class ClarificationReply(BaseModel):
 
 
 class ContestFreezeRequest(BaseModel):
+    reason: str = Field(default="", max_length=300)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+
+class ContestUnfreezeRequest(BaseModel):
     reason: str = Field(default="", max_length=300)
 
     @field_validator("reason", mode="before")

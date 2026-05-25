@@ -49,6 +49,7 @@ from .models import (
     ContestDetail,
     ContestBalloon,
     ContestFreezeRequest,
+    ContestUnfreezeRequest,
     ContestPrintRequest,
     ContestPrintResponse,
     ContestSubmitRequest,
@@ -739,6 +740,8 @@ def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
     participant_ids = student_user_ids(store)
     return ContestDetail(
         **contest.model_dump(),
+        freeze_active=contest_public_is_frozen(contest),
+        freeze_effective_at=contest_freeze_at(contest),
         problems=[
             problem_summary(problems[pid], submissions, participant_ids)
             for pid in contest.problem_ids
@@ -807,12 +810,50 @@ def _submission_effective_time(submission: Submission) -> datetime:
 
 
 def _contest_submission_before_freeze(submission: Submission, contest: Contest) -> bool:
-    if not contest.frozen:
-        return True
-    freeze_at = auth_datetime(contest.frozen_at)
+    freeze_at = contest_active_freeze_at(contest)
     if freeze_at is None:
         return True
     return _submission_effective_time(submission) <= freeze_at
+
+
+def contest_default_freeze_at(contest: Contest) -> datetime | None:
+    end_at = auth_datetime(contest.end_at)
+    if contest.rule != "ACM" or end_at is None or contest.freeze_disabled:
+        return None
+    return end_at - timedelta(hours=1)
+
+
+def contest_freeze_at(contest: Contest) -> datetime | None:
+    explicit = auth_datetime(contest.frozen_at) if contest.frozen else None
+    default_freeze = contest_default_freeze_at(contest)
+    if explicit and default_freeze:
+        return min(explicit, default_freeze)
+    return explicit or default_freeze
+
+
+def contest_public_is_frozen(contest: Contest, *, current: datetime | None = None) -> bool:
+    if contest.frozen:
+        return True
+    freeze_at = contest_freeze_at(contest)
+    if freeze_at is None:
+        return False
+    return (current or now()) >= freeze_at
+
+
+def contest_active_freeze_at(contest: Contest, *, current: datetime | None = None) -> datetime | None:
+    if contest.frozen:
+        return auth_datetime(contest.frozen_at) or now()
+    return contest_freeze_at(contest) if contest_public_is_frozen(contest, current=current) else None
+
+
+def can_view_full_contest_board(user: User | None) -> bool:
+    if user is None:
+        return False
+    return bool(
+        role_has_permission(user.role, "contest:manage")
+        or role_has_permission(user.role, "judge:monitor")
+        or role_has_permission(user.role, "clarification:read:all")
+    )
 
 
 def _standing_problem_payload() -> dict[str, Any]:
@@ -835,7 +876,14 @@ def _contest_score_sort_key(contest: Contest, row: dict[str, Any]) -> tuple[Any,
     return (-int(row["score"]), -int(row["solved"]), row["display_name"])
 
 
-def _build_score_standings(contest: Contest, store: Repository, submissions: list[Submission], users: dict[str, User]) -> list[StandingRow]:
+def _build_score_standings(
+    contest: Contest,
+    store: Repository,
+    submissions: list[Submission],
+    users: dict[str, User],
+    *,
+    full_board: bool,
+) -> list[StandingRow]:
     rows: dict[str, dict[str, Any]] = {}
     for submission in submissions:
         row = rows.setdefault(
@@ -851,7 +899,7 @@ def _build_score_standings(contest: Contest, store: Repository, submissions: lis
             },
         )
         problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
-        if not _contest_submission_before_freeze(submission, contest):
+        if not full_board and not _contest_submission_before_freeze(submission, contest):
             continue
         problem_row["attempts"] += 1
         effective_time = _submission_effective_time(submission)
@@ -882,7 +930,7 @@ def _build_score_standings(contest: Contest, store: Repository, submissions: lis
     return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: _contest_score_sort_key(contest, item))]
 
 
-def build_contest_standings(contest: Contest, store: Repository) -> list[StandingRow]:
+def build_contest_standings(contest: Contest, store: Repository, *, full_board: bool = False) -> list[StandingRow]:
     users = {u.id: u for u in store.list_users()}
     participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
     relevant_submissions = [
@@ -893,7 +941,7 @@ def build_contest_standings(contest: Contest, store: Repository) -> list[Standin
     relevant_submissions.sort(key=lambda item: (_submission_effective_time(item), item.created_at, item.id))
 
     if contest.rule in {"OI", "IOI", "CF"}:
-        return _build_score_standings(contest, store, relevant_submissions, users)
+        return _build_score_standings(contest, store, relevant_submissions, users, full_board=full_board)
 
     rows: dict[str, dict[str, Any]] = {}
     first_blood_owner: dict[str, str] = {}
@@ -914,7 +962,7 @@ def build_contest_standings(contest: Contest, store: Repository) -> list[Standin
             },
         )
         problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
-        visible_to_board = _contest_submission_before_freeze(submission, contest)
+        visible_to_board = full_board or _contest_submission_before_freeze(submission, contest)
         if problem_row["accepted_at"] is not None:
             continue
         if not visible_to_board:
@@ -2095,11 +2143,34 @@ def freeze_contest(
     if contest.frozen:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest is already frozen")
     contest.frozen = True
+    contest.freeze_disabled = False
     contest.frozen_at = now()
     contest.frozen_by = user.id
     contest.freeze_reason = payload.reason
     store.update_contest(contest)
     store.add_audit(user.id, "contest.freeze", f"contest:{contest.id}", payload.model_dump())
+    return contest_detail(contest, store)
+
+
+@app.post("/api/v1/contests/{contest_id}/unfreeze", response_model=ContestDetail)
+def unfreeze_contest(
+    contest_id: str,
+    payload: ContestUnfreezeRequest,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestDetail:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not contest.frozen:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest is not manually frozen")
+    contest.frozen = False
+    contest.freeze_disabled = True
+    contest.frozen_at = None
+    contest.frozen_by = None
+    contest.freeze_reason = payload.reason
+    store.update_contest(contest)
+    store.add_audit(user.id, "contest.unfreeze", f"contest:{contest.id}", payload.model_dump())
     return contest_detail(contest, store)
 
 
@@ -2161,7 +2232,7 @@ def standings(
         ensure_contest_access(user, contest, store)
     if user and user.role != "student" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    return build_contest_standings(contest, store)
+    return build_contest_standings(contest, store, full_board=can_view_full_contest_board(user))
 
 
 @app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ProblemDetail], response_model_exclude_none=True)
