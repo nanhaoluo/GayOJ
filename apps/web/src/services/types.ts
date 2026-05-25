@@ -275,6 +275,13 @@ export interface RejudgeBatchResponse {
   skipped_count: number;
 }
 
+export interface ContestRejudgeResponse extends RejudgeBatchResponse {
+  contest_id: string;
+  rejudge_at: string;
+  rejudge_by: string;
+  rejudge_reason: string;
+}
+
 export interface Contest {
   id: string;
   title: string;

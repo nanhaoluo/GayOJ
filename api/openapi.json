@@ -1327,6 +1327,61 @@
         "title": "ContestPrintResponse",
         "type": "object"
       },
+      "ContestRejudgeResponse": {
+        "properties": {
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "rejudge_at": {
+            "format": "date-time",
+            "title": "Rejudge At",
+            "type": "string"
+          },
+          "rejudge_by": {
+            "title": "Rejudge By",
+            "type": "string"
+          },
+          "rejudge_reason": {
+            "title": "Rejudge Reason",
+            "type": "string"
+          },
+          "requeued": {
+            "items": {
+              "$ref": "#/components/schemas/Submission"
+            },
+            "title": "Requeued",
+            "type": "array"
+          },
+          "requeued_count": {
+            "title": "Requeued Count",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/RejudgeSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requeued",
+          "skipped",
+          "requeued_count",
+          "skipped_count",
+          "contest_id",
+          "rejudge_at",
+          "rejudge_by",
+          "rejudge_reason"
+        ],
+        "title": "ContestRejudgeResponse",
+        "type": "object"
+      },
       "ContestSubmitRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8206,7 +8261,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ContestFreezeRequest"
+                "$ref": "#/components/schemas/RejudgeRequest"
               }
             }
           },
@@ -8217,7 +8272,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/ContestDetail"
+                  "$ref": "#/components/schemas/ContestRejudgeResponse"
                 }
               }
             },
