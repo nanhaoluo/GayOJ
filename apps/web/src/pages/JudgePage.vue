@@ -1,22 +1,39 @@
 <script setup lang="ts">
-import { Activity, Server } from 'lucide-vue-next';
+import { Activity, MessageSquare, Server, Trophy } from 'lucide-vue-next';
 import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import BaseModal from '@/components/BaseModal.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type { JudgeMonitor } from '@/services/types';
 
+const router = useRouter();
 const data = ref<JudgeMonitor | null>(null);
 const error = ref('');
 const queueOpen = ref(false);
 
-onMounted(async () => {
+async function load() {
+  error.value = '';
   try {
-    data.value = await apiRequest('/judge/monitor');
+    data.value = await apiRequest<JudgeMonitor>('/judge/monitor');
   } catch (err) {
     error.value = err instanceof Error ? err.message : '需要裁判或管理员权限。';
   }
-});
+}
+
+async function openMonitor(contestId: string) {
+  await router.push(`/judge/monitor/${contestId}`);
+}
+
+async function openClarifications(contestId: string) {
+  await router.push(`/judge/clar/${contestId}`);
+}
+
+async function openBalloons(contestId: string) {
+  await router.push(`/judge/balloons/${contestId}`);
+}
+
+onMounted(load);
 </script>
 
 <template>
@@ -24,7 +41,7 @@ onMounted(async () => {
     <section class="page-heading">
       <div>
         <span class="eyebrow">Judge Console</span>
-        <h1>裁判端</h1>
+        <h1>裁判台</h1>
       </div>
       <button class="secondary-action" type="button" @click="queueOpen = true">
         <Activity :size="16" />队列任务
@@ -45,6 +62,36 @@ onMounted(async () => {
         <div class="panel large-panel">
           <div class="panel-head">
             <div>
+              <h2>比赛工作台</h2>
+              <p>直接进入比赛监控、Clarification 审批和气球台。</p>
+            </div>
+          </div>
+          <div class="list-stack">
+            <div v-for="contest in data.contests" :key="contest.id" class="judge-contest-row">
+              <div class="judge-contest-main">
+                <strong>{{ contest.title }}</strong>
+                <span>{{ contest.rule }} · {{ contest.status }} · {{ formatDate(contest.start_at) }} - {{ formatDate(contest.end_at) }}</span>
+              </div>
+              <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
+              <div class="row-actions">
+                <button class="secondary-action compact" type="button" @click="openMonitor(contest.id)">
+                  <Server :size="14" />监控
+                </button>
+                <button class="secondary-action compact" type="button" @click="openClarifications(contest.id)">
+                  <MessageSquare :size="14" />Clar
+                </button>
+                <button class="secondary-action compact" type="button" @click="openBalloons(contest.id)">
+                  <Trophy :size="14" />气球
+                </button>
+              </div>
+            </div>
+            <p v-if="data.contests.length === 0" class="empty-text">当前没有比赛可供监控。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
               <h2>节点状态</h2>
               <p>沙箱节点心跳与负载</p>
             </div>
@@ -58,23 +105,7 @@ onMounted(async () => {
               <StatusBadge :status="node.status" />
               <b>{{ node.queue_depth }} / {{ Math.round(node.load * 100) }}%</b>
             </div>
-            <p v-if="data.judge_nodes.length === 0" class="empty-state">暂无评测节点心跳。</p>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>提交流</h2>
-              <p>最近 10 条提交</p>
-            </div>
-          </div>
-          <div class="submission-feed">
-            <div v-for="item in data.last_submissions" :key="item.id" class="submission-row">
-              <span>{{ item.problem_title }}</span>
-              <StatusBadge :status="item.status" />
-              <strong>{{ item.score }}/{{ item.max_score }}</strong>
-            </div>
+            <p v-if="data.judge_nodes.length === 0" class="empty-text">暂无评测节点心跳。</p>
           </div>
         </div>
       </section>
@@ -93,7 +124,7 @@ onMounted(async () => {
           <StatusBadge :status="job.status" />
           <strong>{{ job.assigned_node_id ?? '待分配' }}</strong>
         </div>
-        <p v-if="data.queue.last_jobs.length === 0" class="empty-state">暂无代码评测队列任务。</p>
+        <p v-if="data.queue.last_jobs.length === 0" class="empty-text">暂无代码评测队列任务。</p>
       </div>
     </BaseModal>
   </div>

@@ -262,6 +262,156 @@ a {
   max-width: 980px;
 }
 
+.pure-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.contest-monitor-page {
+  max-width: 1180px;
+}
+
+.contest-monitor-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.monitor-stat-card,
+.monitor-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.monitor-stat-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.monitor-stat-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.monitor-stat-card strong {
+  font-size: 28px;
+}
+
+.monitor-stat-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.contest-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.monitor-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.monitor-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitor-panel-head p {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.monitor-feed,
+.monitor-list {
+  display: grid;
+  gap: 10px;
+}
+
+.monitor-feed-row,
+.monitor-list-row,
+.judge-contest-row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 90%, white 10%);
+}
+
+.monitor-feed-row {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+}
+
+.monitor-list-row.compact {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.monitor-feed-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.monitor-feed-main strong,
+.monitor-feed-main span,
+.monitor-feed-main p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.monitor-feed-main span {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.monitor-feed-main p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+  white-space: normal;
+}
+
+.judge-clar-page {
+  max-width: 980px;
+}
+
+.judge-clar-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.judge-clar-card {
+  gap: 14px;
+}
+
+.judge-contest-row {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+}
+
+.judge-contest-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.judge-contest-main span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .balloon-section {
   display: grid;
   gap: 14px;
