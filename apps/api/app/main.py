@@ -580,6 +580,16 @@ def problem_set_detail(problem_set: ProblemSet, store: Repository) -> ProblemSet
     )
 
 
+def objective_offline_pack_response(problems: list[Problem], store: Repository) -> OfflinePackResponse:
+    visible_problems = [problem for problem in problems if problem.visible]
+    judge_configs = {
+        problem.id: store.get_problem_judge_config(problem.id)
+        for problem in visible_problems
+        if problem.type != "code"
+    }
+    return OfflinePackResponse(**build_offline_pack(visible_problems, judge_configs))
+
+
 @app.get("/health", response_model=HealthResponse, include_in_schema=False)
 @app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
@@ -2096,6 +2106,27 @@ def get_problem_set(problem_set_id: str, store: Repository = Depends(get_reposit
     return problem_set_detail(problem_set, store)
 
 
+@app.get("/api/v1/problem-sets/{problem_set_id}/offline-package", response_model=OfflinePackResponse)
+def problem_set_offline_package(
+    problem_set_id: str,
+    user: User = Depends(require_student_permissions("training:offline")),
+    store: Repository = Depends(get_repository),
+) -> OfflinePackResponse:
+    problem_set = store.get_problem_set(problem_set_id)
+    if not problem_set or problem_set.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem set not found")
+    visible_problems = {problem.id: problem for problem in store.list_problems() if problem.visible}
+    problems = [visible_problems[pid] for pid in problem_set.problem_ids if pid in visible_problems]
+    objective_count = sum(1 for problem in problems if problem.type != "code")
+    store.add_audit(
+        user.id,
+        "problem_set.offline_package",
+        f"problem_set:{problem_set.id}",
+        {"problem_count": objective_count},
+    )
+    return objective_offline_pack_response(problems, store)
+
+
 @app.put("/api/v1/problem-sets/{problem_set_id}", response_model=ProblemSetDetail)
 def update_problem_set(
     problem_set_id: str,
@@ -2215,8 +2246,7 @@ def offline_pack(
 ) -> OfflinePackResponse:
     store.add_audit(user.id, "training.offline_pack", "training:objective")
     problems = [problem for problem in store.list_problems() if problem.visible]
-    judge_configs = {problem.id: store.get_problem_judge_config(problem.id) for problem in problems if problem.type != "code"}
-    return OfflinePackResponse(**build_offline_pack(problems, judge_configs))
+    return objective_offline_pack_response(problems, store)
 
 
 @app.post("/api/v1/offline-results/sync", response_model=OfflineResultSyncResponse)

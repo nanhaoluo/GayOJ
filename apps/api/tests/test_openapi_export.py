@@ -23,6 +23,7 @@ def test_openapi_export_file_matches_fastapi_schema() -> None:
     assert "/api/v1/problems" in exported["paths"]
     assert "/api/v1/problems/{problem_id}/submit-code" in exported["paths"]
     assert "/api/v1/training/offline-pack" in exported["paths"]
+    assert "/api/v1/problem-sets/{problem_set_id}/offline-package" in exported["paths"]
     assert "/api/v1/judge/languages" in exported["paths"]
     assert "/api/v1/admin/compiler-configs" in exported["paths"]
 

@@ -1,9 +1,12 @@
 ﻿from __future__ import annotations
 
+import json
+
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import sign_payload
 
 
 def test_openapi_business_routes_are_versioned_and_typed() -> None:
@@ -112,4 +115,41 @@ def test_offline_pack_is_authorized_objective_only(client: TestClient, auth_head
     assert payload["scope"] == "objective-only"
     assert {problem["type"] for problem in payload["problems"]} <= {"blank", "single_choice", "multiple_choice"}
     assert all(problem["judge_config"] for problem in payload["problems"])
+
+
+def test_problem_set_offline_package_is_authorized_objective_only_and_signed(
+    client: TestClient,
+    auth_headers,
+    offline_cli_module,
+    tmp_path,
+) -> None:
+    assert client.get("/api/v1/problem-sets/PS1001/offline-package").status_code == 401
+    assert client.get("/api/v1/problem-sets/UNKNOWN/offline-package", headers=auth_headers("alice")).status_code == 404
+    assert client.get("/api/v1/problem-sets/PS1001/offline-package", headers=auth_headers("coach")).status_code == 403
+
+    response = client.get("/api/v1/problem-sets/PS1001/offline-package", headers=auth_headers("alice"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    payload = body["payload"]
+    problems = payload["problems"]
+    assert payload["scope"] == "objective-only"
+    assert [problem["id"] for problem in problems] == ["P1002", "P1003"]
+    assert {problem["type"] for problem in problems} == {"blank", "single_choice"}
+    assert "P1001" not in {problem["id"] for problem in problems}
+    assert all(problem["judge_config"] for problem in problems)
+    assert body["signature"] == sign_payload(payload)
+
+    pack_path = tmp_path / "problem-set-pack.json"
+    pack_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    loaded_payload = offline_cli_module.load_pack(pack_path)
+    assert [problem["id"] for problem in loaded_payload["problems"]] == ["P1002", "P1003"]
+
+
+def test_objective_only_problem_set_offline_package_contains_set_scope(client: TestClient, auth_headers) -> None:
+    response = client.get("/api/v1/problem-sets/PS1002/offline-package", headers=auth_headers("alice"))
+
+    assert response.status_code == 200, response.text
+    problems = response.json()["payload"]["problems"]
+    assert [problem["id"] for problem in problems] == ["P1004"]
+    assert {problem["type"] for problem in problems} == {"multiple_choice"}
 

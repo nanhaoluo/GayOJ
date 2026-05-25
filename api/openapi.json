@@ -7196,6 +7196,61 @@
         "summary": "Update Problem Set"
       }
     },
+    "/api/v1/problem-sets/{problem_set_id}/offline-package": {
+      "get": {
+        "operationId": "problem_set_offline_package_api_v1_problem_sets__problem_set_id__offline_package_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_set_id",
+            "required": true,
+            "schema": {
+              "title": "Problem Set Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfflinePackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Problem Set Offline Package"
+      }
+    },
     "/api/v1/problems": {
       "get": {
         "operationId": "list_problems_api_v1_problems_get",

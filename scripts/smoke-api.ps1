@@ -341,6 +341,14 @@ Assert-True ($firstProblemSetProblems.Count -gt 0) "problem set must include pro
 foreach ($problem in $firstProblemSetProblems) {
     Assert-True (-not (Has-Property -Value $problem -Name "judge_config")) "problem set problem summary must not include judge_config"
 }
+$setOfflinePack = Invoke-ApiJson -Method GET -Path "/problem-sets/$($firstProblemSet.id)/offline-package" -Token $token
+Assert-True ($setOfflinePack.payload.scope -eq "objective-only") "problem set offline pack must be objective-only"
+$setOfflineProblems = @(ConvertTo-ItemArray -Value $setOfflinePack.payload.problems)
+Assert-True ($setOfflineProblems.Count -gt 0) "problem set offline pack must include objective problems"
+foreach ($problem in $setOfflineProblems) {
+    Assert-True ($problem.type -ne "code") "problem set offline pack must not include code problems"
+    Assert-True (Has-Property -Value $problem -Name "judge_config") "offline pack problem must include authorized judge_config"
+}
 
 Write-Step "checking notifications"
 $notifications = @(ConvertTo-ItemArray -Value (Invoke-ApiJson -Method GET -Path "/notifications" -Token $token))

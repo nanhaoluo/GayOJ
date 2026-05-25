@@ -232,6 +232,13 @@
 - API 侧 `judge_objective()` 与离线 CLI `judge()` 使用同一规则语义；管理端保存时校验正则和数值误差配置。
 - `blank_rules` 仍属于管理端和授权离线包中的 `judge_config`，普通题面接口、题单和比赛详情不返回该字段。
 
+## P5-03 题单离线包下载
+
+- 新增 `GET /api/v1/problem-sets/{problem_set_id}/offline-package`，学生可按公开题单下载签名客观题离线包。
+- 题单包沿用全局离线包格式与签名算法，但只取该题单中的可见题目，并在打包时过滤代码题。
+- 普通题单列表和题单详情仍只返回题目摘要，不返回 `judge_config`；授权离线包 payload 内保留客观题判题配置供 CLI 本地训练。
+- 离线 CLI 新增 `pull-set <id>`，也支持 `download --problem-set-id <id>`；本地判题仍只接受填空题、单选题和多选题。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

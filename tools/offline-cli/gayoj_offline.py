@@ -169,10 +169,19 @@ def cmd_download(args: argparse.Namespace) -> None:
     token = args.token or os.getenv("GAYOJ_TOKEN")
     if not token:
         raise SystemExit("请通过 --token 或 GAYOJ_TOKEN 提供登录令牌。")
-    data = request_json(f"{args.api.rstrip('/')}/training/offline-pack", token=token)
+    api_base = args.api.rstrip("/")
+    if getattr(args, "problem_set_id", None):
+        data = request_json(f"{api_base}/problem-sets/{args.problem_set_id}/offline-package", token=token)
+    else:
+        data = request_json(f"{api_base}/training/offline-pack", token=token)
     output = Path(args.output)
     output.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"已下载离线训练包：{output}")
+
+
+def cmd_pull_set(args: argparse.Namespace) -> None:
+    args.problem_set_id = args.problem_set_id.strip()
+    cmd_download(args)
 
 
 def cmd_practice(args: argparse.Namespace) -> None:
@@ -258,8 +267,16 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser = sub.add_parser("download", help="下载签名离线训练包")
     download_parser.add_argument("--api", default=DEFAULT_API_BASE)
     download_parser.add_argument("--token")
+    download_parser.add_argument("--problem-set-id", help="只下载指定题单中的客观题")
     download_parser.add_argument("-o", "--output", default="offline-pack.json")
     download_parser.set_defaults(func=cmd_download)
+
+    pull_set_parser = sub.add_parser("pull-set", help="下载指定题单的客观题离线训练包")
+    pull_set_parser.add_argument("problem_set_id")
+    pull_set_parser.add_argument("--api", default=DEFAULT_API_BASE)
+    pull_set_parser.add_argument("--token")
+    pull_set_parser.add_argument("-o", "--output", default="offline-pack.json")
+    pull_set_parser.set_defaults(func=cmd_pull_set)
 
     practice_parser = sub.add_parser("practice", help="使用离线训练包答题并本地判分")
     practice_parser.add_argument("pack")

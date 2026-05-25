@@ -505,6 +505,15 @@ Blank problems can now set per-blank rules inside management-only
 and offline CLI share the same behavior, while ordinary problem detail responses
 still omit `judge_config`.
 
+## P5-03 Problem-set offline packages
+
+Students can download an objective-only offline package for a specific public
+problem set from `GET /api/v1/problem-sets/{problem_set_id}/offline-package`.
+The package keeps the existing signed offline-pack format, filters out code
+problems, and includes `judge_config` only inside the authorized offline payload.
+The offline CLI supports both `download --problem-set-id <id>` and
+`pull-set <id>` for this flow.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
@@ -647,6 +656,12 @@ py -3.12 tools/offline-cli/gayoj_offline.py login -u alice -p gayoj123
 ```powershell
 $env:GAYOJ_TOKEN="<上一步输出的 token>"
 py -3.12 tools/offline-cli/gayoj_offline.py download -o offline-pack.json
+```
+
+按题单下载离线包：
+
+```powershell
+py -3.12 tools/offline-cli/gayoj_offline.py pull-set PS1001 -o ps1001-pack.json
 ```
 
 本地答题：

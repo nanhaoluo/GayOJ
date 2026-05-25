@@ -95,6 +95,10 @@ def test_only_students_can_participate_in_submission_and_training_flows(client: 
             json={"answers": {"choice": "B"}},
         )
         offline_pack = client.get("/api/v1/training/offline-pack", headers=auth_headers(username))
+        problem_set_offline_pack = client.get(
+            "/api/v1/problem-sets/PS1001/offline-package",
+            headers=auth_headers(username),
+        )
         clarification = client.post(
             "/api/v1/contests/C1001/clarifications",
             headers=auth_headers(username),
@@ -104,6 +108,7 @@ def test_only_students_can_participate_in_submission_and_training_flows(client: 
         assert code_response.status_code == 403
         assert objective_response.status_code == 403
         assert offline_pack.status_code == 403
+        assert problem_set_offline_pack.status_code == 403
         assert clarification.status_code == 403
         assert code_response.json()["detail"] == "Permission denied"
         assert objective_response.json()["detail"] == "Permission denied"
