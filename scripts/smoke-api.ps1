@@ -343,6 +343,8 @@ foreach ($problem in $firstProblemSetProblems) {
 }
 $setOfflinePack = Invoke-ApiJson -Method GET -Path "/problem-sets/$($firstProblemSet.id)/offline-package" -Token $token
 Assert-True ($setOfflinePack.payload.scope -eq "objective-only") "problem set offline pack must be objective-only"
+Assert-True ($setOfflinePack.payload.signature_algorithm -eq "hmac-sha256") "problem set offline pack must declare hmac-sha256"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$setOfflinePack.payload.expires_at)) "problem set offline pack must include expires_at"
 $setOfflineProblems = @(ConvertTo-ItemArray -Value $setOfflinePack.payload.problems)
 Assert-True ($setOfflineProblems.Count -gt 0) "problem set offline pack must include objective problems"
 foreach ($problem in $setOfflineProblems) {

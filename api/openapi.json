@@ -1467,6 +1467,10 @@
       },
       "OfflinePackPayload": {
         "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
           "generated_at": {
             "title": "Generated At",
             "type": "string"
@@ -1483,6 +1487,12 @@
             "title": "Scope",
             "type": "string"
           },
+          "signature_algorithm": {
+            "const": "hmac-sha256",
+            "default": "hmac-sha256",
+            "title": "Signature Algorithm",
+            "type": "string"
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1491,6 +1501,7 @@
         "required": [
           "version",
           "generated_at",
+          "expires_at",
           "scope",
           "problems"
         ],

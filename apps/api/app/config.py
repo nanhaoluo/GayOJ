@@ -33,6 +33,7 @@ def parse_csv_env_value(value: str | None, default: tuple[str, ...] = ()) -> lis
 SECRET_KEY = get_env("GAYOJ_SECRET_KEY", "gayoj-dev-secret-change-me")
 TOKEN_TTL_HOURS = get_int_env("GAYOJ_TOKEN_TTL_HOURS", 12)
 OFFLINE_PACK_SECRET = get_env("GAYOJ_OFFLINE_PACK_SECRET", "gayoj-offline-dev-secret")
+OFFLINE_PACK_TTL_HOURS = get_int_env("GAYOJ_OFFLINE_PACK_TTL_HOURS", 168)
 API_CORS_ORIGINS = parse_csv_env_value(os.getenv("GAYOJ_API_CORS_ORIGINS"), DEFAULT_CORS_ORIGINS)
 JUDGE_QUEUE_BACKEND = get_env("GAYOJ_JUDGE_QUEUE_BACKEND", "json").lower()
 JUDGE_QUEUE_TOPIC = get_env("GAYOJ_JUDGE_QUEUE_TOPIC", "gayoj.judge.submissions")

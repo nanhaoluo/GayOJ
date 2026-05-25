@@ -893,6 +893,8 @@ class OfflinePackProblem(BaseModel):
 class OfflinePackPayload(BaseModel):
     version: str
     generated_at: str
+    expires_at: str
+    signature_algorithm: Literal["hmac-sha256"] = "hmac-sha256"
     scope: Literal["objective-only"]
     problems: list[OfflinePackProblem]
 

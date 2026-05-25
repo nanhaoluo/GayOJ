@@ -8,6 +8,7 @@ services:
       GAYOJ_SECRET_KEY: ${GAYOJ_SECRET_KEY:-dev-only-replace-with-a-random-token}
       GAYOJ_TOKEN_TTL_HOURS: ${GAYOJ_TOKEN_TTL_HOURS:-12}
       GAYOJ_OFFLINE_PACK_SECRET: ${GAYOJ_OFFLINE_PACK_SECRET:-dev-only-replace-with-offline-pack-secret}
+      GAYOJ_OFFLINE_PACK_TTL_HOURS: ${GAYOJ_OFFLINE_PACK_TTL_HOURS:-168}
       GAYOJ_API_CORS_ORIGINS: ${GAYOJ_API_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080}
     ports:
       - "${GAYOJ_COMPOSE_API_PORT:-8000}:8000"

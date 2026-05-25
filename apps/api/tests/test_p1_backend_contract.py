@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -113,6 +114,8 @@ def test_offline_pack_is_authorized_objective_only(client: TestClient, auth_head
     assert response.status_code == 200, response.text
     payload = response.json()["payload"]
     assert payload["scope"] == "objective-only"
+    assert payload["signature_algorithm"] == "hmac-sha256"
+    assert datetime.fromisoformat(payload["expires_at"]).astimezone(timezone.utc) > datetime.now(timezone.utc)
     assert {problem["type"] for problem in payload["problems"]} <= {"blank", "single_choice", "multiple_choice"}
     assert all(problem["judge_config"] for problem in payload["problems"])
 
@@ -143,6 +146,29 @@ def test_problem_set_offline_package_is_authorized_objective_only_and_signed(
     pack_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
     loaded_payload = offline_cli_module.load_pack(pack_path)
     assert [problem["id"] for problem in loaded_payload["problems"]] == ["P1002", "P1003"]
+
+    tampered = json.loads(json.dumps(body))
+    tampered["payload"]["problems"][0]["title"] = "tampered"
+    tampered_path = tmp_path / "tampered-pack.json"
+    tampered_path.write_text(json.dumps(tampered, ensure_ascii=False), encoding="utf-8")
+    try:
+        offline_cli_module.load_pack(tampered_path)
+    except SystemExit as exc:
+        assert "签名校验失败" in str(exc)
+    else:
+        raise AssertionError("tampered offline pack must be rejected")
+
+    expired = json.loads(json.dumps(body))
+    expired["payload"]["expires_at"] = "2000-01-01T00:00:00+00:00"
+    expired["signature"] = sign_payload(expired["payload"])
+    expired_path = tmp_path / "expired-pack.json"
+    expired_path.write_text(json.dumps(expired, ensure_ascii=False), encoding="utf-8")
+    try:
+        offline_cli_module.load_pack(expired_path)
+    except SystemExit as exc:
+        assert "已过期" in str(exc)
+    else:
+        raise AssertionError("expired offline pack must be rejected")
 
 
 def test_objective_only_problem_set_offline_package_contains_set_scope(client: TestClient, auth_headers) -> None:

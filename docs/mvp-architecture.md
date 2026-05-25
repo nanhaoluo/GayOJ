@@ -239,6 +239,13 @@
 - 普通题单列表和题单详情仍只返回题目摘要，不返回 `judge_config`；授权离线包 payload 内保留客观题判题配置供 CLI 本地训练。
 - 离线 CLI 新增 `pull-set <id>`，也支持 `download --problem-set-id <id>`；本地判题仍只接受填空题、单选题和多选题。
 
+## P5-04 离线包有效期与签名
+
+- 离线包 payload 新增 `signature_algorithm: hmac-sha256` 与 `expires_at`，默认有效期由 `GAYOJ_OFFLINE_PACK_TTL_HOURS` 控制。
+- HMAC 签名覆盖完整 payload，题面、答案、`judge_config`、有效期或签名算法任一字段被篡改都会导致 CLI 拒绝加载。
+- 离线 CLI 在练习前先校验签名算法、HMAC 签名和过期时间；过期包必须重新下载。
+- 该机制只保护授权客观题离线训练包，不改变代码题在线队列/worker 评测边界。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

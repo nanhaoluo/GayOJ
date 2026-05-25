@@ -514,6 +514,14 @@ problems, and includes `judge_config` only inside the authorized offline payload
 The offline CLI supports both `download --problem-set-id <id>` and
 `pull-set <id>` for this flow.
 
+## P5-04 Offline package expiry and signature checks
+
+Offline packages now include `signature_algorithm: hmac-sha256` and an
+`expires_at` timestamp. The signature covers the full payload, including the
+expiry metadata, so changing problem content, answers, or expiry invalidates the
+package. The offline CLI verifies the HMAC signature and rejects expired packs
+before any local objective practice starts.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
@@ -550,6 +558,7 @@ Local npm scripts read the same variable names used by Docker Compose. Useful ke
 | `VITE_API_BASE_URL` | `/api/v1` | Browser API base path |
 | `GAYOJ_SECRET_KEY` | dev placeholder | API token signing key |
 | `GAYOJ_OFFLINE_PACK_SECRET` | dev placeholder | Offline objective-pack signing key |
+| `GAYOJ_OFFLINE_PACK_TTL_HOURS` | `168` | Signed offline-pack lifetime |
 | `GAYOJ_API_CORS_ORIGINS` | local web origins | Comma-separated CORS allowlist |
 | `GAYOJ_JUDGE_QUEUE_BACKEND` | `json` | Judge queue backend selector: `json`, `redis`, or `kafka` |
 | `GAYOJ_JUDGE_QUEUE_TOPIC` | `gayoj.judge.submissions` | Redis list name or Kafka topic for code judge jobs |

@@ -4,11 +4,11 @@ import hashlib
 import hmac
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from .config import OFFLINE_PACK_SECRET
+from .config import OFFLINE_PACK_SECRET, OFFLINE_PACK_TTL_HOURS
 from .models import ObjectiveItemResult, Problem
 
 
@@ -171,9 +171,13 @@ def sign_payload(payload: dict[str, Any]) -> str:
 
 
 def build_offline_pack(problems: list[Problem], judge_configs: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    generated_at = datetime.now(timezone.utc)
+    expires_at = generated_at + timedelta(hours=max(OFFLINE_PACK_TTL_HOURS, 1))
     pack = {
         "version": "1.0",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "signature_algorithm": "hmac-sha256",
         "scope": "objective-only",
         "problems": [
             {

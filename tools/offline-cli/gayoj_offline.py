@@ -16,6 +16,7 @@ from typing import Any
 
 
 PACK_SECRET = os.getenv("GAYOJ_OFFLINE_PACK_SECRET", "gayoj-offline-dev-secret")
+SIGNATURE_ALGORITHM = "hmac-sha256"
 DEFAULT_API_BASE = (
     os.getenv("GAYOJ_CLI_API_BASE")
     or os.getenv("GAYOJ_API_BASE")
@@ -28,14 +29,36 @@ def sign_payload(payload: dict[str, Any]) -> str:
     return hmac.new(PACK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
 
 
+def parse_pack_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def load_pack(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     payload = data.get("payload")
     signature = data.get("signature", "")
     if not isinstance(payload, dict):
         raise SystemExit("离线包格式错误：缺少 payload")
+    if payload.get("signature_algorithm") != SIGNATURE_ALGORITHM:
+        raise SystemExit("离线包签名算法不受支持。")
     if not hmac.compare_digest(sign_payload(payload), signature):
         raise SystemExit("离线包签名校验失败，文件可能被篡改或密钥不一致。")
+    expires_at = parse_pack_datetime(payload.get("expires_at"))
+    if expires_at is None:
+        raise SystemExit("离线包格式错误：缺少有效过期时间。")
+    if expires_at <= datetime.now(timezone.utc):
+        raise SystemExit("离线包已过期，请重新下载。")
     return payload
 
 
