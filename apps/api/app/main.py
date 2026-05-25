@@ -75,6 +75,7 @@ from .models import (
     ProblemSummary,
     ProblemTestData,
     ProblemUpdate,
+    ProblemVisibilityUpdate,
     ProblemVersion,
     PublicUser,
     RankingRow,
@@ -1175,6 +1176,36 @@ def admin_delete_problem(
         {"title": problem.title, "previous_version": archived.version},
     )
     return admin_problem_detail(deleted, store)
+
+
+@app.patch("/api/v1/admin/problems/{problem_id}/visibility", response_model=ProblemAdminDetail)
+def admin_update_problem_visibility(
+    problem_id: str,
+    payload: ProblemVisibilityUpdate,
+    user: User = Depends(require_permissions("problem:edit:own")),
+    store: Repository = Depends(get_repository),
+) -> ProblemAdminDetail:
+    problem = store.get_problem(problem_id)
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    ensure_problem_editable(user, problem)
+    if problem.visible == payload.visible:
+        return admin_problem_detail(problem, store)
+    problem.judge_config = store.get_problem_judge_config(problem.id)
+    archived = store.add_problem_version(problem, user.id, "update")
+    problem.visible = payload.visible
+    updated = store.update_problem(problem)
+    store.add_audit(
+        user.id,
+        "problem.publish" if payload.visible else "problem.unpublish",
+        f"problem:{problem.id}",
+        {
+            "title": problem.title,
+            "visible": payload.visible,
+            "previous_version": archived.version,
+        },
+    )
+    return admin_problem_detail(updated, store)
 
 
 @app.get("/api/v1/admin/problems/{problem_id}/testdata", response_model=ProblemTestData)

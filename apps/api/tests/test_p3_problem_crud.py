@@ -159,6 +159,27 @@ def test_problem_update_permissions_and_soft_delete(client: TestClient, auth_hea
     assert managed.json()["visible"] is False
     assert managed.json()["judge_config"]["answer"] == "B"
 
+    republished = client.patch(
+        f"/api/v1/admin/problems/{problem_id}/visibility",
+        headers=auth_headers("admin"),
+        json={"visible": True},
+    )
+    assert republished.status_code == 200, republished.text
+    assert republished.json()["visible"] is True
+    assert republished.json()["judge_config"]["answer"] == "B"
+
+    public_after_republish = client.get(f"/api/v1/problems/{problem_id}")
+    assert public_after_republish.status_code == 200
+    assert "judge_config" not in public_after_republish.json()
+
+    hidden = client.patch(
+        f"/api/v1/admin/problems/{problem_id}/visibility",
+        headers=auth_headers("admin"),
+        json={"visible": False},
+    )
+    assert hidden.status_code == 200, hidden.text
+    assert hidden.json()["visible"] is False
+
 
 def test_problem_updates_keep_version_history_and_support_restore(client: TestClient, auth_headers) -> None:
     created = client.post(

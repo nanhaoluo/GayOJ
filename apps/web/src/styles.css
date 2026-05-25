@@ -276,16 +276,30 @@ a {
 .quick-logins button,
 .primary-action,
 .secondary-action {
+  max-width: 100%;
   min-height: 38px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  overflow: hidden;
   border-radius: var(--radius);
   border: 0;
   cursor: pointer;
   font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
   transition: transform 140ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.primary-action svg,
+.secondary-action svg,
+.icon-button svg,
+.text-link svg,
+.nav-item svg,
+.status-badge svg {
+  flex: 0 0 auto;
 }
 
 .login-form button,
@@ -325,6 +339,14 @@ a {
   min-height: 32px;
   padding: 0 9px;
   font-size: 12px;
+}
+
+.primary-action > span,
+.secondary-action > span,
+.text-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .content {
@@ -639,8 +661,83 @@ p {
 .node-row span,
 .assignment-row span {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 13px;
+}
+
+.contest-row > *,
+.problem-short-list a > *,
+.submission-row > *,
+.rank-row > *,
+.node-row > *,
+.user-row > *,
+.assignment-row > *,
+.notification-row > *,
+.table-row > *,
+.audit-row > *,
+.set-table-row > *,
+.role-user-row > *,
+.role-matrix-row > *,
+.compiler-config-row > *,
+.problem-manage-row > *,
+.version-history-row > * {
+  min-width: 0;
+}
+
+.table-row > span,
+.table-row > strong,
+.audit-row > span,
+.audit-row > strong,
+.set-table-row > span,
+.set-table-row > strong,
+.set-table-row > div,
+.role-user-row > span,
+.role-user-row > strong,
+.role-matrix-row > span,
+.submission-row > span,
+.submission-row > strong,
+.rank-row > span,
+.rank-row > strong,
+.notification-row strong,
+.notification-row p,
+.notification-row span,
+.version-history-row strong,
+.version-history-row span,
+.testdata-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table-row > span,
+.table-row > strong,
+.audit-row > span,
+.audit-row > strong,
+.set-table-row > span,
+.set-table-row > strong,
+.role-user-row > span,
+.role-user-row > strong,
+.role-matrix-row > span,
+.submission-row > span,
+.submission-row > strong,
+.rank-row > span,
+.rank-row > strong,
+.notification-row strong,
+.notification-row span,
+.version-history-row strong,
+.version-history-row span,
+.testdata-meta span {
+  white-space: nowrap;
+}
+
+.notification-row p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .problem-short-list a {
@@ -662,6 +759,10 @@ p {
 
 .rank-row {
   justify-content: space-between;
+}
+
+.rank-row span {
+  flex: 1 1 auto;
 }
 
 .rank-row b,
@@ -1066,7 +1167,13 @@ pre {
 .table-row {
   min-width: 720px;
   display: grid;
-  grid-template-columns: 120px 1.5fr 110px 120px 90px 120px;
+  grid-template-columns:
+    minmax(84px, 0.7fr)
+    minmax(180px, 2.2fr)
+    minmax(84px, 0.8fr)
+    minmax(104px, 1fr)
+    minmax(70px, 0.65fr)
+    minmax(112px, 0.9fr);
   gap: 12px;
   align-items: center;
   min-height: 52px;
@@ -1077,13 +1184,26 @@ pre {
   border-bottom: 0;
 }
 
+.standings-table {
+  min-width: 560px;
+  grid-template-columns: minmax(64px, 0.45fr) minmax(180px, 2fr) minmax(80px, 0.7fr) minmax(88px, 0.75fr);
+}
+
 .submissions-table {
   min-width: 760px;
 }
 
 .submissions-table.with-actions {
   min-width: 980px;
-  grid-template-columns: 38px 120px 1.5fr 110px 120px 90px 120px 120px;
+  grid-template-columns:
+    38px
+    minmax(92px, 0.85fr)
+    minmax(180px, 2.2fr)
+    minmax(86px, 0.8fr)
+    max-content
+    minmax(72px, 0.65fr)
+    minmax(116px, 0.95fr)
+    max-content;
 }
 
 .submission-toolbar {
@@ -1112,6 +1232,7 @@ pre {
 .row-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -1148,7 +1269,7 @@ pre {
 .audit-row {
   min-width: 680px;
   display: grid;
-  grid-template-columns: minmax(170px, 1.2fr) minmax(160px, 1fr) 120px 128px;
+  grid-template-columns: minmax(150px, 1.25fr) minmax(150px, 1.15fr) minmax(104px, 0.75fr) minmax(128px, 0.85fr);
   gap: 12px;
   align-items: center;
   min-height: 48px;
@@ -1162,7 +1283,6 @@ pre {
 .audit-row span,
 .audit-row strong {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .audit-pager {
@@ -1297,7 +1417,7 @@ pre {
 .set-table-row {
   min-width: 760px;
   display: grid;
-  grid-template-columns: minmax(240px, 1.5fr) 90px 80px 150px 110px;
+  grid-template-columns: minmax(220px, 2fr) minmax(76px, 0.7fr) minmax(70px, 0.6fr) minmax(132px, 1fr) max-content;
   gap: 14px;
   align-items: center;
   min-height: 64px;
@@ -1321,7 +1441,6 @@ pre {
 .set-table-row strong,
 .set-table-row span {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .set-table-row div span {
@@ -1445,7 +1564,7 @@ pre {
 .notification-row {
   min-height: 78px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -1465,6 +1584,7 @@ pre {
 }
 
 .status-badge {
+  flex: 0 0 auto;
   min-width: 74px;
   min-height: 28px;
   padding: 0 9px;
@@ -1480,6 +1600,8 @@ pre {
 .status-online,
 .status-running,
 .status-completed,
+.status-active,
+.status-visible,
 .status-manual_override {
   color: oklch(0.32 0.12 150);
   background: oklch(0.93 0.06 150);
@@ -1493,7 +1615,9 @@ pre {
 .status-output_limit_exceeded,
 .status-system_error,
 .status-failed,
-.status-offline {
+.status-offline,
+.status-disabled,
+.status-hidden {
   color: oklch(0.45 0.16 24);
   background: oklch(0.94 0.06 24);
 }
@@ -1538,7 +1662,7 @@ pre {
 .role-user-row {
   min-height: 56px;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 132px 84px auto auto;
+  grid-template-columns: minmax(190px, 2fr) minmax(132px, 0.9fr) max-content max-content max-content max-content;
   align-items: center;
   gap: 10px;
   padding: 12px;
@@ -1588,7 +1712,7 @@ pre {
 .role-matrix-row {
   min-width: 780px;
   display: grid;
-  grid-template-columns: minmax(230px, 1.5fr) repeat(4, minmax(82px, 1fr));
+  grid-template-columns: minmax(230px, 1.8fr) repeat(4, minmax(82px, 1fr));
   gap: 10px;
   align-items: center;
   min-height: 48px;
@@ -1970,7 +2094,7 @@ pre {
 
 .testdata-meta {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) repeat(3, max-content);
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(96px, 0.5fr));
   gap: 8px;
   align-items: center;
 }
@@ -1978,7 +2102,6 @@ pre {
 .testdata-meta span {
   min-width: 0;
   padding: 7px 9px;
-  overflow-wrap: anywhere;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: white;
@@ -2100,7 +2223,7 @@ pre {
 
 .version-history-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 10px;
   align-items: center;
   padding: 10px;

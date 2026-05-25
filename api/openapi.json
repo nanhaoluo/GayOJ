@@ -2956,6 +2956,20 @@
         "title": "ProblemVersion",
         "type": "object"
       },
+      "ProblemVisibilityUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "visible": {
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "visible"
+        ],
+        "title": "ProblemVisibilityUpdate",
+        "type": "object"
+      },
       "PublicUser": {
         "properties": {
           "disabled": {
@@ -5202,6 +5216,71 @@
           }
         },
         "summary": "Admin Restore Problem Version"
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/visibility": {
+      "patch": {
+        "operationId": "admin_update_problem_visibility_api_v1_admin_problems__problem_id__visibility_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "title": "Problem Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemVisibilityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemAdminDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Update Problem Visibility"
       }
     },
     "/api/v1/admin/rbac/matrix": {

@@ -532,6 +532,16 @@ Assert-True ($restoredVersions.Count -ge 2) "problem restore must archive the st
 $deletedManagedProblem = Invoke-ApiJson -Method DELETE -Path "/admin/problems/$($managedProblem.id)" -Token $roleAdminToken
 Assert-True ($deletedManagedProblem.visible -eq $false) "admin problem delete must soft-delete the problem"
 Invoke-ApiFailure -Method GET -Path "/problems/$($managedProblem.id)" -ExpectedStatus 404
+$republishedManagedProblem = Invoke-ApiJson -Method PATCH -Path "/admin/problems/$($managedProblem.id)/visibility" -Token $roleAdminToken -Body @{
+    visible = $true
+}
+Assert-True ($republishedManagedProblem.visible -eq $true) "admin problem visibility endpoint must republish the problem"
+$publicRepublishedManagedProblem = Invoke-ApiJson -Method GET -Path "/problems/$($managedProblem.id)"
+Assert-True ($publicRepublishedManagedProblem.id -eq $managedProblem.id) "republished problem must return to public detail"
+$deletedManagedProblem = Invoke-ApiJson -Method PATCH -Path "/admin/problems/$($managedProblem.id)/visibility" -Token $roleAdminToken -Body @{
+    visible = $false
+}
+Assert-True ($deletedManagedProblem.visible -eq $false) "admin problem visibility endpoint must unpublish the problem"
 
 Write-Step "checking P3-04 code test-data upload and download"
 $managedCodeProblem = Invoke-ApiJson -Method POST -Path "/admin/problems" -Token $roleAdminToken -Body @{

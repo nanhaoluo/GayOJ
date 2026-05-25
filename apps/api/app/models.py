@@ -258,6 +258,12 @@ class ProblemUpdate(ProblemCreate):
     pass
 
 
+class ProblemVisibilityUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    visible: bool
+
+
 class Tag(BaseModel):
     id: str
     name: str

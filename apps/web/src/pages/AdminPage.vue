@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, ChevronLeft, ChevronRight, FileClock, KeyRound, Languages, Loader2, RefreshCw, Save, Search, Server, Settings, ShieldCheck, UsersRound } from 'lucide-vue-next';
+import { Ban, CheckCircle2, ChevronLeft, ChevronRight, FileClock, KeyRound, Languages, Loader2, RefreshCw, Save, Search, Server, Settings, ShieldCheck, ShieldOff, UsersRound } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -31,6 +31,7 @@ const notice = ref('');
 const compilerNotice = ref('');
 const compilerError = ref('');
 const savingRoleUserId = ref('');
+const updatingUserStatusId = ref('');
 const updatingNodeId = ref('');
 const savingCompilerCode = ref('');
 const selectedCompilerCode = ref('');
@@ -195,11 +196,14 @@ async function toggleBan(user: PublicUser) {
   try {
     actionError.value = '';
     notice.value = '';
+    updatingUserStatusId.value = user.id;
     await apiRequest<PublicUser>(`/admin/users/${user.id}/ban?disabled=${!user.disabled}`, { method: 'PATCH' });
-    notice.value = `${user.display_name} 已${user.disabled ? '解封' : '封禁'}。`;
+    notice.value = `${user.display_name} 已${user.disabled ? '解禁' : '封禁'}。`;
     await load();
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : '用户状态更新失败。';
+  } finally {
+    updatingUserStatusId.value = '';
   }
 }
 
@@ -364,8 +368,18 @@ onMounted(load);
             >
               <CheckCircle2 :size="16" />保存
             </button>
-            <button class="secondary-action" type="button" :disabled="isLastActiveAdmin(user)" @click="toggleBan(user)">
-              {{ user.disabled ? '解封' : '封禁' }}
+            <StatusBadge :status="user.disabled ? 'disabled' : 'active'" />
+            <button
+              class="secondary-action"
+              :class="{ 'danger-action': !user.disabled }"
+              type="button"
+              :disabled="isLastActiveAdmin(user) || updatingUserStatusId === user.id"
+              @click="toggleBan(user)"
+            >
+              <Loader2 v-if="updatingUserStatusId === user.id" :size="16" class="spin" />
+              <ShieldOff v-else-if="user.disabled" :size="16" />
+              <Ban v-else :size="16" />
+              {{ user.disabled ? '解禁' : '封禁' }}
             </button>
           </div>
         </div>

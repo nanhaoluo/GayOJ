@@ -131,13 +131,13 @@ onMounted(load);
       @close="standingsOpen = false"
     >
       <section class="table-panel">
-      <div class="table-row table-head">
+      <div class="table-row standings-table table-head">
         <span>#</span>
         <span>用户</span>
         <span>解题</span>
         <span>总分</span>
       </div>
-      <div v-for="(row, index) in standings" :key="String(row.user_id)" class="table-row">
+      <div v-for="(row, index) in standings" :key="String(row.user_id)" class="table-row standings-table">
         <strong>{{ index + 1 }}</strong>
         <span>{{ row.display_name }}</span>
         <span>{{ row.solved }}</span>

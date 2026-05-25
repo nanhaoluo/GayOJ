@@ -3,6 +3,7 @@ import { Download, Eye, EyeOff, History, Loader2, Plus, RefreshCw, RotateCcw, Sa
 import { computed, onMounted, reactive, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
+import StatusBadge from '@/components/StatusBadge.vue';
 import { API_BASE, apiRequest, formatDate, getStoredAuthToken, problemTypeLabel } from '@/services/api';
 import type {
   ProblemAdminDetail,
@@ -40,6 +41,7 @@ const loading = ref(false);
 const versionLoading = ref(false);
 const versionRestoringId = ref('');
 const saving = ref(false);
+const visibilityUpdatingId = ref('');
 const error = ref('');
 const notice = ref('');
 const search = ref('');
@@ -600,12 +602,28 @@ async function restoreVersion(version: ProblemVersion) {
 }
 
 async function deleteProblem(problem: ProblemAdminDetail) {
-  if (!window.confirm(`确认下线 ${problem.id} · ${problem.title}？`)) return;
+  await updateProblemVisibility(problem, false);
+}
+
+async function updateProblemVisibility(problem: ProblemAdminDetail, visible: boolean) {
+  const action = visible ? '上架' : '下架';
+  if (!window.confirm(`确认${action} ${problem.id} · ${problem.title}？`)) return;
   error.value = '';
   notice.value = '';
-  const deleted = await apiRequest<ProblemAdminDetail>(`/admin/problems/${problem.id}`, { method: 'DELETE' });
-  notice.value = `${deleted.id} 已下线。`;
-  await loadProblems();
+  visibilityUpdatingId.value = problem.id;
+  try {
+    const updated = await apiRequest<ProblemAdminDetail>(`/admin/problems/${problem.id}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visible }),
+    });
+    notice.value = `${updated.id} 已${action}。`;
+    selectedId.value = updated.id;
+    await loadProblems();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : `题目${action}失败。`;
+  } finally {
+    visibilityUpdatingId.value = '';
+  }
 }
 
 onMounted(() => {
@@ -690,6 +708,7 @@ onMounted(() => {
                 {{ problemTypeLabel(selectedProblem.type) }} · {{ selectedProblem.difficulty }} ·
                 {{ selectedProblem.visible ? '公开' : '已下线' }}
               </p>
+              <StatusBadge :status="selectedProblem.visible ? 'visible' : 'hidden'" />
             </div>
           </div>
 
@@ -711,8 +730,17 @@ onMounted(() => {
             <button class="secondary-action" type="button" :disabled="exporting" @click="exportProblems('selected')">
               <Download :size="16" />导出当前
             </button>
-            <button class="secondary-action danger-action" type="button" @click="deleteProblem(selectedProblem)">
-              <Trash2 :size="16" />下线
+            <button
+              class="secondary-action"
+              :class="{ 'danger-action': selectedProblem.visible }"
+              type="button"
+              :disabled="visibilityUpdatingId === selectedProblem.id"
+              @click="selectedProblem.visible ? deleteProblem(selectedProblem) : updateProblemVisibility(selectedProblem, true)"
+            >
+              <Loader2 v-if="visibilityUpdatingId === selectedProblem.id" :size="16" class="spin" />
+              <Trash2 v-else-if="selectedProblem.visible" :size="16" />
+              <Eye v-else :size="16" />
+              {{ selectedProblem.visible ? '下架' : '上架' }}
             </button>
           </div>
 
