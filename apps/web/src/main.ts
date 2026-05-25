@@ -14,6 +14,7 @@ import ContestStandingsPage from './pages/ContestStandingsPage.vue';
 import DashboardPage from './pages/DashboardPage.vue';
 import DiscussPage from './pages/DiscussPage.vue';
 import JudgePage from './pages/JudgePage.vue';
+import JudgeClarificationPage from './pages/JudgeClarificationPage.vue';
 import NotificationsPage from './pages/NotificationsPage.vue';
 import ProblemDetailPage from './pages/ProblemDetailPage.vue';
 import ProblemManagePage from './pages/ProblemManagePage.vue';
@@ -39,6 +40,7 @@ const router = createRouter({
     { path: '/contests/:id/clar', component: ContestClarificationPage, meta: { pure: true } },
     { path: '/judge/monitor/:id', component: ContestJudgePage, meta: { pure: true } },
     { path: '/judge/balloons/:id', component: ContestBalloonPage, meta: { pure: true } },
+    { path: '/judge/clar/:id', component: JudgeClarificationPage, meta: { pure: true } },
     { path: '/contests/:id/print', component: ContestPrintPage, meta: { pure: true } },
     { path: '/submissions', component: SubmissionsPage },
     { path: '/rankings', component: RankingsPage },

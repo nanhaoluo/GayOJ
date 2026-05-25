@@ -375,6 +375,25 @@ export interface JudgeMonitor {
   balloons: ContestBalloon[];
 }
 
+export interface ContestJudgeQueueSummary {
+  backend: JudgeQueueBackend;
+  topic: string;
+  depth: number;
+  pending: number;
+  leased: number;
+  last_jobs: JudgeQueueJob[];
+}
+
+export interface ContestJudgeMonitor {
+  contest: Contest;
+  queue_depth: number;
+  queue: ContestJudgeQueueSummary;
+  last_submissions: Submission[];
+  judge_nodes: JudgeNode[];
+  clarifications: Clarification[];
+  balloons: ContestBalloon[];
+}
+
 export interface AuditLog {
   id: string;
   actor_id: string | null;

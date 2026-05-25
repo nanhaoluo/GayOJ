@@ -1203,6 +1203,103 @@
         "title": "ContestFreezeRequest",
         "type": "object"
       },
+      "ContestJudgeMonitorResponse": {
+        "properties": {
+          "balloons": {
+            "items": {
+              "$ref": "#/components/schemas/ContestBalloon"
+            },
+            "title": "Balloons",
+            "type": "array"
+          },
+          "clarifications": {
+            "items": {
+              "$ref": "#/components/schemas/Clarification"
+            },
+            "title": "Clarifications",
+            "type": "array"
+          },
+          "contest": {
+            "$ref": "#/components/schemas/ContestDetail"
+          },
+          "judge_nodes": {
+            "items": {
+              "$ref": "#/components/schemas/JudgeNode"
+            },
+            "title": "Judge Nodes",
+            "type": "array"
+          },
+          "last_submissions": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionReview"
+            },
+            "title": "Last Submissions",
+            "type": "array"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/ContestJudgeQueueSummary"
+          },
+          "queue_depth": {
+            "title": "Queue Depth",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contest",
+          "queue_depth",
+          "queue",
+          "last_submissions",
+          "judge_nodes",
+          "clarifications"
+        ],
+        "title": "ContestJudgeMonitorResponse",
+        "type": "object"
+      },
+      "ContestJudgeQueueSummary": {
+        "properties": {
+          "backend": {
+            "enum": [
+              "json",
+              "redis",
+              "kafka"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "last_jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JudgeQueueJob"
+            },
+            "title": "Last Jobs",
+            "type": "array"
+          },
+          "leased": {
+            "title": "Leased",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "topic",
+          "depth",
+          "pending",
+          "leased"
+        ],
+        "title": "ContestJudgeQueueSummary",
+        "type": "object"
+      },
       "ContestPrintRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8770,6 +8867,65 @@
         "summary": "Health"
       }
     },
+    "/api/v1/judge/clar/{contest_id}": {
+      "get": {
+        "operationId": "list_judge_contest_clarifications_api_v1_judge_clar__contest_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Clarification"
+                  },
+                  "title": "Response List Judge Contest Clarifications Api V1 Judge Clar  Contest Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Judge Contest Clarifications"
+      }
+    },
     "/api/v1/judge/languages": {
       "get": {
         "operationId": "list_judge_languages_api_v1_judge_languages_get",
@@ -8836,6 +8992,61 @@
           }
         },
         "summary": "Judge Monitor"
+      }
+    },
+    "/api/v1/judge/monitor/{contest_id}": {
+      "get": {
+        "operationId": "contest_judge_monitor_api_v1_judge_monitor__contest_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestJudgeMonitorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Contest Judge Monitor"
       }
     },
     "/api/v1/judge/nodes/heartbeat": {

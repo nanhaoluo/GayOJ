@@ -1,23 +1,39 @@
 <script setup lang="ts">
-import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
-import { onMounted, ref } from 'vue';
+import { ArrowLeft, MessageSquare, RefreshCw, ScrollText, Trophy } from 'lucide-vue-next';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
-import { apiRequest } from '@/services/api';
-import type { JudgeMonitor } from '@/services/types';
+import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
+import type { ContestJudgeMonitor } from '@/services/types';
 
 const route = useRoute();
 const router = useRouter();
-const data = ref<JudgeMonitor | null>(null);
+const data = ref<ContestJudgeMonitor | null>(null);
 const error = ref('');
+
+const pendingClarifications = computed(() => data.value?.clarifications.filter((item) => !item.answer) ?? []);
+const repliedClarifications = computed(() => data.value?.clarifications.filter((item) => item.answer) ?? []);
+const pendingBalloons = computed(() => data.value?.balloons.filter((item) => !item.released) ?? []);
 
 async function load() {
   error.value = '';
   try {
-    data.value = await apiRequest<JudgeMonitor>('/judge/monitor');
+    data.value = await apiRequest<ContestJudgeMonitor>(`/judge/monitor/${route.params.id}`);
   } catch (err) {
     error.value = err instanceof Error ? err.message : '加载失败';
   }
+}
+
+async function openClarificationDesk() {
+  await router.push(`/judge/clar/${route.params.id}`);
+}
+
+async function openBalloonDesk() {
+  await router.push(`/judge/balloons/${route.params.id}`);
+}
+
+async function openStandings() {
+  await router.push(`/contests/${route.params.id}/standings`);
 }
 
 onMounted(load);
@@ -27,21 +43,140 @@ onMounted(load);
   <div class="pure-page">
     <header class="pure-toolbar">
       <button class="secondary-action" type="button" @click="router.back()"><ArrowLeft :size="16" />返回</button>
-      <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
+      <div class="pure-toolbar-actions">
+        <button class="secondary-action" type="button" @click="openClarificationDesk">
+          <MessageSquare :size="16" />Clarification
+        </button>
+        <button class="secondary-action" type="button" @click="openBalloonDesk">
+          <Trophy :size="16" />气球台
+        </button>
+        <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
+      </div>
     </header>
-    <section class="pure-content">
+
+    <section class="pure-content contest-monitor-page">
       <div class="pure-heading">
-        <h1>裁判组</h1>
-        <p>{{ route.params.id || '全局监控' }}</p>
+        <h1>{{ data?.contest.title || '比赛监控面板' }}</h1>
+        <p v-if="data">
+          {{ data.contest.rule }} · {{ data.contest.status }} · {{ formatDate(data.contest.start_at) }} - {{ formatDate(data.contest.end_at) }}
+        </p>
       </div>
+
       <p v-if="error" class="form-error">{{ error }}</p>
-      <div v-if="data" class="list-stack">
-        <div v-for="node in data.judge_nodes" :key="node.id" class="reply-row">
-          <strong>{{ node.name }}</strong>
-          <span>{{ node.languages.join(', ') }}</span>
-          <StatusBadge :status="node.status" />
-        </div>
-      </div>
+
+      <template v-if="data">
+        <section class="contest-monitor-summary">
+          <article class="monitor-stat-card">
+            <small>队列深度</small>
+            <strong>{{ data.queue_depth }}</strong>
+            <span>{{ data.queue.pending }} 待调度 / {{ data.queue.leased }} 执行中</span>
+          </article>
+          <article class="monitor-stat-card">
+            <small>比赛提交</small>
+            <strong>{{ data.last_submissions.length }}</strong>
+            <span>最近 10 条比赛内提交</span>
+          </article>
+          <article class="monitor-stat-card">
+            <small>Clarification</small>
+            <strong>{{ pendingClarifications.length }}</strong>
+            <span>{{ repliedClarifications.length }} 条已处理</span>
+          </article>
+          <article class="monitor-stat-card">
+            <small>气球</small>
+            <strong>{{ pendingBalloons.length }}</strong>
+            <span>{{ data.balloons.length }} 条比赛记录</span>
+          </article>
+        </section>
+
+        <section class="contest-monitor-grid">
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>实时提交流</h2>
+                <p>只展示当前比赛的提交记录</p>
+              </div>
+              <button class="secondary-action compact" type="button" @click="openStandings">
+                <ScrollText :size="14" />榜单
+              </button>
+            </div>
+            <div class="monitor-feed">
+              <div v-for="item in data.last_submissions" :key="item.id" class="monitor-feed-row">
+                <div class="monitor-feed-main">
+                  <strong>{{ item.problem_title }}</strong>
+                  <span>{{ problemTypeLabel(item.problem_type) }} · {{ item.language || '客观题' }} · {{ formatDate(item.created_at) }}</span>
+                </div>
+                <StatusBadge :status="item.status" />
+                <strong>{{ item.score }}/{{ item.max_score }}</strong>
+              </div>
+              <p v-if="data.last_submissions.length === 0" class="empty-text">当前比赛还没有提交记录。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>Clarification</h2>
+                <p>未处理问题优先展示</p>
+              </div>
+              <button class="secondary-action compact" type="button" @click="openClarificationDesk">
+                <MessageSquare :size="14" />审批台
+              </button>
+            </div>
+            <div class="monitor-list">
+              <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
+                <div class="monitor-feed-main">
+                  <strong>{{ item.problem_title || item.problem_id || '全局问题' }}</strong>
+                  <span>{{ item.user_display_name || '匿名选手' }} · {{ formatDate(item.created_at) }}</span>
+                  <p>{{ item.question }}</p>
+                </div>
+                <StatusBadge :status="item.answer ? 'completed' : 'pending'" />
+              </div>
+              <p v-if="data.clarifications.length === 0" class="empty-text">当前比赛没有 Clarification 记录。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>评测队列</h2>
+                <p>{{ data.queue.backend }} · {{ data.queue.topic }}</p>
+              </div>
+            </div>
+            <div class="monitor-list">
+              <div v-for="job in data.queue.last_jobs" :key="job.id" class="monitor-list-row compact">
+                <div class="monitor-feed-main">
+                  <strong>{{ job.problem_id }} · {{ job.language }}</strong>
+                  <span>{{ job.submission_id }} · {{ formatDate(job.created_at) }}</span>
+                </div>
+                <StatusBadge :status="job.status" />
+              </div>
+              <p v-if="data.queue.last_jobs.length === 0" class="empty-text">当前比赛没有代码评测队列任务。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>气球记录</h2>
+                <p>仅统计当前比赛可发放气球的通过记录</p>
+              </div>
+              <button class="secondary-action compact" type="button" @click="openBalloonDesk">
+                <Trophy :size="14" />打开
+              </button>
+            </div>
+            <div class="monitor-list">
+              <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
+                <div class="monitor-feed-main">
+                  <strong>{{ item.display_name }} · {{ item.problem_id }}</strong>
+                  <span>{{ item.problem_title }} · {{ formatDate(item.judged_at) }}</span>
+                </div>
+                <StatusBadge :status="item.released ? 'completed' : 'pending'" />
+              </div>
+              <p v-if="data.balloons.length === 0" class="empty-text">当前比赛还没有气球记录。</p>
+            </div>
+          </article>
+        </section>
+      </template>
     </section>
   </div>
 </template>

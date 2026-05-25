@@ -55,6 +55,8 @@ from .models import (
     ContestPrintResponse,
     ContestSubmitRequest,
     ContestBalloonUpdate,
+    ContestJudgeMonitorResponse,
+    ContestJudgeQueueSummary,
     Discussion,
     DiscussionCreate,
     DiscussionReplyCreate,
@@ -831,6 +833,57 @@ def clarification_payload_for_user(clarification: Clarification, user: User) -> 
         payload.broadcast = False
         payload.broadcast_at = None
     return payload
+
+
+def contest_judge_queue_summary(contest: Contest, store: Repository, *, limit: int = 10) -> ContestJudgeQueueSummary:
+    try:
+        queue = get_judge_queue(store).summary(limit=limit)
+    except QueueBackendUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    jobs = [job for job in store.list_judge_queue_jobs() if job.contest_id == contest.id]
+    jobs.sort(key=lambda item: item.created_at, reverse=True)
+    pending = sum(1 for job in jobs if job.status == "pending")
+    leased = sum(1 for job in jobs if job.status == "leased")
+    return ContestJudgeQueueSummary(
+        backend=queue.backend,
+        topic=queue.topic,
+        depth=pending + leased,
+        pending=pending,
+        leased=leased,
+        last_jobs=jobs[:limit],
+    )
+
+
+def contest_judge_monitor_payload(contest: Contest, store: Repository) -> ContestJudgeMonitorResponse:
+    submissions = [submission for submission in store.list_submissions() if submission.contest_id == contest.id]
+    queue = contest_judge_queue_summary(contest, store)
+    clarifications = [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest.id]
+    balloons: list[ContestBalloon] = []
+    for balloon in store.list_contest_balloons(contest.id):
+        submission = store.get_submission(str(balloon.get("submission_id") or ""))
+        if not submission or submission.contest_id != contest.id:
+            continue
+        payload = contest_submission_to_balloon(submission, store)
+        payload.released = bool(balloon.get("released", payload.released))
+        payload.released_at = auth_datetime(balloon.get("released_at"))
+        payload.released_by = str(balloon.get("released_by") or "") or None
+        balloons.append(payload)
+    balloons.sort(
+        key=lambda item: (
+            item.released,
+            auth_datetime(item.released_at or item.judged_at) or now(),
+        ),
+        reverse=False,
+    )
+    return ContestJudgeMonitorResponse(
+        contest=contest_detail(contest, store),
+        queue_depth=queue.depth,
+        queue=queue,
+        last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
+        judge_nodes=store.list_judge_nodes(),
+        clarifications=clarifications,
+        balloons=balloons,
+    )
 
 
 def contest_problem_details(contest: Contest, store: Repository, user: User | None = None) -> list[ProblemDetail]:
@@ -2369,6 +2422,18 @@ def list_contest_clarifications(
     return [clarification_payload_for_user(c, user) for c in visible]
 
 
+@app.get("/api/v1/judge/clar/{contest_id}", response_model=list[Clarification])
+def list_judge_contest_clarifications(
+    contest_id: str,
+    user: User = Depends(require_permissions("clarification:read:all")),
+    store: Repository = Depends(get_repository),
+) -> list[Clarification]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    return [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest_id]
+
+
 @app.patch("/api/v1/clarifications/{clarification_id}", response_model=Clarification)
 def reply_clarification(
     clarification_id: str,
@@ -2728,6 +2793,18 @@ def judge_monitor(
             if submission.judged_at and submission.contest_id
         ],
     )
+
+
+@app.get("/api/v1/judge/monitor/{contest_id}", response_model=ContestJudgeMonitorResponse)
+def contest_judge_monitor(
+    contest_id: str,
+    user: User = Depends(require_permissions("judge:monitor")),
+    store: Repository = Depends(get_repository),
+) -> ContestJudgeMonitorResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    return contest_judge_monitor_payload(contest, store)
 
 
 @app.post("/api/v1/judge/nodes/heartbeat", response_model=JudgeNode)
