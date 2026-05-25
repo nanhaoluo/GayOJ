@@ -1,6 +1,44 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
+
+from app.models import Submission
+
+
+def _contest_submission(
+    submission_id: str,
+    *,
+    user_id: str,
+    contest_id: str,
+    problem_id: str,
+    problem_title: str,
+    problem_type: str,
+    status: str,
+    created_at: datetime,
+    judged_at: datetime | None = None,
+    score: int = 100,
+    max_score: int = 100,
+) -> Submission:
+    return Submission(
+        id=submission_id,
+        user_id=user_id,
+        problem_id=problem_id,
+        problem_title=problem_title,
+        problem_type=problem_type,
+        contest_id=contest_id,
+        language="python" if problem_type == "code" else None,
+        source_code="print('acm')\n" if problem_type == "code" else None,
+        answers=None,
+        status=status,
+        score=score,
+        max_score=max_score,
+        details=[],
+        message="seed standings",
+        created_at=created_at,
+        judged_at=judged_at,
+    )
 
 
 def test_contest_problem_list_hides_judge_config_and_respects_visibility(client: TestClient, auth_headers, store) -> None:
@@ -131,3 +169,180 @@ def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient
     contest = store.get_contest("C1001")
     assert contest is not None
     assert contest.rejudge_by == "u-admin"
+
+
+def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = False
+    store.update_contest(contest)
+
+    coach = store.get_user("u-coach")
+    judge = store.get_user("u-judge")
+    assert coach is not None and judge is not None
+    coach.role = "student"
+    judge.role = "student"
+    store.update_user(coach)
+    store.update_user(judge)
+
+    store.add_submission(
+        _contest_submission(
+            "S-ALICE-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=10),
+            judged_at=start_at + timedelta(minutes=10),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-COACH-AC",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=20),
+            judged_at=start_at + timedelta(minutes=20),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ALICE-AC1",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=25),
+            judged_at=start_at + timedelta(minutes=25),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-JUDGE-AC",
+            user_id="u-judge",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=30),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ALICE-AC2",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=40),
+            judged_at=start_at + timedelta(minutes=40),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert [row["user_id"] for row in body[:3]] == ["u-student", "u-coach", "u-judge"]
+    alice = body[0]
+    coach_row = body[1]
+    judge_row = body[2]
+
+    assert alice["solved"] == 2
+    assert alice["score"] == 200
+    assert alice["penalty"] == 85
+    assert alice["first_blood"] == 0
+    assert alice["problems"]["P1001"]["attempts"] == 1
+    assert alice["problems"]["P1001"]["penalty_minutes"] == 45
+    assert alice["problems"]["P1001"]["first_blood"] is False
+
+    assert coach_row["solved"] == 1
+    assert coach_row["penalty"] == 20
+    assert coach_row["first_blood"] == 1
+    assert coach_row["problems"]["P1001"]["first_blood"] is True
+
+    assert judge_row["solved"] == 1
+    assert judge_row["penalty"] == 30
+    assert judge_row["first_blood"] == 1
+    assert judge_row["problems"]["P1002"]["first_blood"] is True
+
+
+def test_acm_standings_hide_submissions_after_freeze(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = True
+    contest.frozen_at = start_at + timedelta(minutes=60)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-FREEZE-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=30),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-FREEZE-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=70),
+            judged_at=start_at + timedelta(minutes=70),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    alice = next(row for row in body if row["user_id"] == "u-student")
+
+    assert alice["solved"] == 0
+    assert alice["penalty"] == 0
+    assert alice["problems"]["P1002"]["attempts"] == 1
+    assert alice["problems"]["P1002"]["accepted_at"] is None
+    assert alice["problems"]["P1002"]["status"] == "wrong_answer"
+
+
+def test_private_contest_standings_follow_visibility_and_permission(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.visibility = "private"
+    store.update_contest(contest)
+
+    anonymous = client.get("/api/v1/contests/C1001/standings")
+    student = client.get("/api/v1/contests/C1001/standings", headers=auth_headers("alice"))
+    judge = client.get("/api/v1/contests/C1001/standings", headers=auth_headers("judge"))
+
+    assert anonymous.status_code == 404
+    assert student.status_code == 403
+    assert judge.status_code == 200

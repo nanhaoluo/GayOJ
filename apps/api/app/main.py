@@ -802,6 +802,127 @@ def contest_problem_details(contest: Contest, store: Repository, user: User | No
     return problems
 
 
+def _submission_effective_time(submission: Submission) -> datetime:
+    return auth_datetime(submission.judged_at) or auth_datetime(submission.created_at) or now()
+
+
+def _contest_submission_before_freeze(submission: Submission, contest: Contest) -> bool:
+    if not contest.frozen:
+        return True
+    freeze_at = auth_datetime(contest.frozen_at)
+    if freeze_at is None:
+        return True
+    return _submission_effective_time(submission) <= freeze_at
+
+
+def _standing_problem_payload() -> dict[str, Any]:
+    return {
+        "score": 0,
+        "status": "",
+        "attempts": 0,
+        "accepted_at": None,
+        "penalty_minutes": 0,
+        "first_blood": False,
+    }
+
+
+def build_contest_standings(contest: Contest, store: Repository) -> list[StandingRow]:
+    users = {u.id: u for u in store.list_users()}
+    participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
+    relevant_submissions = [
+        submission
+        for submission in store.list_submissions()
+        if submission.contest_id == contest.id and submission.user_id in participant_ids
+    ]
+    relevant_submissions.sort(key=lambda item: (_submission_effective_time(item), item.created_at, item.id))
+
+    if contest.rule != "ACM":
+        rows: dict[str, dict[str, Any]] = {}
+        for submission in relevant_submissions:
+            row = rows.setdefault(
+                submission.user_id,
+                {
+                    "user_id": submission.user_id,
+                    "display_name": users.get(submission.user_id).display_name if users.get(submission.user_id) else submission.user_id,
+                    "solved": 0,
+                    "score": 0,
+                    "penalty": 0,
+                    "first_blood": 0,
+                    "problems": {},
+                },
+            )
+            best = row["problems"].get(submission.problem_id, _standing_problem_payload())
+            if submission.score > best["score"]:
+                row["problems"][submission.problem_id] = {
+                    **best,
+                    "score": submission.score,
+                    "status": submission.status,
+                }
+        for row in rows.values():
+            row["score"] = sum(item["score"] for item in row["problems"].values())
+            row["solved"] = sum(1 for item in row["problems"].values() if item["score"] >= 100)
+        return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: (-item["solved"], -item["score"], item["display_name"]))]
+
+    rows: dict[str, dict[str, Any]] = {}
+    first_blood_owner: dict[str, str] = {}
+    first_blood_time: dict[str, datetime] = {}
+    contest_start = auth_datetime(contest.start_at) or now()
+
+    for submission in relevant_submissions:
+        row = rows.setdefault(
+            submission.user_id,
+            {
+                "user_id": submission.user_id,
+                "display_name": users.get(submission.user_id).display_name if users.get(submission.user_id) else submission.user_id,
+                "solved": 0,
+                "score": 0,
+                "penalty": 0,
+                "first_blood": 0,
+                "problems": {},
+            },
+        )
+        problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
+        visible_to_board = _contest_submission_before_freeze(submission, contest)
+        if problem_row["accepted_at"] is not None:
+            continue
+        if not visible_to_board:
+            continue
+        if submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score:
+            effective_time = _submission_effective_time(submission)
+            elapsed_minutes = max(0, int((effective_time - contest_start).total_seconds() // 60))
+            penalty_minutes = elapsed_minutes + problem_row["attempts"] * 20
+            problem_row["score"] = submission.max_score
+            problem_row["status"] = submission.status
+            problem_row["accepted_at"] = effective_time
+            problem_row["penalty_minutes"] = penalty_minutes
+            if submission.problem_id not in first_blood_time or effective_time < first_blood_time[submission.problem_id]:
+                first_blood_time[submission.problem_id] = effective_time
+                first_blood_owner[submission.problem_id] = submission.user_id
+        else:
+            problem_row["attempts"] += 1
+            problem_row["status"] = submission.status
+
+    for row in rows.values():
+        for problem_id, problem_row in row["problems"].items():
+            if problem_row["accepted_at"] is None:
+                continue
+            is_first_blood = first_blood_owner.get(problem_id) == row["user_id"]
+            problem_row["first_blood"] = is_first_blood
+            row["solved"] += 1
+            row["score"] += int(problem_row["score"])
+            row["penalty"] += int(problem_row["penalty_minutes"])
+            if is_first_blood:
+                row["first_blood"] += 1
+
+    return [
+        StandingRow(**row)
+        for row in sorted(
+            rows.values(),
+            key=lambda item: (-item["solved"], item["penalty"], -item["first_blood"], item["display_name"]),
+        )
+    ]
+
+
 def contest_balloon_payload(
     contest: Contest,
     submission: Submission,
@@ -2001,33 +2122,13 @@ def standings(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not user and contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user:
+        ensure_contest_access(user, contest, store)
     if user and user.role != "student" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    users = {u.id: u for u in store.list_users()}
-    participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
-    rows: dict[str, dict[str, Any]] = {}
-    for submission in store.list_submissions():
-        if submission.contest_id != contest_id:
-            continue
-        if submission.user_id not in participant_ids:
-            continue
-        row = rows.setdefault(
-            submission.user_id,
-            {
-                "user_id": submission.user_id,
-                "display_name": users.get(submission.user_id).display_name if users.get(submission.user_id) else submission.user_id,
-                "solved": 0,
-                "score": 0,
-                "problems": {},
-            },
-        )
-        best = row["problems"].get(submission.problem_id, {"score": 0, "status": ""})
-        if submission.score > best["score"]:
-            row["problems"][submission.problem_id] = {"score": submission.score, "status": submission.status}
-    for row in rows.values():
-        row["score"] = sum(item["score"] for item in row["problems"].values())
-        row["solved"] = sum(1 for item in row["problems"].values() if item["score"] >= 100)
-    return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: (-item["solved"], -item["score"], item["display_name"]))]
+    return build_contest_standings(contest, store)
 
 
 @app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ProblemDetail], response_model_exclude_none=True)
