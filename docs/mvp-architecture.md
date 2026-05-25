@@ -277,6 +277,13 @@
 - 离线包 payload 新增 `source`，区分全局训练包与题单包，并继续由 HMAC 签名覆盖完整内容。
 - 普通题面仍不返回 `judge_config`、`offline_enabled` 或 `offline_policy`；这些策略只在管理端和授权离线下载路径生效。
 
+## P5-08 离线训练结果回看与审计
+
+- 新增 `/api/v1/offline-results` 与 `/api/v1/offline-results/{submission_id}`，用于查看已同步的离线客观题答卷历史和逐项得分。
+- 学生只能查看自己的离线答卷，响应包含作答、得分、正确性和同步 key，但不返回标准答案。
+- 拥有 `submission:read:all` 的教练、裁判或管理员可带 `include_expected=true` 查看标准答案，用于教学复盘或裁判审查。
+- 离线答卷列表和详情回看都会写入审计日志；普通提交详情、客观题即时判分响应和离线同步响应同样会对普通用户隐藏 `details.expected`。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

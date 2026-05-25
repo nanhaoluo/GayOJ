@@ -1716,6 +1716,182 @@
         "title": "OfflineResultRejected",
         "type": "object"
       },
+      "OfflineResultReview": {
+        "properties": {
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "contest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "expected_visible": {
+            "default": false,
+            "title": "Expected Visible",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "judged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judged At"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "max_score": {
+            "title": "Max Score",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "offline_result_key": {
+            "title": "Offline Result Key",
+            "type": "string"
+          },
+          "problem_id": {
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_title": {
+            "title": "Problem Title",
+            "type": "string"
+          },
+          "problem_type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Problem Type",
+            "type": "string"
+          },
+          "queue_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Job Id"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          },
+          "source_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Code"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "judging",
+              "accepted",
+              "wrong_answer",
+              "time_limit_exceeded",
+              "memory_limit_exceeded",
+              "output_limit_exceeded",
+              "compile_error",
+              "runtime_error",
+              "system_error",
+              "manual_override"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "problem_id",
+          "problem_title",
+          "problem_type",
+          "offline_result_key",
+          "status",
+          "score",
+          "max_score",
+          "created_at"
+        ],
+        "title": "OfflineResultReview",
+        "type": "object"
+      },
       "OfflineResultSyncRequest": {
         "properties": {
           "results": {
@@ -1736,7 +1912,7 @@
         "properties": {
           "merged": {
             "items": {
-              "$ref": "#/components/schemas/Submission"
+              "$ref": "#/components/schemas/SubmissionReview"
             },
             "title": "Merged",
             "type": "array"
@@ -1750,7 +1926,7 @@
           },
           "synced": {
             "items": {
-              "$ref": "#/components/schemas/Submission"
+              "$ref": "#/components/schemas/SubmissionReview"
             },
             "title": "Synced",
             "type": "array"
@@ -3649,6 +3825,183 @@
           "created_at"
         ],
         "title": "Submission",
+        "type": "object"
+      },
+      "SubmissionReview": {
+        "properties": {
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "contest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "judged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judged At"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "max_score": {
+            "title": "Max Score",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "offline_result_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offline Result Key"
+          },
+          "problem_id": {
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_title": {
+            "title": "Problem Title",
+            "type": "string"
+          },
+          "problem_type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Problem Type",
+            "type": "string"
+          },
+          "queue_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Job Id"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          },
+          "source_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Code"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "judging",
+              "accepted",
+              "wrong_answer",
+              "time_limit_exceeded",
+              "memory_limit_exceeded",
+              "output_limit_exceeded",
+              "compile_error",
+              "runtime_error",
+              "system_error",
+              "manual_override"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "problem_id",
+          "problem_title",
+          "problem_type",
+          "status",
+          "score",
+          "max_score",
+          "created_at"
+        ],
+        "title": "SubmissionReview",
         "type": "object"
       },
       "SystemConfig": {
@@ -7178,6 +7531,102 @@
         "summary": "Mark Notification Read"
       }
     },
+    "/api/v1/offline-results": {
+      "get": {
+        "operationId": "list_offline_results_api_v1_offline_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "problem_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Problem Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_expected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Expected",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OfflineResultReview"
+                  },
+                  "title": "Response List Offline Results Api V1 Offline Results Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Offline Results"
+      }
+    },
     "/api/v1/offline-results/sync": {
       "post": {
         "operationId": "sync_offline_results_api_v1_offline_results_sync_post",
@@ -7232,6 +7681,71 @@
           }
         },
         "summary": "Sync Offline Results"
+      }
+    },
+    "/api/v1/offline-results/{submission_id}": {
+      "get": {
+        "operationId": "get_offline_result_api_v1_offline_results__submission_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_expected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Expected",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfflineResultReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Offline Result"
       }
     },
     "/api/v1/problem-sets": {
@@ -7831,7 +8345,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/Submission"
+                  "$ref": "#/components/schemas/SubmissionReview"
                 }
               }
             },
@@ -7910,7 +8424,7 @@
               "application/json; charset=utf-8": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Submission"
+                    "$ref": "#/components/schemas/SubmissionReview"
                   },
                   "title": "Response List Submissions Api V1 Submissions Get",
                   "type": "array"
@@ -7968,7 +8482,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/Submission"
+                  "$ref": "#/components/schemas/SubmissionReview"
                 }
               }
             },

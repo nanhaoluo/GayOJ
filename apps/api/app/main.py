@@ -57,6 +57,7 @@ from .models import (
     Notification,
     OfflinePackResponse,
     OfflinePolicyUpdate,
+    OfflineResultReview,
     ObjectiveSubmitRequest,
     OfflineResultSyncRequest,
     OfflineResultSyncResponse,
@@ -88,6 +89,7 @@ from .models import (
     RejudgeSkipped,
     StandingRow,
     Submission,
+    SubmissionReview,
     SystemConfig,
     SystemConfigUpdate,
     Tag,
@@ -153,6 +155,37 @@ def offline_result_key(problem_id: str, answers: dict[str, Any], practiced_at: d
 
 def same_offline_result(submission: Submission, problem_id: str, answers: dict[str, Any]) -> bool:
     return submission.problem_id == problem_id and _canonical_json(submission.answers or {}) == _canonical_json(answers)
+
+
+def sanitized_submission(
+    submission: Submission,
+    *,
+    include_expected: bool = False,
+    include_source: bool = True,
+) -> SubmissionReview:
+    payload = submission.model_dump()
+    details: list[dict[str, Any]] = []
+    for item in submission.details:
+        detail = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        if not include_expected:
+            detail.pop("expected", None)
+        details.append(detail)
+    payload["details"] = details
+    if not include_source:
+        payload["source_code"] = None
+    return SubmissionReview(**payload)
+
+
+def offline_result_review(submission: Submission, *, include_expected: bool = False) -> OfflineResultReview:
+    if not submission.offline_result_key:
+        raise ValueError("Submission is not an offline result")
+    payload = sanitized_submission(
+        submission,
+        include_expected=include_expected,
+        include_source=False,
+    ).model_dump()
+    payload["expected_visible"] = include_expected
+    return OfflineResultReview(**payload)
 
 
 def problem_summary(problem: Problem, submissions: list[Submission], participant_ids: set[str] | None = None) -> ProblemSummary:
@@ -1459,7 +1492,7 @@ def submit_code(
     return submission
 
 
-@app.post("/api/v1/problems/{problem_id}/submit-objective", response_model=Submission)
+@app.post("/api/v1/problems/{problem_id}/submit-objective", response_model=SubmissionReview)
 def submit_objective(
     problem_id: str,
     payload: ObjectiveSubmitRequest,
@@ -1491,33 +1524,35 @@ def submit_objective(
     store.add_submission(submission)
     store.add_audit(user.id, "submission.objective", f"submission:{submission.id}", {"problem_id": problem.id})
     add_notification(store, user.id, "客观题判分完成", f"{problem.title}：得分 {score}/{max_score}", "judge")
-    return submission
+    return sanitized_submission(submission)
 
 
-@app.get("/api/v1/submissions", response_model=list[Submission])
+@app.get("/api/v1/submissions", response_model=list[SubmissionReview])
 def list_submissions(
     mine: bool = Query(default=False),
     user: User = Depends(require_permissions("submission:read:own")),
     store: Repository = Depends(get_repository),
-) -> list[Submission]:
+) -> list[SubmissionReview]:
     submissions = store.list_submissions()
-    if mine or not role_has_permission(user.role, "submission:read:all"):
+    can_read_all = role_has_permission(user.role, "submission:read:all")
+    if mine or not can_read_all:
         submissions = [s for s in submissions if s.user_id == user.id]
-    return submissions
+    return [sanitized_submission(submission, include_expected=can_read_all) for submission in submissions]
 
 
-@app.get("/api/v1/submissions/{submission_id}", response_model=Submission)
+@app.get("/api/v1/submissions/{submission_id}", response_model=SubmissionReview)
 def get_submission(
     submission_id: str,
     user: User = Depends(require_permissions("submission:read:own")),
     store: Repository = Depends(get_repository),
-) -> Submission:
+) -> SubmissionReview:
     submission = store.get_submission(submission_id)
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
-    if submission.user_id != user.id and not role_has_permission(user.role, "submission:read:all"):
+    can_read_all = role_has_permission(user.role, "submission:read:all")
+    if submission.user_id != user.id and not can_read_all:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    return submission
+    return sanitized_submission(submission, include_expected=can_read_all)
 
 
 @app.get("/api/v1/contests", response_model=list[ContestDetail])
@@ -2443,5 +2478,70 @@ def sync_offline_results(
         "training:offline",
         {"synced": len(synced), "merged": len(merged), "rejected": len(rejected)},
     )
-    return OfflineResultSyncResponse(synced=synced, merged=merged, rejected=rejected)
+    return OfflineResultSyncResponse(
+        synced=[sanitized_submission(submission) for submission in synced],
+        merged=[sanitized_submission(submission) for submission in merged],
+        rejected=rejected,
+    )
+
+
+@app.get("/api/v1/offline-results", response_model=list[OfflineResultReview])
+def list_offline_results(
+    user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    problem_id: str | None = Query(default=None, min_length=1, max_length=64),
+    include_expected: bool = Query(default=False),
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> list[OfflineResultReview]:
+    can_read_all = role_has_permission(user.role, "submission:read:all")
+    if user_id and user_id != user.id and not can_read_all:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    target_user_id = user_id if can_read_all else user.id
+    show_expected = include_expected and can_read_all
+    submissions = [
+        submission
+        for submission in store.list_submissions()
+        if submission.offline_result_key
+        and (not target_user_id or submission.user_id == target_user_id)
+        and (not problem_id or submission.problem_id == problem_id)
+    ]
+    store.add_audit(
+        user.id,
+        "offline_results.review.list",
+        "training:offline",
+        {
+            "target_user_id": target_user_id or "*",
+            "problem_id": problem_id,
+            "count": len(submissions),
+            "include_expected": show_expected,
+        },
+    )
+    return [offline_result_review(submission, include_expected=show_expected) for submission in submissions]
+
+
+@app.get("/api/v1/offline-results/{submission_id}", response_model=OfflineResultReview)
+def get_offline_result(
+    submission_id: str,
+    include_expected: bool = Query(default=False),
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> OfflineResultReview:
+    submission = store.get_submission(submission_id)
+    if not submission or not submission.offline_result_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offline result not found")
+    can_read_all = role_has_permission(user.role, "submission:read:all")
+    if submission.user_id != user.id and not can_read_all:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    show_expected = include_expected and can_read_all
+    store.add_audit(
+        user.id,
+        "offline_results.review.detail",
+        f"submission:{submission.id}",
+        {
+            "target_user_id": submission.user_id,
+            "problem_id": submission.problem_id,
+            "include_expected": show_expected,
+        },
+    )
+    return offline_result_review(submission, include_expected=show_expected)
 

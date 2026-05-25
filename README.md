@@ -568,6 +568,17 @@ whose answer visibility is `full`. Problem-set downloads return 403 when the set
 is not authorized for offline training, while ordinary problem detail responses
 still omit both answers and offline policy metadata.
 
+## P5-08 Offline result review and audit
+
+Synced offline objective results can now be reviewed from
+`GET /api/v1/offline-results` and
+`GET /api/v1/offline-results/{submission_id}`. Students only see their own
+answers, scores, and per-item correctness; standard answers remain hidden.
+Users with `submission:read:all` may request `include_expected=true` to review
+standard answers for coaching or judging, and every list/detail review writes an
+audit log. Objective submit and offline sync responses use the same answer
+redaction so ordinary users do not receive `details.expected`.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:

@@ -484,6 +484,33 @@ class Submission(BaseModel):
     judged_at: datetime | None = None
 
 
+class SubmissionReview(BaseModel):
+    id: str
+    user_id: str
+    problem_id: str
+    problem_title: str
+    problem_type: ProblemType
+    contest_id: str | None = None
+    language: str | None = None
+    source_code: str | None = None
+    queue_job_id: str | None = None
+    queued_at: datetime | None = None
+    offline_result_key: str | None = None
+    answers: dict[str, Any] | None = None
+    status: SubmissionStatus
+    score: int
+    max_score: int
+    details: list[dict[str, Any]] = Field(default_factory=list)
+    message: str = ""
+    created_at: datetime
+    judged_at: datetime | None = None
+
+
+class OfflineResultReview(SubmissionReview):
+    offline_result_key: str
+    expected_visible: bool = False
+
+
 class Contest(BaseModel):
     id: str
     title: str
@@ -951,8 +978,8 @@ class OfflineResultRejected(BaseModel):
 
 
 class OfflineResultSyncResponse(BaseModel):
-    synced: list[Submission]
-    merged: list[Submission] = Field(default_factory=list)
+    synced: list[SubmissionReview]
+    merged: list[SubmissionReview] = Field(default_factory=list)
     rejected: list[OfflineResultRejected]
 
 
