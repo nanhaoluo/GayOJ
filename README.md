@@ -497,6 +497,14 @@ with `tools/offline-cli/gayoj_offline.py::judge` for the same answer payloads.
 It also keeps the explicit code-problem boundary: API objective rules reject
 code problems, and the offline CLI remains objective-only.
 
+## P5-02 Blank rule enhancements
+
+Blank problems can now set per-blank rules inside management-only
+`judge_config.blank_rules`. Supported `match` values are `exact`, `regex`, and
+`numeric`; numeric rules may set a non-negative `tolerance`. The API rule engine
+and offline CLI share the same behavior, while ordinary problem detail responses
+still omit `judge_config`.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:

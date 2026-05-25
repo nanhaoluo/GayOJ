@@ -2252,7 +2252,11 @@ pre {
 }
 
 .blank-editor-row {
-  grid-template-columns: minmax(90px, 0.8fr) minmax(120px, 1fr) 90px minmax(180px, 1.4fr) 36px;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(120px, 1fr) 90px 110px 120px minmax(180px, 1.4fr) 36px;
+}
+
+.blank-tolerance-field--hidden {
+  visibility: hidden;
 }
 
 .option-editor-row {
@@ -2563,6 +2567,10 @@ pre {
   .testdata-meta,
   .option-editor-row {
     grid-template-columns: 1fr;
+  }
+
+  .blank-tolerance-field--hidden {
+    display: none;
   }
 
   .role-user-row {

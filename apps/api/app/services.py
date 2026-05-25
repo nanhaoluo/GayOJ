@@ -28,6 +28,65 @@ def normalize_blank(value: Any, case_sensitive: bool, trim_space: bool) -> str:
     return text
 
 
+def blank_rule_for(config: dict[str, Any], key: str) -> dict[str, Any]:
+    rules = config.get("blank_rules", {})
+    if not isinstance(rules, dict):
+        return {}
+    rule = rules.get(key, {})
+    return rule if isinstance(rule, dict) else {}
+
+
+def numeric_value(value: Any, trim_space: bool) -> float | None:
+    text = str(value)
+    if trim_space:
+        text = re.sub(r"\s+", "", text)
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def blank_answer_matches(
+    received: Any,
+    expected_values: list[Any],
+    rule: dict[str, Any],
+    *,
+    case_sensitive: bool,
+    trim_space: bool,
+) -> bool:
+    match_type = str(rule.get("match", "exact")).strip().lower() or "exact"
+
+    if match_type == "regex":
+        flags = 0 if case_sensitive else re.IGNORECASE
+        received_text = str(received)
+        if trim_space:
+            received_text = re.sub(r"\s+", "", received_text)
+        for pattern in expected_values:
+            try:
+                if re.fullmatch(str(pattern), received_text, flags=flags):
+                    return True
+            except re.error:
+                continue
+        return False
+
+    if match_type == "numeric":
+        received_value = numeric_value(received, trim_space)
+        if received_value is None:
+            return False
+        try:
+            tolerance = max(float(rule.get("tolerance", 0)), 0.0)
+        except (TypeError, ValueError):
+            tolerance = 0.0
+        for expected in expected_values:
+            expected_value = numeric_value(expected, trim_space)
+            if expected_value is not None and abs(received_value - expected_value) <= tolerance:
+                return True
+        return False
+
+    expected_normalized = [normalize_blank(v, case_sensitive, trim_space) for v in expected_values]
+    return normalize_blank(received, case_sensitive, trim_space) in expected_normalized
+
+
 def judge_objective(
     problem: Problem,
     judge_config: dict[str, Any],
@@ -45,8 +104,13 @@ def judge_objective(
         score = 0
         for key, expected_values in expected_map.items():
             received = answers.get(key, "")
-            expected_normalized = [normalize_blank(v, case_sensitive, trim_space) for v in expected_values]
-            correct = normalize_blank(received, case_sensitive, trim_space) in expected_normalized
+            correct = blank_answer_matches(
+                received,
+                expected_values,
+                blank_rule_for(config, key),
+                case_sensitive=case_sensitive,
+                trim_space=trim_space,
+            )
             item_score = int(scores.get(key, 0)) if correct else 0
             score += item_score
             results.append(

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -47,18 +48,81 @@ def normalize_blank(value: Any, case_sensitive: bool, trim_space: bool) -> str:
     return text
 
 
+def blank_rule_for(config: dict[str, Any], key: str) -> dict[str, Any]:
+    rules = config.get("blank_rules", {})
+    if not isinstance(rules, dict):
+        return {}
+    rule = rules.get(key, {})
+    return rule if isinstance(rule, dict) else {}
+
+
+def numeric_value(value: Any, trim_space: bool) -> float | None:
+    text = str(value)
+    if trim_space:
+        text = "".join(text.split())
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def blank_answer_matches(
+    received: Any,
+    expected_values: list[Any],
+    rule: dict[str, Any],
+    *,
+    case_sensitive: bool,
+    trim_space: bool,
+) -> bool:
+    match_type = str(rule.get("match", "exact")).strip().lower() or "exact"
+
+    if match_type == "regex":
+        flags = 0 if case_sensitive else re.IGNORECASE
+        received_text = str(received)
+        if trim_space:
+            received_text = "".join(received_text.split())
+        for pattern in expected_values:
+            try:
+                if re.fullmatch(str(pattern), received_text, flags=flags):
+                    return True
+            except re.error:
+                continue
+        return False
+
+    if match_type == "numeric":
+        received_value = numeric_value(received, trim_space)
+        if received_value is None:
+            return False
+        try:
+            tolerance = max(float(rule.get("tolerance", 0)), 0.0)
+        except (TypeError, ValueError):
+            tolerance = 0.0
+        for expected in expected_values:
+            expected_value = numeric_value(expected, trim_space)
+            if expected_value is not None and abs(received_value - expected_value) <= tolerance:
+                return True
+        return False
+
+    expected = [normalize_blank(item, case_sensitive, trim_space) for item in expected_values]
+    return normalize_blank(received, case_sensitive, trim_space) in expected
+
+
 def judge(problem: dict[str, Any], answers: dict[str, Any]) -> tuple[int, int]:
     config = problem.get("judge_config", {})
     if problem["type"] == "blank":
         total = sum(int(v) for v in config.get("scores", {}).values()) or 100
         score = 0
+        case_sensitive = bool(config.get("case_sensitive", False))
+        trim_space = bool(config.get("trim_space", True))
         for key, expected_values in config.get("answers", {}).items():
             received = answers.get(key, "")
-            expected = [
-                normalize_blank(item, bool(config.get("case_sensitive", False)), bool(config.get("trim_space", True)))
-                for item in expected_values
-            ]
-            if normalize_blank(received, bool(config.get("case_sensitive", False)), bool(config.get("trim_space", True))) in expected:
+            if blank_answer_matches(
+                received,
+                expected_values,
+                blank_rule_for(config, key),
+                case_sensitive=case_sensitive,
+                trim_space=trim_space,
+            ):
                 score += int(config.get("scores", {}).get(key, 0))
         return score, total
 

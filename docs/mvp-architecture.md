@@ -225,6 +225,13 @@
 - 规则覆盖大小写敏感、空白保留/归一、多答案填空、单选精确匹配、多选顺序无关和漏选/多选错误。
 - 代码题继续被客观题规则路径拒绝；CLI 仍只处理填空题、单选题和多选题。
 
+## P5-02 填空题规则增强
+
+- 填空题 `judge_config` 新增可选的 `blank_rules` 映射，每个空位可配置 `match: exact | regex | numeric`。
+- `exact` 继续复用既有答案列表、大小写和空白设置；`regex` 使用完整匹配并复用大小写/空白设置；`numeric` 使用浮点数比较并支持非负 `tolerance`。
+- API 侧 `judge_objective()` 与离线 CLI `judge()` 使用同一规则语义；管理端保存时校验正则和数值误差配置。
+- `blank_rules` 仍属于管理端和授权离线包中的 `judge_config`，普通题面接口、题单和比赛详情不返回该字段。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

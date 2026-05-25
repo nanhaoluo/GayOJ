@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
@@ -231,6 +232,30 @@ class ProblemCreate(BaseModel):
                         raise ValueError
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"Blank score for {key} must be positive") from exc
+            blank_rules = self.judge_config.get("blank_rules", {})
+            if blank_rules is not None and not isinstance(blank_rules, dict):
+                raise ValueError("Blank judge_config.blank_rules must be an object")
+            for key, rule in (blank_rules or {}).items():
+                if key not in blank_keys:
+                    raise ValueError(f"Blank rule references unknown blank key: {key}")
+                if not isinstance(rule, dict):
+                    raise ValueError(f"Blank rule for {key} must be an object")
+                match_type = str(rule.get("match", "exact")).strip().lower() or "exact"
+                if match_type not in {"exact", "regex", "numeric"}:
+                    raise ValueError(f"Blank rule for {key} has unsupported match type: {match_type}")
+                if match_type == "regex":
+                    flags = 0 if bool(self.judge_config.get("case_sensitive", False)) else re.IGNORECASE
+                    for pattern in answers.get(str(key), []):
+                        try:
+                            re.compile(str(pattern), flags=flags)
+                        except re.error as exc:
+                            raise ValueError(f"Blank regex for {key} is invalid") from exc
+                if match_type == "numeric":
+                    try:
+                        if float(rule.get("tolerance", 0)) < 0:
+                            raise ValueError
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f"Blank numeric tolerance for {key} must be non-negative") from exc
             return self
 
         if len(option_keys) < 2:

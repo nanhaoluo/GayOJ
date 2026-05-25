@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.models import ProblemCreate
 from app.models import Problem
 from app.services import judge_objective
 
@@ -103,6 +105,41 @@ def test_blank_rules_match_cli_when_case_sensitive_and_spaces_preserved(offline_
     assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"token": "Open AI"}, 0, 100)
 
 
+def test_blank_regex_rules_match_cli_and_respect_case_setting(offline_cli_module: Any) -> None:
+    problem = make_problem(
+        "blank",
+        blanks=[{"key": "identifier", "label": "Identifier", "score": 100}],
+    )
+    judge_config = {
+        "case_sensitive": False,
+        "trim_space": True,
+        "answers": {"identifier": [r"node-[a-z]{3}-\d{2}"]},
+        "scores": {"identifier": 100},
+        "blank_rules": {"identifier": {"match": "regex"}},
+    }
+
+    assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"identifier": " NODE-ABC-12 "}, 100, 100)
+    assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"identifier": "node-ab-12"}, 0, 100)
+
+
+def test_blank_numeric_rules_match_cli_with_tolerance(offline_cli_module: Any) -> None:
+    problem = make_problem(
+        "blank",
+        blanks=[{"key": "pi", "label": "Pi", "score": 100}],
+    )
+    judge_config = {
+        "case_sensitive": False,
+        "trim_space": True,
+        "answers": {"pi": ["3.14159"]},
+        "scores": {"pi": 100},
+        "blank_rules": {"pi": {"match": "numeric", "tolerance": 0.01}},
+    }
+
+    assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"pi": "3.15"}, 100, 100)
+    assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"pi": "3.20"}, 0, 100)
+    assert_api_cli_score_match(offline_cli_module, problem, judge_config, {"pi": "not-a-number"}, 0, 100)
+
+
 def test_single_choice_rules_match_cli_for_exact_option_key(offline_cli_module: Any) -> None:
     problem = make_problem(
         "single_choice",
@@ -142,3 +179,79 @@ def test_code_problem_is_not_supported_by_objective_rule_paths(offline_cli_modul
 
     with pytest.raises(SystemExit):
         offline_cli_module.judge({"type": "code", "judge_config": {}}, {})
+
+
+def test_blank_rule_validation_rejects_invalid_regex_and_tolerance() -> None:
+    base_payload: dict[str, Any] = {
+        "title": "P5 validation",
+        "type": "blank",
+        "difficulty": "基础",
+        "statement": "Validate blank rules.",
+        "blanks": [{"key": "answer", "label": "Answer", "score": 100}],
+        "judge_config": {
+            "answers": {"answer": ["ok"]},
+            "scores": {"answer": 100},
+            "blank_rules": {"answer": {"match": "regex"}},
+        },
+    }
+
+    ProblemCreate(**base_payload)
+
+    with pytest.raises(ValueError, match="invalid"):
+        ProblemCreate(
+            **{
+                **base_payload,
+                "judge_config": {
+                    "answers": {"answer": ["["]},
+                    "scores": {"answer": 100},
+                    "blank_rules": {"answer": {"match": "regex"}},
+                },
+            }
+        )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ProblemCreate(
+            **{
+                **base_payload,
+                "judge_config": {
+                    "answers": {"answer": ["1"]},
+                    "scores": {"answer": 100},
+                    "blank_rules": {"answer": {"match": "numeric", "tolerance": -0.1}},
+                },
+            }
+        )
+
+
+def test_blank_rule_management_api_keeps_public_detail_safe(client: TestClient, auth_headers) -> None:
+    payload = {
+        "title": "P5 regex blank rule",
+        "type": "blank",
+        "difficulty": "基础",
+        "tags": ["P5"],
+        "statement": "Enter a node id.",
+        "blanks": [{"key": "node_id", "label": "Node ID", "score": 100}],
+        "judge_config": {
+            "case_sensitive": False,
+            "trim_space": True,
+            "answers": {"node_id": [r"node-\d{2}"]},
+            "scores": {"node_id": 100},
+            "blank_rules": {"node_id": {"match": "regex"}},
+        },
+    }
+
+    created = client.post("/api/v1/admin/problems", headers=auth_headers("coach"), json=payload)
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["judge_config"]["blank_rules"]["node_id"]["match"] == "regex"
+
+    public_detail = client.get(f"/api/v1/problems/{body['id']}")
+    assert public_detail.status_code == 200, public_detail.text
+    assert "judge_config" not in public_detail.json()
+
+    submitted = client.post(
+        f"/api/v1/problems/{body['id']}/submit-objective",
+        headers=auth_headers("alice"),
+        json={"answers": {"node_id": " NODE-42 "}},
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["score"] == submitted.json()["max_score"] == 100

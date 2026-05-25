@@ -19,12 +19,15 @@ import type {
 } from '@/services/types';
 
 type Difficulty = ProblemFormPayload['difficulty'];
+type BlankMatchType = 'exact' | 'regex' | 'numeric';
 
 interface BlankRow {
   key: string;
   label: string;
   score: number;
   answersText: string;
+  match?: BlankMatchType;
+  tolerance?: number | null;
 }
 
 interface FlatTag {
@@ -74,7 +77,7 @@ const form = reactive({
     { key: 'C', text: '' },
     { key: 'D', text: '' },
   ],
-  blankRows: [{ key: 'answer', label: '答案', score: 100, answersText: '' }] as BlankRow[],
+  blankRows: [defaultBlankRow()] as BlankRow[],
   time_limit_ms: 1000 as number | null,
   memory_limit_mb: 128 as number | null,
   visible: true,
@@ -104,6 +107,36 @@ const importStrategies: Array<{ value: ProblemImportConflictStrategy; label: str
   { value: 'overwrite', label: '覆盖同号' },
   { value: 'skip', label: '跳过同号' },
 ];
+
+const blankMatchOptions: Array<{ value: BlankMatchType; label: string }> = [
+  { value: 'exact', label: 'Exact' },
+  { value: 'regex', label: 'Regex' },
+  { value: 'numeric', label: 'Numeric' },
+];
+
+function defaultBlankRow(index = 0): BlankRow {
+  return {
+    key: index === 0 ? 'answer' : `blank_${index + 1}`,
+    label: '答案',
+    score: 100,
+    answersText: '',
+    match: 'exact',
+    tolerance: null,
+  };
+}
+
+function normalizeBlankRows(rows: BlankRow[]): BlankRow[] {
+  return rows.map((row, index) => ({
+    ...defaultBlankRow(index),
+    ...row,
+    match: normalizeBlankMatch(row.match),
+    tolerance: row.tolerance ?? null,
+  }));
+}
+
+function normalizeBlankMatch(value: unknown): BlankMatchType {
+  return value === 'regex' || value === 'numeric' ? value : 'exact';
+}
 
 function flattenTags(items: TagTreeNode[], depth = 0): FlatTag[] {
   return items.flatMap((tag) => [{ tag, depth }, ...flattenTags(tag.children, depth + 1)]);
@@ -141,7 +174,7 @@ function resetForm() {
     { key: 'C', text: '' },
     { key: 'D', text: '' },
   ];
-  form.blankRows = [{ key: 'answer', label: '答案', score: 100, answersText: '' }];
+  form.blankRows = [defaultBlankRow()];
   form.time_limit_ms = 1000;
   form.memory_limit_mb = 128;
   form.visible = true;
@@ -160,12 +193,13 @@ function resetForm() {
 
 function setType(type: ProblemType) {
   form.type = type;
+  form.blankRows = normalizeBlankRows(form.blankRows);
   if (type === 'code') {
     form.time_limit_ms = form.time_limit_ms ?? 1000;
     form.memory_limit_mb = form.memory_limit_mb ?? 128;
   }
   if (type === 'blank' && form.blankRows.length === 0) {
-    form.blankRows = [{ key: 'answer', label: '答案', score: 100, answersText: '' }];
+    form.blankRows = [defaultBlankRow()];
   }
   if ((type === 'single_choice' || type === 'multiple_choice') && form.options.length < 2) {
     form.options = [
@@ -201,19 +235,23 @@ function editProblem(problem: ProblemAdminDetail) {
 
   const answers = judgeConfig.answers && typeof judgeConfig.answers === 'object' ? judgeConfig.answers as Record<string, unknown> : {};
   const scores = judgeConfig.scores && typeof judgeConfig.scores === 'object' ? judgeConfig.scores as Record<string, unknown> : {};
-  form.blankRows = normalizeRows(
-    problem.blanks.map((blank) => {
+  const blankRules = judgeConfig.blank_rules && typeof judgeConfig.blank_rules === 'object'
+    ? judgeConfig.blank_rules as Record<string, Record<string, unknown>>
+    : {};
+  const blankRows = problem.blanks.map((blank) => {
       const key = String(blank.key);
       const answerValue = answers[key];
+      const rule = blankRules[key] ?? {};
       return {
         key,
         label: blank.label,
         score: Number(scores[key] ?? blank.score ?? 100),
         answersText: Array.isArray(answerValue) ? answerValue.join('\n') : '',
+        match: normalizeBlankMatch(rule.match),
+        tolerance: rule.tolerance === undefined || rule.tolerance === null ? null : Number(rule.tolerance),
       };
-    }),
-    { key: 'answer', label: '答案', score: 100, answersText: '' },
-  );
+    });
+  form.blankRows = normalizeBlankRows(blankRows.length ? blankRows : [defaultBlankRow()]);
   notice.value = '';
   error.value = '';
   testDataFile.value = null;
@@ -319,6 +357,7 @@ function buildPayload(): ProblemFormPayload {
   if (form.type === 'blank') {
     const answers: Record<string, string[]> = {};
     const scores: Record<string, number> = {};
+    const blankRules: Record<string, { match: BlankMatchType; tolerance?: number }> = {};
     payload.blanks = form.blankRows
       .map((blank) => ({
         key: blank.key.trim(),
@@ -334,12 +373,17 @@ function buildPayload(): ProblemFormPayload {
         .map((answer) => answer.trim())
         .filter(Boolean);
       scores[key] = Number(blank.score || 0);
+      const match = normalizeBlankMatch(blank.match);
+      const rule: { match: BlankMatchType; tolerance?: number } = { match };
+      if (match === 'numeric') rule.tolerance = Number(blank.tolerance ?? 0);
+      blankRules[key] = rule;
     }
     payload.judge_config = {
       case_sensitive: form.case_sensitive,
       trim_space: form.trim_space,
       answers,
       scores,
+      blank_rules: blankRules,
     };
     return payload;
   }
@@ -376,7 +420,7 @@ function removeOption(index: number) {
 }
 
 function addBlank() {
-  form.blankRows.push({ key: `blank_${form.blankRows.length + 1}`, label: '答案', score: 100, answersText: '' });
+  form.blankRows.push(defaultBlankRow(form.blankRows.length));
 }
 
 function removeBlank(index: number) {
@@ -893,6 +937,28 @@ onMounted(() => {
                 <label>Key<input v-model="blank.key" /></label>
                 <label>标签<input v-model="blank.label" /></label>
                 <label>分值<input v-model.number="blank.score" type="number" min="1" /></label>
+                <label>
+                  Match
+                  <select v-model="blank.match">
+                    <option v-for="option in blankMatchOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label
+                  class="blank-tolerance-field"
+                  :class="{ 'blank-tolerance-field--hidden': blank.match !== 'numeric' }"
+                  :aria-hidden="blank.match !== 'numeric'"
+                >
+                  Tolerance
+                  <input
+                    v-model.number="blank.tolerance"
+                    type="number"
+                    min="0"
+                    step="0.000001"
+                    :disabled="blank.match !== 'numeric'"
+                  />
+                </label>
                 <label>答案<textarea v-model="blank.answersText" rows="3" /></label>
                 <button class="icon-button danger-icon" type="button" aria-label="删除填空项" @click="removeBlank(index)">
                   <Trash2 :size="16" />

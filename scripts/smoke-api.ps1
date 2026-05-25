@@ -504,6 +504,41 @@ Assert-True ($managedProblem.type -eq "single_choice") "admin problem create mus
 Assert-True (Has-Property -Value $managedProblem -Name "judge_config") "admin created problem must return management judge_config"
 $managedPublicDetail = Invoke-ApiJson -Method GET -Path "/problems/$($managedProblem.id)"
 Assert-True (-not (Has-Property -Value $managedPublicDetail -Name "judge_config")) "public detail for managed problem must not include judge_config"
+$managedRegexBlank = Invoke-ApiJson -Method POST -Path "/admin/problems" -Token $roleAdminToken -Body @{
+    title = "Smoke P5 regex blank"
+    type = "blank"
+    difficulty = $basicDifficulty
+    tags = @("smoke", "P5")
+    statement = "Enter a node id like node-42."
+    blanks = @(
+        @{ key = "node_id"; label = "Node ID"; score = 100 }
+    )
+    visible = $true
+    judge_config = @{
+        case_sensitive = $false
+        trim_space = $true
+        answers = @{
+            node_id = @("node-\d{2}")
+        }
+        scores = @{
+            node_id = 100
+        }
+        blank_rules = @{
+            node_id = @{
+                match = "regex"
+            }
+        }
+    }
+}
+Assert-True ($managedRegexBlank.judge_config.blank_rules.node_id.match -eq "regex") "admin blank problem must preserve regex blank rule"
+$managedRegexBlankPublic = Invoke-ApiJson -Method GET -Path "/problems/$($managedRegexBlank.id)"
+Assert-True (-not (Has-Property -Value $managedRegexBlankPublic -Name "judge_config")) "public regex blank detail must not include judge_config"
+$regexBlankSubmission = Invoke-ApiJson -Method POST -Path "/problems/$($managedRegexBlank.id)/submit-objective" -Token $token -Body @{
+    answers = @{
+        node_id = " NODE-42 "
+    }
+}
+Assert-True ($regexBlankSubmission.score -eq $regexBlankSubmission.max_score) "regex blank submission must score through objective rule engine"
 $updatedManagedProblem = Invoke-ApiJson -Method PUT -Path "/admin/problems/$($managedProblem.id)" -Token $roleAdminToken -Body @{
     title = "Smoke P3 single choice"
     type = "single_choice"
