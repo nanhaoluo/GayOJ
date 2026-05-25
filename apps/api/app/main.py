@@ -818,12 +818,68 @@ def _contest_submission_before_freeze(submission: Submission, contest: Contest) 
 def _standing_problem_payload() -> dict[str, Any]:
     return {
         "score": 0,
+        "max_score": 100,
         "status": "",
         "attempts": 0,
         "accepted_at": None,
         "penalty_minutes": 0,
         "first_blood": False,
     }
+
+
+def _contest_score_sort_key(contest: Contest, row: dict[str, Any]) -> tuple[Any, ...]:
+    if contest.rule == "OI":
+        return (-int(row["score"]), -int(row["solved"]), row["display_name"])
+    if contest.rule == "IOI":
+        return (-int(row["score"]), row["display_name"])
+    return (-int(row["score"]), -int(row["solved"]), row["display_name"])
+
+
+def _build_score_standings(contest: Contest, store: Repository, submissions: list[Submission], users: dict[str, User]) -> list[StandingRow]:
+    rows: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        row = rows.setdefault(
+            submission.user_id,
+            {
+                "user_id": submission.user_id,
+                "display_name": users.get(submission.user_id).display_name if users.get(submission.user_id) else submission.user_id,
+                "solved": 0,
+                "score": 0,
+                "penalty": 0,
+                "first_blood": 0,
+                "problems": {},
+            },
+        )
+        problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
+        if not _contest_submission_before_freeze(submission, contest):
+            continue
+        problem_row["attempts"] += 1
+        effective_time = _submission_effective_time(submission)
+        score = max(int(submission.score), 0)
+        if (
+            score > int(problem_row["score"])
+            or (
+                score == int(problem_row["score"])
+                and (
+                    problem_row["accepted_at"] is None
+                    or effective_time < problem_row["accepted_at"]
+                )
+            )
+        ):
+            problem_row["score"] = score
+            problem_row["max_score"] = max(int(submission.max_score), int(problem_row["max_score"]), 0)
+            problem_row["status"] = submission.status
+            problem_row["accepted_at"] = effective_time if score > 0 else None
+            if score >= int(submission.max_score):
+                problem_row["first_blood"] = False
+
+    for row in rows.values():
+        for problem_row in row["problems"].values():
+            row["score"] += int(problem_row["score"])
+            if int(problem_row["score"]) >= int(problem_row["max_score"]):
+                row["solved"] += 1
+
+    return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: _contest_score_sort_key(contest, item))]
 
 
 def build_contest_standings(contest: Contest, store: Repository) -> list[StandingRow]:
@@ -836,32 +892,8 @@ def build_contest_standings(contest: Contest, store: Repository) -> list[Standin
     ]
     relevant_submissions.sort(key=lambda item: (_submission_effective_time(item), item.created_at, item.id))
 
-    if contest.rule != "ACM":
-        rows: dict[str, dict[str, Any]] = {}
-        for submission in relevant_submissions:
-            row = rows.setdefault(
-                submission.user_id,
-                {
-                    "user_id": submission.user_id,
-                    "display_name": users.get(submission.user_id).display_name if users.get(submission.user_id) else submission.user_id,
-                    "solved": 0,
-                    "score": 0,
-                    "penalty": 0,
-                    "first_blood": 0,
-                    "problems": {},
-                },
-            )
-            best = row["problems"].get(submission.problem_id, _standing_problem_payload())
-            if submission.score > best["score"]:
-                row["problems"][submission.problem_id] = {
-                    **best,
-                    "score": submission.score,
-                    "status": submission.status,
-                }
-        for row in rows.values():
-            row["score"] = sum(item["score"] for item in row["problems"].values())
-            row["solved"] = sum(1 for item in row["problems"].values() if item["score"] >= 100)
-        return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: (-item["solved"], -item["score"], item["display_name"]))]
+    if contest.rule in {"OI", "IOI", "CF"}:
+        return _build_score_standings(contest, store, relevant_submissions, users)
 
     rows: dict[str, dict[str, Any]] = {}
     first_blood_owner: dict[str, str] = {}
@@ -892,6 +924,7 @@ def build_contest_standings(contest: Contest, store: Repository) -> list[Standin
             elapsed_minutes = max(0, int((effective_time - contest_start).total_seconds() // 60))
             penalty_minutes = elapsed_minutes + problem_row["attempts"] * 20
             problem_row["score"] = submission.max_score
+            problem_row["max_score"] = submission.max_score
             problem_row["status"] = submission.status
             problem_row["accepted_at"] = effective_time
             problem_row["penalty_minutes"] = penalty_minutes

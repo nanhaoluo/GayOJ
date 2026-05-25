@@ -4391,6 +4391,11 @@
             "title": "First Blood",
             "type": "boolean"
           },
+          "max_score": {
+            "default": 100,
+            "title": "Max Score",
+            "type": "integer"
+          },
           "penalty_minutes": {
             "default": 0,
             "title": "Penalty Minutes",

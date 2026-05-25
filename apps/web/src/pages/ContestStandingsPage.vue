@@ -12,13 +12,27 @@ const standings = ref<StandingRow[]>([]);
 const error = ref('');
 
 const problemIds = computed(() => contest.value?.problems.map((problem) => problem.id) ?? []);
+const isAcmBoard = computed(() => contest.value?.rule === 'ACM');
+
+function totalAttempts(row: StandingRow): number {
+  return Object.values(row.problems).reduce((sum, problem) => sum + problem.attempts, 0);
+}
 
 function problemCellClass(problem: StandingProblemResult | undefined): string {
   if (!problem) return 'standing-problem-cell';
-  if (problem.accepted_at) {
-    return problem.first_blood ? 'standing-problem-cell accepted first-blood' : 'standing-problem-cell accepted';
+  if (isAcmBoard.value) {
+    if (problem.accepted_at) {
+      return problem.first_blood ? 'standing-problem-cell accepted first-blood' : 'standing-problem-cell accepted';
+    }
+    if (problem.attempts > 0) {
+      return 'standing-problem-cell attempted';
+    }
+    return 'standing-problem-cell';
   }
-  if (problem.attempts > 0) {
+  if (problem.score >= problem.max_score && problem.max_score > 0) {
+    return 'standing-problem-cell accepted';
+  }
+  if (problem.score > 0 || problem.attempts > 0) {
     return 'standing-problem-cell attempted';
   }
   return 'standing-problem-cell';
@@ -26,23 +40,35 @@ function problemCellClass(problem: StandingProblemResult | undefined): string {
 
 function problemCellText(problem: StandingProblemResult | undefined): string {
   if (!problem) return '-';
-  if (problem.accepted_at) {
-    const wrongAttempts = Math.max(problem.attempts, 0);
-    return wrongAttempts > 0 ? `+${wrongAttempts}` : '+';
+  if (isAcmBoard.value) {
+    if (problem.accepted_at) {
+      const wrongAttempts = Math.max(problem.attempts, 0);
+      return wrongAttempts > 0 ? `+${wrongAttempts}` : '+';
+    }
+    if (problem.attempts > 0) {
+      return `-${problem.attempts}`;
+    }
+    return '-';
   }
-  if (problem.attempts > 0) {
-    return `-${problem.attempts}`;
+  if (problem.attempts === 0 && problem.score === 0) {
+    return '-';
   }
-  return '-';
+  return `${problem.score}`;
 }
 
 function problemCellMeta(problem: StandingProblemResult | undefined): string {
   if (!problem) return '';
-  if (problem.accepted_at) {
-    return `${problem.penalty_minutes} min${problem.first_blood ? ' / FB' : ''}`;
+  if (isAcmBoard.value) {
+    if (problem.accepted_at) {
+      return `${problem.penalty_minutes} min${problem.first_blood ? ' / FB' : ''}`;
+    }
+    if (problem.attempts > 0) {
+      return `${problem.attempts} 次尝试`;
+    }
+    return '';
   }
   if (problem.attempts > 0) {
-    return `${problem.attempts} 次尝试`;
+    return `${problem.attempts} 次 / ${problem.max_score}`;
   }
   return '';
 }
@@ -78,9 +104,9 @@ onMounted(load);
         <div class="table-row table-head standings-table standings-grid">
           <span>#</span>
           <span>选手</span>
-          <span>通过</span>
-          <span>罚时</span>
-          <span>首杀</span>
+          <span>{{ isAcmBoard ? '通过' : '总分' }}</span>
+          <span>{{ isAcmBoard ? '罚时' : '满分题' }}</span>
+          <span>{{ isAcmBoard ? '首杀' : '提交' }}</span>
           <span v-for="problemId in problemIds" :key="problemId">{{ problemId }}</span>
         </div>
         <div
@@ -91,9 +117,9 @@ onMounted(load);
         >
           <strong>{{ index + 1 }}</strong>
           <span class="standing-user">{{ row.display_name }}</span>
-          <span>{{ row.solved }}</span>
-          <span>{{ row.penalty }}</span>
-          <span>{{ row.first_blood }}</span>
+          <span>{{ isAcmBoard ? row.solved : row.score }}</span>
+          <span>{{ isAcmBoard ? row.penalty : row.solved }}</span>
+          <span>{{ isAcmBoard ? row.first_blood : totalAttempts(row) }}</span>
           <div
             v-for="problemId in problemIds"
             :key="`${row.user_id}-${problemId}`"
