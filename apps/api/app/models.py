@@ -1232,6 +1232,25 @@ class JudgeMonitorResponse(BaseModel):
     balloons: list[ContestBalloon] = Field(default_factory=list)
 
 
+class ContestJudgeQueueSummary(BaseModel):
+    backend: JudgeQueueBackend
+    topic: str
+    depth: int
+    pending: int
+    leased: int
+    last_jobs: list[JudgeQueueJob] = Field(default_factory=list)
+
+
+class ContestJudgeMonitorResponse(BaseModel):
+    contest: ContestDetail
+    queue_depth: int
+    queue: ContestJudgeQueueSummary
+    last_submissions: list[SubmissionReview]
+    judge_nodes: list[JudgeNode]
+    clarifications: list[Clarification]
+    balloons: list[ContestBalloon] = Field(default_factory=list)
+
+
 class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 

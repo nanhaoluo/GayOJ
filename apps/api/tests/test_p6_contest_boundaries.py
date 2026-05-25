@@ -359,6 +359,100 @@ def test_contest_clarification_judge_list_includes_private_and_audit_fields(clie
     assert judge_item["answered_by_name"] == "Judge Wu"
 
 
+def test_judge_contest_clarification_route_requires_read_all_permission(client: TestClient, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "judge clar route"},
+    )
+    assert created.status_code == 200, created.text
+
+    anonymous = client.get("/api/v1/judge/clar/C1001")
+    student = client.get("/api/v1/judge/clar/C1001", headers=auth_headers("alice"))
+    judge = client.get("/api/v1/judge/clar/C1001", headers=auth_headers("judge"))
+
+    assert anonymous.status_code == 401
+    assert student.status_code == 403
+    assert judge.status_code == 200
+    assert judge.json()[0]["id"] == created.json()["id"]
+
+
+def test_judge_contest_clarification_route_rejects_unknown_contest(client: TestClient, auth_headers) -> None:
+    response = client.get("/api/v1/judge/clar/C404", headers=auth_headers("judge"))
+    assert response.status_code == 404
+
+
+def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_scope(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.end_at = datetime(2026, 5, 26, 17, 0, tzinfo=timezone.utc)
+    store.update_contest(contest)
+
+    code_a = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('c1001')\n"},
+    )
+    assert code_a.status_code == 200, code_a.text
+    objective_a = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert objective_a.status_code == 200, objective_a.text
+    clar_a = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "monitor question A", "problem_id": "P1001"},
+    )
+    assert clar_a.status_code == 200, clar_a.text
+
+    second_contest = store.get_contest("C1001").model_copy(deep=True)
+    second_contest.id = "C2001"
+    second_contest.title = "Second Contest"
+    second_contest.problem_ids = ["P1002"]
+    second_contest.visibility = "public"
+    store.add_contest(second_contest)
+
+    code_b = client.post(
+        "/api/v1/contests/C2001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1002", "answers": {"edge_formula": "n(n-1)/2"}},
+    )
+    assert code_b.status_code == 200, code_b.text
+    clar_b = client.post(
+        "/api/v1/contests/C2001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "monitor question B", "problem_id": "P1002"},
+    )
+    assert clar_b.status_code == 200, clar_b.text
+
+    anonymous = client.get("/api/v1/judge/monitor/C1001")
+    student = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("alice"))
+    judge = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+
+    assert anonymous.status_code == 401
+    assert student.status_code == 403
+    assert judge.status_code == 200, judge.text
+
+    payload = judge.json()
+    assert payload["contest"]["id"] == "C1001"
+    assert payload["queue"]["depth"] == 1
+    assert all(item["contest_id"] == "C1001" for item in payload["last_submissions"])
+    assert code_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
+    assert objective_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
+    assert code_b.json()["id"] not in {item["id"] for item in payload["last_submissions"]}
+    assert clar_a.json()["id"] in {item["id"] for item in payload["clarifications"]}
+    assert clar_b.json()["id"] not in {item["id"] for item in payload["clarifications"]}
+    assert payload["balloons"][0]["contest_id"] == "C1001"
+    assert all(item["contest_id"] == "C1001" for item in payload["balloons"])
+
+
+def test_contest_judge_monitor_rejects_unknown_contest(client: TestClient, auth_headers) -> None:
+    response = client.get("/api/v1/judge/monitor/C404", headers=auth_headers("judge"))
+    assert response.status_code == 404
+
+
 def test_contest_clarification_rejects_problem_outside_contest(client: TestClient, auth_headers) -> None:
     response = client.post(
         "/api/v1/contests/C1001/clarifications",
