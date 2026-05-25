@@ -430,9 +430,17 @@ export interface Clarification {
   id: string;
   contest_id: string;
   user_id: string;
+  user_display_name: string;
+  problem_id: string | null;
+  problem_title: string | null;
   question: string;
   answer: string | null;
   public: boolean;
+  broadcast: boolean;
+  answered_by: string | null;
+  answered_by_name: string | null;
+  answered_at: string | null;
+  broadcast_at: string | null;
   created_at: string;
 }
 
