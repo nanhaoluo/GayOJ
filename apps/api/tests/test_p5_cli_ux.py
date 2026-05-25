@@ -320,7 +320,8 @@ def test_cli_pack_commands_print_summary_and_use_problem_set_endpoint(
     assert captured["url"] == "http://example.test/api/v1/problem-sets/PS1001/offline-package"
     assert captured["method"] == "GET"
     assert "Offline pack saved:" in output
-    assert "Pack summary: scope=objective-only problems=1" in output
+    assert "Pack summary: pack_id=" in output
+    assert "scope=objective-only problems=1" in output
     assert output_path.exists()
 
 
