@@ -82,6 +82,44 @@ def test_worker_aggregates_accepted_result_and_completes_queue_job(client: TestC
     assert any(notification.title == "代码评测完成" for notification in store.list_notifications("u-student"))
 
 
+def test_worker_creates_pending_balloon_for_accepted_contest_code_submission(store) -> None:
+    from app.db import now
+    from app.main import enqueue_code_submission_job
+    from app.models import Submission
+    from app.services import make_submission_id
+
+    problem = store.get_problem("P1001")
+    contest = store.get_contest("C1001")
+    assert problem is not None and contest is not None
+
+    submission = Submission(
+        id=make_submission_id(),
+        user_id="u-student",
+        problem_id=problem.id,
+        problem_title=problem.title,
+        problem_type=problem.type,
+        contest_id=contest.id,
+        language="python",
+        source_code="print('contest ac')\n",
+        status="queued",
+        score=0,
+        max_score=100,
+        details=[],
+        message="queued",
+        created_at=now(),
+    )
+    enqueue_code_submission_job(store, submission, problem, message="queued for contest")
+
+    result = judge_submission(store, submission.id, FakePointExecutor())
+    assert result.status == "accepted"
+
+    balloons = store.list_contest_balloons(contest.id)
+    matching = [item for item in balloons if item.get("submission_id") == submission.id]
+    assert len(matching) == 1
+    assert matching[0]["eligible"] is True
+    assert matching[0]["released"] is False
+
+
 def test_worker_reports_wrong_answer_from_output_mismatch() -> None:
     task = CodeJudgeTask(
         submission_id="S1",

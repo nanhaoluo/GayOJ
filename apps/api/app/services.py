@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from .config import OFFLINE_PACK_SECRET, OFFLINE_PACK_TTL_HOURS
-from .models import ObjectiveItemResult, Problem
+from .models import ContestBalloon, Contest, ObjectiveItemResult, Problem, Submission, User
 
 
 PACK_SECRET = OFFLINE_PACK_SECRET
@@ -215,3 +215,131 @@ def build_offline_pack(
 def safe_print_source(source_code: str) -> str:
     source = source_code.replace("\r\n", "\n").replace("\r", "\n")
     return source if source.endswith("\n") else f"{source}\n"
+
+
+def contest_submission_is_accepted(submission: Submission) -> bool:
+    return submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score
+
+
+def contest_submission_is_balloon_eligible(contest: Contest, submission: Submission) -> bool:
+    if contest.rule != "ACM":
+        return False
+    return contest_submission_is_accepted(submission)
+
+
+def contest_submission_effective_time(submission: Submission) -> datetime:
+    return submission.judged_at or submission.created_at
+
+
+def build_contest_balloon(
+    contest: Contest,
+    submission: Submission,
+    *,
+    display_name: str,
+    first_ac: bool,
+    released: bool = False,
+    released_at: datetime | None = None,
+    released_by: str | None = None,
+) -> ContestBalloon:
+    return ContestBalloon(
+        contest_id=contest.id,
+        submission_id=submission.id,
+        user_id=submission.user_id,
+        display_name=display_name,
+        problem_id=submission.problem_id,
+        problem_title=submission.problem_title,
+        eligible=contest_submission_is_balloon_eligible(contest, submission),
+        first_ac=first_ac,
+        status=submission.status,
+        score=submission.score,
+        max_score=submission.max_score,
+        judged_at=submission.judged_at,
+        released=released,
+        released_at=released_at,
+        released_by=released_by,
+    )
+
+
+def reconcile_contest_balloon(
+    contest: Contest,
+    submission: Submission,
+    *,
+    display_name: str,
+    prior: dict[str, Any] | None = None,
+    siblings: list[Submission] | None = None,
+) -> ContestBalloon | None:
+    if siblings is None:
+        siblings = []
+    if not contest_submission_is_balloon_eligible(contest, submission):
+        return None
+    submission_time = contest_submission_effective_time(submission)
+    earlier_accepted = [
+        item
+        for item in siblings
+        if item.id != submission.id
+        and item.user_id == submission.user_id
+        and item.problem_id == submission.problem_id
+        and item.contest_id == contest.id
+        and contest_submission_is_accepted(item)
+        and (
+            contest_submission_effective_time(item) < submission_time
+            or (
+                contest_submission_effective_time(item) == submission_time
+                and str(item.id) < str(submission.id)
+            )
+        )
+    ]
+    if earlier_accepted:
+        return None
+    return build_contest_balloon(
+        contest,
+        submission,
+        display_name=display_name,
+        first_ac=not any(
+            item.id != submission.id
+            and item.problem_id == submission.problem_id
+            and item.contest_id == contest.id
+            and contest_submission_is_accepted(item)
+            and (
+                contest_submission_effective_time(item) < submission_time
+                or (
+                    contest_submission_effective_time(item) == submission_time
+                    and str(item.id) < str(submission.id)
+                )
+            )
+            for item in siblings
+        ),
+        released=bool((prior or {}).get("released", False)),
+        released_at=prior.get("released_at") if prior else None,
+        released_by=prior.get("released_by") if prior else None,
+    )
+
+
+def refresh_contest_balloon_for_submission(store: Any, submission: Submission) -> ContestBalloon | None:
+    contest_id = submission.contest_id or ""
+    if not contest_id:
+        return None
+    contest = store.get_contest(contest_id)
+    if not contest or not contest_submission_is_balloon_eligible(contest, submission):
+        return None
+    user: User | None = store.get_user(submission.user_id)
+    prior = next(
+        (
+            item
+            for item in store.list_contest_balloons(contest.id)
+            if str(item.get("user_id") or "") == submission.user_id and str(item.get("problem_id") or "") == submission.problem_id
+        ),
+        None,
+    )
+    siblings = [item for item in store.list_submissions() if item.contest_id == contest.id]
+    balloon = reconcile_contest_balloon(
+        contest,
+        submission,
+        display_name=user.display_name if user else submission.user_id,
+        prior=prior,
+        siblings=siblings,
+    )
+    if balloon is None:
+        return None
+    store.upsert_contest_balloon(balloon.model_dump(mode="json"))
+    return balloon
