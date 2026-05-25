@@ -548,6 +548,7 @@ class ContestDetail(Contest):
 
 class StandingProblemResult(BaseModel):
     score: int = 0
+    max_score: int = 100
     status: str = ""
     attempts: int = 0
     accepted_at: datetime | None = None

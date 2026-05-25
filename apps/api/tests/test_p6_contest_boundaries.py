@@ -346,3 +346,184 @@ def test_private_contest_standings_follow_visibility_and_permission(client: Test
     assert anonymous.status_code == 404
     assert student.status_code == 403
     assert judge.status_code == 200
+
+
+def test_oi_standings_use_highest_score_per_problem(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.rule = "OI"
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = False
+    store.update_contest(contest)
+
+    coach = store.get_user("u-coach")
+    judge = store.get_user("u-judge")
+    assert coach is not None and judge is not None
+    coach.role = "student"
+    judge.role = "student"
+    store.update_user(coach)
+    store.update_user(judge)
+
+    store.add_submission(
+        _contest_submission(
+            "S-OI-ALICE-60",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=60,
+            created_at=start_at + timedelta(minutes=10),
+            judged_at=start_at + timedelta(minutes=10),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-ALICE-100",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            score=100,
+            created_at=start_at + timedelta(minutes=25),
+            judged_at=start_at + timedelta(minutes=25),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-ALICE-80",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="wrong_answer",
+            score=80,
+            created_at=start_at + timedelta(minutes=35),
+            judged_at=start_at + timedelta(minutes=35),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-COACH-90",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=90,
+            created_at=start_at + timedelta(minutes=12),
+            judged_at=start_at + timedelta(minutes=12),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-COACH-70",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="完全图边数",
+            problem_type="blank",
+            status="wrong_answer",
+            score=70,
+            created_at=start_at + timedelta(minutes=20),
+            judged_at=start_at + timedelta(minutes=20),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-JUDGE-100",
+            user_id="u-judge",
+            contest_id="C1001",
+            problem_id="P1003",
+            problem_title="二分查找适用条件",
+            problem_type="single_choice",
+            status="accepted",
+            score=100,
+            created_at=start_at + timedelta(minutes=15),
+            judged_at=start_at + timedelta(minutes=15),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert [row["user_id"] for row in body[:3]] == ["u-student", "u-coach", "u-judge"]
+    alice = body[0]
+    coach_row = body[1]
+    judge_row = body[2]
+
+    assert alice["score"] == 180
+    assert alice["solved"] == 1
+    assert alice["penalty"] == 0
+    assert alice["first_blood"] == 0
+    assert alice["problems"]["P1001"]["score"] == 100
+    assert alice["problems"]["P1001"]["attempts"] == 2
+    assert alice["problems"]["P1002"]["score"] == 80
+
+    assert coach_row["score"] == 160
+    assert coach_row["solved"] == 0
+    assert coach_row["problems"]["P1001"]["score"] == 90
+    assert coach_row["problems"]["P1002"]["score"] == 70
+
+    assert judge_row["score"] == 100
+    assert judge_row["solved"] == 1
+    assert judge_row["problems"]["P1003"]["attempts"] == 1
+
+
+def test_oi_standings_hide_higher_score_after_freeze(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.rule = "OI"
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = True
+    contest.frozen_at = start_at + timedelta(minutes=60)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-OI-FREEZE-LOW",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=40,
+            created_at=start_at + timedelta(minutes=30),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-OI-FREEZE-HIGH",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            score=100,
+            created_at=start_at + timedelta(minutes=70),
+            judged_at=start_at + timedelta(minutes=70),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    alice = next(row for row in body if row["user_id"] == "u-student")
+
+    assert alice["score"] == 40
+    assert alice["solved"] == 0
+    assert alice["problems"]["P1001"]["score"] == 40
+    assert alice["problems"]["P1001"]["attempts"] == 1
