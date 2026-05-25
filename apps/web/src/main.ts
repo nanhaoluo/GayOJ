@@ -6,7 +6,9 @@ import CoachPage from './pages/CoachPage.vue';
 import ContestsPage from './pages/ContestsPage.vue';
 import ContestBalloonPage from './pages/ContestBalloonPage.vue';
 import ContestClarificationPage from './pages/ContestClarificationPage.vue';
+import ContestHomePage from './pages/ContestHomePage.vue';
 import ContestJudgePage from './pages/ContestJudgePage.vue';
+import ContestProblemPage from './pages/ContestProblemPage.vue';
 import ContestPrintPage from './pages/ContestPrintPage.vue';
 import ContestStandingsPage from './pages/ContestStandingsPage.vue';
 import DashboardPage from './pages/DashboardPage.vue';
@@ -31,6 +33,8 @@ const router = createRouter({
     { path: '/problems/:id', component: ProblemDetailPage },
     { path: '/problem-sets', component: ProblemSetsPage },
     { path: '/contests', component: ContestsPage },
+    { path: '/contests/:id', component: ContestHomePage },
+    { path: '/contests/:id/p/:problemId', component: ContestProblemPage },
     { path: '/contests/:id/standings', component: ContestStandingsPage, meta: { pure: true } },
     { path: '/contests/:id/clar', component: ContestClarificationPage, meta: { pure: true } },
     { path: '/judge/monitor/:id', component: ContestJudgePage, meta: { pure: true } },
