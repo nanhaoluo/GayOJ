@@ -1562,6 +1562,155 @@ pre {
   text-overflow: ellipsis;
 }
 
+.contest-subtitle {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.contest-home-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
+.contest-home-main,
+.contest-home-side {
+  display: grid;
+  gap: 16px;
+}
+
+.contest-home-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contest-home-toolbar-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.contest-home-toolbar-copy p {
+  color: var(--muted);
+}
+
+.contest-problem-list {
+  display: grid;
+  gap: 12px;
+}
+
+.contest-problem-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.contest-problem-card-main {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.contest-problem-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.contest-problem-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.contest-problem-title,
+.contest-problem-meta,
+.contest-home-facts,
+.contest-home-notes {
+  display: grid;
+  gap: 8px;
+}
+
+.contest-problem-title span,
+.contest-problem-meta,
+.contest-home-notes {
+  color: var(--muted);
+}
+
+.contest-problem-meta {
+  grid-template-columns: repeat(3, max-content);
+  align-items: center;
+}
+
+.contest-problem-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.contest-problem-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contest-problem-tags span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.contest-home-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.contest-home-fact {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.contest-home-fact small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.contest-home-notes p {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contest-problem-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .submissions-table {
   min-width: 760px;
 }

@@ -61,6 +61,43 @@ def test_contest_problem_list_hides_judge_config_and_respects_visibility(client:
     assert judge.status_code == 200
 
 
+def test_contest_detail_respects_visibility_and_problem_scope(client: TestClient, auth_headers, store) -> None:
+    public_detail = client.get("/api/v1/contests/C1001")
+    assert public_detail.status_code == 200, public_detail.text
+    public_payload = public_detail.json()
+    assert public_payload["id"] == "C1001"
+    assert all("judge_config" not in item for item in public_payload["problems"])
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.visibility = "private"
+    store.update_contest(contest)
+
+    anonymous = client.get("/api/v1/contests/C1001")
+    student = client.get("/api/v1/contests/C1001", headers=auth_headers("alice"))
+    judge = client.get("/api/v1/contests/C1001", headers=auth_headers("judge"))
+
+    assert anonymous.status_code == 404
+    assert student.status_code == 403
+    assert judge.status_code == 200
+
+
+def test_contest_problem_list_hides_non_visible_problem_and_unknown_problem(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    problem = store.get_problem("P1003")
+    assert contest is not None and problem is not None
+
+    contest.problem_ids = ["P1001", "P1003", "P-NOT-EXIST"]
+    store.update_contest(contest)
+    problem.visible = False
+    store.update_problem(problem)
+
+    response = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("alice"))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert [item["id"] for item in payload] == ["P1001"]
+
+
 def test_contest_submit_routes_keep_code_queue_only_and_objective_scored(client: TestClient, auth_headers, store) -> None:
     code_response = client.post(
         "/api/v1/contests/C1001/submit",
@@ -88,6 +125,22 @@ def test_contest_submit_routes_keep_code_queue_only_and_objective_scored(client:
     assert item["eligible"] is True
     assert item["released"] is False
     assert item["first_ac"] is True
+
+
+def test_contest_submit_rejects_problem_outside_contest_and_non_student_account(client: TestClient, auth_headers) -> None:
+    outsider = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1004", "answers": {"choices": ["A", "C"]}},
+    )
+    assert outsider.status_code == 404
+
+    judge_submit = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("judge"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('no')\n"},
+    )
+    assert judge_submit.status_code == 403
 
 
 def test_contest_balloons_are_acm_only(client: TestClient, auth_headers, store) -> None:
