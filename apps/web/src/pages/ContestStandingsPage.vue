@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiRequest, formatDate } from '@/services/api';
 import type { Contest, StandingProblemResult, StandingRow } from '@/services/types';
+import { authState } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
@@ -13,6 +14,20 @@ const error = ref('');
 
 const problemIds = computed(() => contest.value?.problems.map((problem) => problem.id) ?? []);
 const isAcmBoard = computed(() => contest.value?.rule === 'ACM');
+const canViewFullBoard = computed(() =>
+  Boolean(
+    authState.user?.permissions.includes('contest:manage')
+      || authState.user?.permissions.includes('judge:monitor')
+      || authState.user?.permissions.includes('clarification:read:all'),
+  ),
+);
+const freezeNotice = computed(() => {
+  if (!contest.value?.freeze_active) return '';
+  if (canViewFullBoard.value) {
+    return '当前处于封榜阶段，你看到的是裁判完整榜单。';
+  }
+  return '当前榜单已封榜，仅展示冻结前提交。';
+});
 
 function totalAttempts(row: StandingRow): number {
   return Object.values(row.problems).reduce((sum, problem) => sum + problem.attempts, 0);
@@ -99,6 +114,7 @@ onMounted(load);
           {{ contest.rule }} · {{ formatDate(contest.start_at) }} - {{ formatDate(contest.end_at) }}
         </p>
       </div>
+      <p v-if="freezeNotice" class="freeze-banner">{{ freezeNotice }}</p>
       <p v-if="error" class="form-error">{{ error }}</p>
       <div class="table-panel">
         <div class="table-row table-head standings-table standings-grid">

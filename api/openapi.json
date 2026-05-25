@@ -614,6 +614,11 @@
             "title": "End At",
             "type": "string"
           },
+          "freeze_disabled": {
+            "default": false,
+            "title": "Freeze Disabled",
+            "type": "boolean"
+          },
           "freeze_reason": {
             "default": "",
             "title": "Freeze Reason",
@@ -899,6 +904,28 @@
             "format": "date-time",
             "title": "End At",
             "type": "string"
+          },
+          "freeze_active": {
+            "default": false,
+            "title": "Freeze Active",
+            "type": "boolean"
+          },
+          "freeze_disabled": {
+            "default": false,
+            "title": "Freeze Disabled",
+            "type": "boolean"
+          },
+          "freeze_effective_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freeze Effective At"
           },
           "freeze_reason": {
             "default": "",
@@ -1221,6 +1248,18 @@
           "problem_id"
         ],
         "title": "ContestSubmitRequest",
+        "type": "object"
+      },
+      "ContestUnfreezeRequest": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "ContestUnfreezeRequest",
         "type": "object"
       },
       "Discussion": {
@@ -8244,6 +8283,71 @@
           }
         },
         "summary": "Submit Contest Entry"
+      }
+    },
+    "/api/v1/contests/{contest_id}/unfreeze": {
+      "post": {
+        "operationId": "unfreeze_contest_api_v1_contests__contest_id__unfreeze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestUnfreezeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unfreeze Contest"
       }
     },
     "/api/v1/discussions": {
