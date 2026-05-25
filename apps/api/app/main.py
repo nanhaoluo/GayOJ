@@ -795,6 +795,27 @@ def contest_problem_lookup(contest: Contest, store: Repository, problem_id: str)
     return problem
 
 
+def clarification_visible_to_user(clarification: Clarification, user: User) -> bool:
+    if role_has_permission(user.role, "clarification:read:all") or role_has_permission(user.role, "contest:manage"):
+        return True
+    return clarification.user_id == user.id or clarification.public
+
+
+def clarification_payload_for_user(clarification: Clarification, user: User) -> Clarification:
+    if role_has_permission(user.role, "clarification:read:all") or role_has_permission(user.role, "contest:manage"):
+        return clarification
+    payload = clarification.model_copy(deep=True)
+    if payload.user_id != user.id:
+        payload.user_id = ""
+        payload.user_display_name = "匿名选手"
+    if not payload.public:
+        payload.answered_by = None
+        payload.answered_by_name = None
+        payload.broadcast = False
+        payload.broadcast_at = None
+    return payload
+
+
 def contest_problem_details(contest: Contest, store: Repository, user: User | None = None) -> list[ProblemDetail]:
     problems = []
     for problem_id in contest.problem_ids:
@@ -2262,15 +2283,26 @@ def create_clarification(
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     ensure_contest_access(user, contest, store)
+    problem = None
+    if payload.problem_id:
+        problem = contest_problem_lookup(contest, store, payload.problem_id)
     clarification = Clarification(
         id=f"CL{uuid4().hex[:8].upper()}",
         contest_id=contest_id,
         user_id=user.id,
+        user_display_name=user.display_name,
+        problem_id=problem.id if problem else None,
+        problem_title=problem.title if problem else None,
         question=payload.question,
         created_at=now(),
     )
     store.add_clarification(clarification)
-    store.add_audit(user.id, "clarification.create", f"clarification:{clarification.id}")
+    store.add_audit(
+        user.id,
+        "clarification.create",
+        f"clarification:{clarification.id}",
+        {"contest_id": contest_id, "problem_id": clarification.problem_id},
+    )
     for target in store.list_users():
         if target.role in {"judge", "admin"}:
             add_notification(store, target.id, "新的 Clarification", payload.question, "contest")
@@ -2290,9 +2322,8 @@ def list_contest_clarifications(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     ensure_contest_access(user, contest, store)
     clarifications = [c for c in store.list_clarifications() if c.contest_id == contest_id]
-    if role_has_permission(user.role, "clarification:read:all") or role_has_permission(user.role, "contest:manage"):
-        return clarifications
-    return [c for c in clarifications if c.public or c.user_id == user.id]
+    visible = [c for c in clarifications if clarification_visible_to_user(c, user)]
+    return [clarification_payload_for_user(c, user) for c in visible]
 
 
 @app.patch("/api/v1/clarifications/{clarification_id}", response_model=Clarification)
@@ -2308,16 +2339,25 @@ def reply_clarification(
     contest = store.get_contest(clarification.contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if clarification.problem_id:
+        contest_problem_lookup(contest, store, clarification.problem_id)
+    answered_at = now()
+    first_broadcast = payload.broadcast and not clarification.broadcast
     clarification.answer = payload.answer
     clarification.public = payload.public
+    clarification.broadcast = payload.broadcast
+    clarification.answered_by = user.id
+    clarification.answered_by_name = user.display_name
+    clarification.answered_at = answered_at
+    clarification.broadcast_at = answered_at if payload.broadcast else None
     store.update_clarification(clarification)
     add_notification(store, clarification.user_id, "Clarification 已回复", payload.answer, "contest")
-    if payload.public:
+    if first_broadcast:
         for target in store.list_users():
             if target.id != clarification.user_id and target.role == "student":
                 add_notification(store, target.id, "比赛公告", payload.answer, "contest")
     store.add_audit(user.id, "clarification.reply", f"clarification:{clarification.id}", payload.model_dump())
-    return clarification
+    return clarification_payload_for_user(clarification, user)
 
 
 @app.get("/api/v1/contests/{contest_id}/submissions", response_model=list[SubmissionReview])

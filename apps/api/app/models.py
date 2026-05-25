@@ -582,19 +582,52 @@ class Clarification(BaseModel):
     id: str
     contest_id: str
     user_id: str
+    user_display_name: str = ""
+    problem_id: str | None = None
+    problem_title: str | None = None
     question: str
     answer: str | None = None
     public: bool = False
+    broadcast: bool = False
+    answered_by: str | None = None
+    answered_by_name: str | None = None
+    answered_at: datetime | None = None
+    broadcast_at: datetime | None = None
     created_at: datetime
 
 
 class ClarificationCreate(BaseModel):
-    question: str
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=4000)
+    problem_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("question", "problem_id", mode="before")
+    @classmethod
+    def strip_clarification_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class ClarificationReply(BaseModel):
-    answer: str
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(min_length=1, max_length=4000)
     public: bool = False
+    broadcast: bool = False
+
+    @field_validator("answer", mode="before")
+    @classmethod
+    def strip_clarification_answer(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def normalize_broadcast_visibility(self) -> "ClarificationReply":
+        if self.broadcast:
+            self.public = True
+        return self
 
 
 class ContestFreezeRequest(BaseModel):

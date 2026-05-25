@@ -103,6 +103,155 @@ def test_contest_clarification_requires_auth_and_resource_scope(client: TestClie
     assert judge.status_code == 200
 
 
+def test_contest_clarification_supports_problem_scope_private_public_and_broadcast(client: TestClient, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "P1001 的样例是否完整？", "problem_id": "P1001"},
+    )
+    assert created.status_code == 200, created.text
+    clarification = created.json()
+    assert clarification["problem_id"] == "P1001"
+    assert clarification["problem_title"] == "A+B Problem"
+    clarification_id = clarification["id"]
+
+    private_reply = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "这是私有回复", "public": False, "broadcast": False},
+    )
+    assert private_reply.status_code == 200, private_reply.text
+    private_body = private_reply.json()
+    assert private_body["public"] is False
+    assert private_body["broadcast"] is False
+    assert private_body["answered_by"] == "u-judge"
+    assert private_body["answered_by_name"] == "Judge Wu"
+    assert private_body["answered_at"] is not None
+
+    owner_list = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("alice"))
+    assert owner_list.status_code == 200, owner_list.text
+    owner_item = next(item for item in owner_list.json() if item["id"] == clarification_id)
+    assert owner_item["answer"] == "这是私有回复"
+    assert owner_item["public"] is False
+    assert owner_item["broadcast"] is False
+
+    public_reply = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "这是公开回复", "public": True, "broadcast": False},
+    )
+    assert public_reply.status_code == 200, public_reply.text
+    public_body = public_reply.json()
+    assert public_body["public"] is True
+    assert public_body["broadcast"] is False
+
+    broadcast_reply = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "这是广播回复", "broadcast": True},
+    )
+    assert broadcast_reply.status_code == 200, broadcast_reply.text
+    broadcast_body = broadcast_reply.json()
+    assert broadcast_body["public"] is True
+    assert broadcast_body["broadcast"] is True
+    assert broadcast_body["broadcast_at"] is not None
+
+
+def test_contest_clarification_public_view_redacts_other_student_identity(client: TestClient, auth_headers, store) -> None:
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "这个问题想公开讨论"},
+    )
+    assert created.status_code == 200, created.text
+    clarification_id = created.json()["id"]
+
+    replied = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "公开回复内容", "public": True},
+    )
+    assert replied.status_code == 200, replied.text
+
+    student = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("alice"))
+    assert student.status_code == 200, student.text
+    own_item = next(item for item in student.json() if item["id"] == clarification_id)
+    assert own_item["user_id"] == "u-student"
+    assert own_item["user_display_name"] == "Alice Chen"
+
+    other_student = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("coach"))
+    assert other_student.status_code == 200, other_student.text
+    public_item = next(item for item in other_student.json() if item["id"] == clarification_id)
+    assert public_item["user_id"] == ""
+    assert public_item["user_display_name"] == "匿名选手"
+    assert public_item["answer"] == "公开回复内容"
+
+
+def test_contest_clarification_judge_list_includes_private_and_audit_fields(client: TestClient, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "仅裁判和本人可见"},
+    )
+    assert created.status_code == 200, created.text
+    clarification_id = created.json()["id"]
+
+    replied = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "内部说明", "public": False},
+    )
+    assert replied.status_code == 200, replied.text
+
+    judge_list = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("judge"))
+    assert judge_list.status_code == 200, judge_list.text
+    judge_item = next(item for item in judge_list.json() if item["id"] == clarification_id)
+    assert judge_item["user_id"] == "u-student"
+    assert judge_item["user_display_name"] == "Alice Chen"
+    assert judge_item["answered_by"] == "u-judge"
+    assert judge_item["answered_by_name"] == "Judge Wu"
+
+
+def test_contest_clarification_rejects_problem_outside_contest(client: TestClient, auth_headers) -> None:
+    response = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "P1004 不在这场比赛里", "problem_id": "P1004"},
+    )
+    assert response.status_code == 404
+
+
+def test_contest_clarification_private_reply_stays_hidden_from_other_students(client: TestClient, auth_headers, store) -> None:
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "仅本人可见"},
+    )
+    assert created.status_code == 200, created.text
+    clarification_id = created.json()["id"]
+
+    replied = client.patch(
+        f"/api/v1/clarifications/{clarification_id}",
+        headers=auth_headers("judge"),
+        json={"answer": "私有答复", "public": False},
+    )
+    assert replied.status_code == 200, replied.text
+
+    other_student = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("coach"))
+    assert other_student.status_code == 200, other_student.text
+    assert all(item["id"] != clarification_id for item in other_student.json())
+
+
 def test_contest_print_reads_submission_or_request_only(client: TestClient, auth_headers) -> None:
     submitted = client.post(
         "/api/v1/contests/C1001/submit",
