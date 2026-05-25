@@ -111,6 +111,48 @@ def test_offline_result_sync_is_idempotent_for_legacy_files_without_key(client: 
     assert len([item for item in store.list_submissions() if item.offline_result_key == legacy_key]) == 1
 
 
+def test_offline_result_sync_allows_same_client_key_across_distinct_packs(client: TestClient, auth_headers) -> None:
+    pack_response = client.get("/api/v1/training/offline-pack", headers=auth_headers("alice"))
+    assert pack_response.status_code == 200, pack_response.text
+    pack_id = pack_response.json()["payload"]["pack_id"]
+
+    first = client.post(
+        "/api/v1/offline-results/sync",
+        headers=auth_headers("alice"),
+        json={
+            "results": [
+                {
+                    "problem_id": "P1003",
+                    "answers": {"choice": "B"},
+                    "practiced_at": "2026-05-25T00:05:00+00:00",
+                    "client_result_key": "shared-key",
+                    "pack_id": pack_id,
+                }
+            ]
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        "/api/v1/offline-results/sync",
+        headers=auth_headers("alice"),
+        json={
+            "results": [
+                {
+                    "problem_id": "P1003",
+                    "answers": {"choice": "B"},
+                    "practiced_at": "2026-05-25T00:05:00+00:00",
+                    "client_result_key": "shared-key",
+                    "pack_id": f"{pack_id}-other",
+                    "source": {"type": "training", "id": "objective"},
+                }
+            ]
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["rejected"][0]["reason_code"] == "pack_not_authorized"
+
+
 def test_offline_result_sync_still_rejects_code_problem(client: TestClient, auth_headers) -> None:
     response = client.post(
         "/api/v1/offline-results/sync",
@@ -175,8 +217,8 @@ def test_offline_cli_result_key_is_stable_and_sync_payload_backfills_legacy_key(
     practiced_at = datetime(2026, 5, 25, tzinfo=timezone.utc).isoformat()
     answers = {"choices": ["C", "A"]}
 
-    key = offline_cli_module.make_result_key("P1004", answers, practiced_at)
-    assert key == offline_cli_module.make_result_key("P1004", {"choices": ["C", "A"]}, practiced_at)
+    key = offline_cli_module.make_result_key("P1004", answers, practiced_at, "PS1002")
+    assert key == offline_cli_module.make_result_key("P1004", {"choices": ["C", "A"]}, practiced_at, "PS1002")
     assert key.startswith("cli:")
 
     results_path = tmp_path / "offline-results.json"
@@ -214,4 +256,5 @@ def test_offline_cli_result_key_is_stable_and_sync_payload_backfills_legacy_key(
     assert item["client_result_key"] == key
     assert item["problem_id"] == "P1004"
     assert item["source"] == {"type": "problem_set", "id": "PS1002"}
+    assert item["pack_id"] == "PS1002"
     assert captured["method"] == "POST"

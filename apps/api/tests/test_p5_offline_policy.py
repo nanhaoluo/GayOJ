@@ -164,3 +164,43 @@ def test_legacy_snapshot_backfills_offline_policy_defaults(tmp_path) -> None:
     assert repository.get_problem("P1002").offline_enabled is True  # type: ignore[union-attr]
     assert repository.get_problem("P1002").offline_policy.answer_visibility == "full"  # type: ignore[union-attr]
     assert repository.get_problem_set("PS1001").offline_enabled is True  # type: ignore[union-attr]
+
+
+def test_offline_pack_status_exposes_pack_id_and_source(client: TestClient, auth_headers) -> None:
+    response = client.get("/api/v1/training/offline-pack", headers=auth_headers("alice"))
+    assert response.status_code == 200, response.text
+    payload = response.json()["payload"]
+    pack_id = payload["pack_id"]
+    status_response = client.get(f"/api/v1/training/offline-pack/{pack_id}", headers=auth_headers("alice"))
+    assert status_response.status_code == 200, status_response.text
+    status = status_response.json()["payload"]
+    assert status["pack_id"] == pack_id
+    assert status["source"] == payload["source"]
+
+
+def test_offline_result_sync_rejects_pack_source_mismatch(client: TestClient, auth_headers) -> None:
+    pack_response = client.get("/api/v1/training/offline-pack", headers=auth_headers("alice"))
+    assert pack_response.status_code == 200, pack_response.text
+    pack = pack_response.json()["payload"]
+
+    response = client.post(
+        "/api/v1/offline-results/sync",
+        headers=auth_headers("alice"),
+        json={
+            "results": [
+                {
+                    "problem_id": "P1003",
+                    "answers": {"choice": "B"},
+                    "practiced_at": "2026-05-25T00:00:00+00:00",
+                    "client_result_key": "source-mismatch",
+                    "pack_id": pack["pack_id"],
+                    "source": {"type": "problem_set", "id": "PS1001"},
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["synced"] == []
+    assert body["merged"] == []
+    assert body["rejected"][0]["reason_code"] == "source_not_authorized"

@@ -176,16 +176,23 @@ def build_offline_pack(
     *,
     ttl_hours: int | None = None,
     source: dict[str, Any] | None = None,
+    pack_id: str | None = None,
+    lifecycle: dict[str, Any] | None = None,
+    generated_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> dict[str, Any]:
-    generated_at = datetime.now(timezone.utc)
-    expires_at = generated_at + timedelta(hours=max(ttl_hours or OFFLINE_PACK_TTL_HOURS, 1))
+    generated_at = generated_at or datetime.now(timezone.utc)
+    expires_at = expires_at or generated_at + timedelta(hours=max(ttl_hours or OFFLINE_PACK_TTL_HOURS, 1))
+    lifecycle_payload = lifecycle.model_dump(mode="json") if hasattr(lifecycle, "model_dump") else (lifecycle or {})
     pack = {
         "version": "1.0",
+        "pack_id": pack_id or f"pack-{uuid4().hex[:16]}",
         "generated_at": generated_at.isoformat(),
         "expires_at": expires_at.isoformat(),
         "signature_algorithm": "hmac-sha256",
         "scope": "objective-only",
         "source": source or {"type": "training"},
+        "lifecycle": lifecycle_payload,
         "problems": [
             {
                 "id": p.id,

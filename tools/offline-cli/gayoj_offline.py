@@ -38,8 +38,8 @@ def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def make_result_key(problem_id: str, answers: dict[str, Any], practiced_at: str | None) -> str:
-    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at or ""}
+def make_result_key(problem_id: str, answers: dict[str, Any], practiced_at: str | None, pack_id: str | None = None) -> str:
+    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at or "", "pack_id": pack_id or ""}
     return f"cli:{hashlib.sha256(canonical_json(payload).encode('utf-8')).hexdigest()}"
 
 
@@ -631,6 +631,204 @@ def main() -> int:
     args = parser.parse_args()
     args.func(args)
     return 0
+
+
+def load_pack(path: Path) -> dict[str, Any]:
+    data = load_json(path)
+    payload = data.get("payload")
+    signature = data.get("signature", "")
+    if not isinstance(payload, dict):
+        raise SystemExit("Offline pack format error: missing payload.")
+    if payload.get("signature_algorithm") != SIGNATURE_ALGORITHM:
+        raise SystemExit("Offline pack signature algorithm is not supported.")
+    if not hmac.compare_digest(sign_payload(payload), signature):
+        raise SystemExit("Offline pack signature verification failed: 签名校验失败.")
+    expires_at = parse_pack_datetime(payload.get("expires_at"))
+    if expires_at is None:
+        raise SystemExit("Offline pack format error: missing expires_at.")
+    if expires_at <= datetime.now(timezone.utc):
+        raise SystemExit("Offline pack has expired: 已过期. Download it again.")
+    if str(payload.get("scope") or "") != "objective-only":
+        raise SystemExit("Offline pack scope is not supported.")
+    problems = payload.get("problems", [])
+    if not isinstance(problems, list):
+        raise SystemExit("Offline pack format error: invalid problems.")
+    for problem in problems:
+        ensure_supported_problem(problem)
+    return payload
+
+
+def print_pack_summary(payload: dict[str, Any], *, output: Path | None = None) -> None:
+    problems = payload.get("problems", [])
+    problems = problems if isinstance(problems, list) else []
+    prefix = f"Offline pack saved: {output}" if output else "Offline pack summary"
+    print(prefix)
+    print(
+        "Pack summary: "
+        f"pack_id={payload.get('pack_id', 'unknown')} "
+        f"scope={payload.get('scope', 'unknown')} "
+        f"problems={len(problems)} "
+        f"expires_at={payload.get('expires_at', 'unknown')}"
+    )
+    print(f"Problem types: {format_type_counts(problem_type_counts(problems))}")
+
+
+def pack_metadata(payload: dict[str, Any], signature: str | None = None) -> dict[str, Any]:
+    problems = payload.get("problems", [])
+    problems = problems if isinstance(problems, list) else []
+    metadata = {
+        "pack_id": payload.get("pack_id"),
+        "version": payload.get("version"),
+        "generated_at": payload.get("generated_at"),
+        "expires_at": payload.get("expires_at"),
+        "scope": payload.get("scope"),
+        "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
+        "problem_ids": [problem.get("id") for problem in problems if isinstance(problem, dict)],
+    }
+    if signature:
+        metadata["signature"] = signature
+    return metadata
+
+
+def result_identity(item: dict[str, Any]) -> str:
+    return str(
+        item.get("client_result_key")
+        or make_result_key(
+            str(item.get("problem_id", "")),
+            item.get("answers", {}) if isinstance(item.get("answers"), dict) else {},
+            str(item.get("practiced_at") or ""),
+            str(item.get("pack_id") or ""),
+        )
+    )
+
+
+def cmd_practice(args: argparse.Namespace) -> None:
+    payload, signature = load_pack_envelope(Path(args.pack))
+    problems = payload.get("problems", [])
+    if not isinstance(problems, list) or not problems:
+        raise SystemExit("Offline pack does not contain practice problems.")
+    for problem in problems:
+        ensure_supported_problem(problem)
+    problem_ids = {str(problem.get("id")) for problem in problems if isinstance(problem, dict)}
+    problems_by_id = {str(problem.get("id")): problem for problem in problems if isinstance(problem, dict)}
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    pack_id = str(payload.get("pack_id") or "") or None
+
+    answers_by_problem = load_answers(Path(args.answers)) if args.answers else None
+    cache_path = Path(args.cache) if args.cache else default_cache_path(args.output)
+    saved_results: list[dict[str, Any]] = load_practice_cache(cache_path) if args.resume else []
+    import_results_path = getattr(args, "import_results", None)
+    if import_results_path:
+        imported = normalize_imported_results(load_json(Path(import_results_path)))
+        outside_pack = sorted({str(item.get("problem_id")) for item in imported} - problem_ids)
+        if outside_pack:
+            raise SystemExit(f"Imported results contain problem not in current signed pack: {', '.join(outside_pack)}")
+        saved_results = merge_results(saved_results, imported)
+        print(f"Imported results: {len(imported)} candidates, cached={len(saved_results)}")
+    for item in saved_results:
+        item["client_result_key"] = result_identity(item)
+        if isinstance(source, dict) and source:
+            item.setdefault("source", source)
+        if pack_id:
+            item.setdefault("pack_id", pack_id)
+    fill_local_scores(saved_results, problems_by_id)
+    completed_problem_ids = {str(item["problem_id"]) for item in saved_results}
+    print_pack_summary(payload)
+    if args.resume and completed_problem_ids:
+        print(f"Resuming cached practice: cache={cache_path} completed={len(completed_problem_ids)}")
+
+    for problem in problems:
+        ensure_supported_problem(problem)
+        if str(problem.get("id")) in completed_problem_ids:
+            print(f"Skipping cached result: {problem['id']}")
+            continue
+        print(f"\n[{problem['id']}] {problem['title']} ({problem['type']})")
+        if not args.answers:
+            print(problem["statement"])
+        answers = answers_for_problem(problem, answers_by_problem)
+        score, max_score = judge(problem, answers)
+        practiced_at = datetime.now(timezone.utc).isoformat()
+        saved_results.append(
+            {
+                "problem_id": problem["id"],
+                "answers": answers,
+                "practiced_at": practiced_at,
+                "client_result_key": make_result_key(problem["id"], answers, practiced_at, pack_id),
+                "source": source,
+                "pack_id": pack_id,
+                "local_score": score,
+                "local_max_score": max_score,
+            }
+        )
+        print(f"Score: {score}/{max_score}")
+        write_practice_cache(cache_path, payload, saved_results, signature)
+
+    total_score = sum(int(item.get("local_score", 0)) for item in saved_results)
+    total_max = sum(int(item.get("local_max_score", 0)) for item in saved_results)
+    print(f"\nPractice summary: solved={len(saved_results)} score={total_score}/{total_max}")
+    if args.output:
+        output = Path(args.output)
+        output.write_text(
+            json.dumps({"pack": pack_metadata(payload, signature), "results": saved_results}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"Results saved: {output}")
+    write_practice_cache(cache_path, payload, saved_results, signature)
+    print(f"Practice cache saved: {cache_path}")
+
+
+def cmd_sync_results(args: argparse.Namespace) -> None:
+    token = args.token or os.getenv("GAYOJ_TOKEN")
+    if not token:
+        raise SystemExit("Provide a login token with --token or GAYOJ_TOKEN.")
+    data = load_json(Path(args.results))
+    pack_source: dict[str, Any] = {}
+    pack_id: str | None = None
+    if isinstance(data, dict):
+        pack = data.get("pack")
+        if isinstance(pack, dict):
+            if isinstance(pack.get("source"), dict):
+                pack_source = pack["source"]
+            if str(pack.get("pack_id") or "").strip():
+                pack_id = str(pack.get("pack_id"))
+            elif str(pack_source.get("id") or "").strip():
+                pack_id = str(pack_source.get("id"))
+    results = []
+    for item in data.get("results", []):
+        practiced_at = item.get("practiced_at")
+        item_pack_id = str(item.get("pack_id") or pack_id or "") or None
+        client_result_key = item.get("client_result_key") or make_result_key(
+            item["problem_id"],
+            item["answers"],
+            practiced_at,
+            item_pack_id,
+        )
+        item_source = item.get("source") if isinstance(item.get("source"), dict) else pack_source
+        results.append(
+            {
+                "problem_id": item["problem_id"],
+                "answers": item["answers"],
+                "practiced_at": practiced_at,
+                "client_result_key": client_result_key,
+                "source": item_source,
+                "pack_id": item_pack_id,
+            }
+        )
+    response = request_json(
+        f"{args.api.rstrip('/')}/offline-results/sync",
+        method="POST",
+        token=token,
+        body={"results": results},
+    )
+    synced_count = len(response.get("synced", []))
+    merged_count = len(response.get("merged", []))
+    rejected_count = len(response.get("rejected", []))
+    print(f"Sync summary: synced={synced_count} merged={merged_count} rejected={rejected_count}")
+    if rejected_count:
+        for rejected in response.get("rejected", []):
+            print(f"Rejected {rejected.get('problem_id')}: {rejected.get('reason')}")
+        if getattr(args, "fail_on_rejected", False):
+            raise SystemExit(2)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,8 @@ class OfflinePolicy(BaseModel):
     ttl_hours: int | None = Field(default=None, ge=1, le=24 * 365)
     answer_visibility: OfflineAnswerVisibility = "full"
     sync_mode: OfflineSyncMode = "allow"
+    max_downloads: int | None = Field(default=None, ge=1, le=100000)
+    retention_days: int | None = Field(default=30, ge=1, le=3650)
 
 
 class OfflinePolicyUpdate(BaseModel):
@@ -474,6 +476,7 @@ class Submission(BaseModel):
     queue_job_id: str | None = None
     queued_at: datetime | None = None
     offline_result_key: str | None = Field(default=None, max_length=128)
+    offline_pack_id: str | None = Field(default=None, max_length=128)
     answers: dict[str, Any] | None = None
     status: SubmissionStatus
     score: int
@@ -496,6 +499,7 @@ class SubmissionReview(BaseModel):
     queue_job_id: str | None = None
     queued_at: datetime | None = None
     offline_result_key: str | None = None
+    offline_pack_id: str | None = None
     answers: dict[str, Any] | None = None
     status: SubmissionStatus
     score: int
@@ -931,6 +935,7 @@ class OfflineResultItem(BaseModel):
     answers: dict[str, Any]
     practiced_at: datetime | None = None
     client_result_key: str | None = Field(default=None, max_length=128)
+    pack_id: str | None = Field(default=None, max_length=128)
     source: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("client_result_key", mode="before")
@@ -958,13 +963,25 @@ class OfflinePackProblem(BaseModel):
     judge_config: dict[str, Any] = Field(default_factory=dict)
 
 
+class OfflinePackLifecycle(BaseModel):
+    status: Literal["active", "expired", "download_limit_reached", "disabled", "unknown"] = "unknown"
+    downloaded: int = 0
+    max_downloads: int | None = None
+    retention_days: int | None = None
+    source: dict[str, Any] = Field(default_factory=dict)
+    problem_set_id: str | None = None
+    problem_ids: list[str] = Field(default_factory=list)
+
+
 class OfflinePackPayload(BaseModel):
     version: str
+    pack_id: str
     generated_at: str
     expires_at: str
     signature_algorithm: Literal["hmac-sha256"] = "hmac-sha256"
     scope: Literal["objective-only"]
     source: dict[str, Any] = Field(default_factory=dict)
+    lifecycle: OfflinePackLifecycle = Field(default_factory=OfflinePackLifecycle)
     problems: list[OfflinePackProblem]
 
 
@@ -977,6 +994,56 @@ class OfflineResultRejected(BaseModel):
     problem_id: str
     reason_code: str
     reason: str
+
+
+class OfflinePackRecord(BaseModel):
+    pack_id: str
+    source: dict[str, Any] = Field(default_factory=dict)
+    problem_set_id: str | None = None
+    problem_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime
+    expires_at: datetime
+    ttl_hours: int | None = None
+    retention_days: int | None = None
+    max_downloads: int | None = None
+    downloaded: int = 0
+    status: Literal["active", "expired", "disabled", "download_limit_reached"] = "active"
+    created_by: str
+    created_at: datetime
+    last_downloaded_at: datetime | None = None
+
+
+class OfflinePackCreate(BaseModel):
+    pack_id: str
+    source: dict[str, Any] = Field(default_factory=dict)
+    problem_set_id: str | None = None
+    problem_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime
+    expires_at: datetime
+    ttl_hours: int | None = None
+    retention_days: int | None = None
+    max_downloads: int | None = None
+    created_by: str
+    created_at: datetime
+
+
+class OfflinePackStatus(BaseModel):
+    pack_id: str
+    status: Literal["active", "expired", "disabled", "download_limit_reached", "unknown"]
+    source: dict[str, Any] = Field(default_factory=dict)
+    problem_set_id: str | None = None
+    problem_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime | None = None
+    expires_at: datetime | None = None
+    ttl_hours: int | None = None
+    retention_days: int | None = None
+    max_downloads: int | None = None
+    downloaded: int = 0
+    last_downloaded_at: datetime | None = None
+
+
+class OfflinePackStatusResponse(BaseModel):
+    payload: OfflinePackStatus
 
 
 class OfflineResultSyncResponse(BaseModel):
