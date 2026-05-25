@@ -731,11 +731,15 @@ class ContestBalloon(BaseModel):
     display_name: str
     problem_id: str
     problem_title: str
+    eligible: bool = False
+    first_ac: bool = False
     status: SubmissionStatus
     score: int
     max_score: int
     judged_at: datetime | None = None
     released: bool = False
+    released_at: datetime | None = None
+    released_by: str | None = None
 
 
 class JudgeNode(BaseModel):

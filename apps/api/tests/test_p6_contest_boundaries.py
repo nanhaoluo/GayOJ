@@ -84,7 +84,96 @@ def test_contest_submit_routes_keep_code_queue_only_and_objective_scored(client:
 
     balloons = client.get("/api/v1/contests/C1001/balloons", headers=auth_headers("judge"))
     assert balloons.status_code == 200, balloons.text
-    assert any(item["submission_id"] == objective_body["id"] for item in balloons.json())
+    item = next(entry for entry in balloons.json() if entry["submission_id"] == objective_body["id"])
+    assert item["eligible"] is True
+    assert item["released"] is False
+    assert item["first_ac"] is True
+
+
+def test_contest_balloons_are_acm_only(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.rule = "OI"
+    store.update_contest(contest)
+
+    oi_submission = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert oi_submission.status_code == 200, oi_submission.text
+
+    balloons = client.get("/api/v1/contests/C1001/balloons", headers=auth_headers("judge"))
+    assert balloons.status_code == 200, balloons.text
+    assert balloons.json() == []
+
+
+def test_contest_balloons_track_first_ac_per_user_problem(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.rule = "ACM"
+    store.update_contest(contest)
+
+    first = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1002", "answers": {"edge_formula": "n(n-1)/2"}},
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1002", "answers": {"edge_formula": "n(n-1)/2"}},
+    )
+    assert second.status_code == 200, second.text
+
+    acm_balloons = client.get("/api/v1/contests/C1001/balloons", headers=auth_headers("judge"))
+    assert acm_balloons.status_code == 200, acm_balloons.text
+    payload = acm_balloons.json()
+    first_item = next(item for item in payload if item["submission_id"] == first.json()["id"])
+    assert first_item["problem_id"] == "P1002"
+    assert first_item["released"] is False
+    assert first_item["first_ac"] is True
+    assert all(item["submission_id"] != second.json()["id"] for item in payload)
+
+
+def test_contest_balloon_update_requires_judge_permission_and_tracks_release_metadata(client: TestClient, auth_headers) -> None:
+    objective_response = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert objective_response.status_code == 200, objective_response.text
+    submission_id = objective_response.json()["id"]
+
+    forbidden = client.patch(
+        f"/api/v1/contests/C1001/balloons/{submission_id}",
+        headers=auth_headers("alice"),
+        json={"submission_id": submission_id, "released": True},
+    )
+    assert forbidden.status_code == 403
+
+    released = client.patch(
+        f"/api/v1/contests/C1001/balloons/{submission_id}",
+        headers=auth_headers("judge"),
+        json={"submission_id": submission_id, "released": True},
+    )
+    assert released.status_code == 200, released.text
+    release_payload = released.json()
+    assert release_payload["released"] is True
+    assert release_payload["released_by"] == "u-judge"
+    assert release_payload["released_at"] is not None
+
+    reverted = client.patch(
+        f"/api/v1/contests/C1001/balloons/{submission_id}",
+        headers=auth_headers("judge"),
+        json={"submission_id": submission_id, "released": False},
+    )
+    assert reverted.status_code == 200, reverted.text
+    revert_payload = reverted.json()
+    assert revert_payload["released"] is False
+    assert revert_payload["released_by"] is None
+    assert revert_payload["released_at"] is None
 
 
 def test_contest_clarification_requires_auth_and_resource_scope(client: TestClient, auth_headers, store) -> None:

@@ -379,6 +379,9 @@ def judge_submission(store: Any, submission_id: str, executor: SandboxExecutor) 
     submission.message = str(result["message"])
     submission.judged_at = _utcnow()
     store.update_submission(submission)
+    from app.services import refresh_contest_balloon_for_submission
+
+    refresh_contest_balloon_for_submission(store, submission)
 
     job_id = getattr(submission, "queue_job_id", None)
     if job_id:

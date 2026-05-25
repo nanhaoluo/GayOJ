@@ -1576,7 +1576,15 @@ class Store:
 
     def upsert_contest_balloon(self, balloon: dict[str, Any]) -> dict[str, Any]:
         data = self._read()
-        balloons = [item for item in data.get("contest_balloons", []) if item.get("submission_id") != balloon.get("submission_id")]
+        balloons = [
+            item
+            for item in data.get("contest_balloons", [])
+            if not (
+                str(item.get("contest_id") or "") == str(balloon.get("contest_id") or "")
+                and str(item.get("user_id") or "") == str(balloon.get("user_id") or "")
+                and str(item.get("problem_id") or "") == str(balloon.get("problem_id") or "")
+            )
+        ]
         balloons.append(dict(balloon))
         data["contest_balloons"] = balloons
         self._write(data)

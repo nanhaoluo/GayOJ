@@ -121,7 +121,16 @@ from .models import (
     JudgeNodeStatusUpdate,
 )
 from .rbac import role_has_permission, role_permission_matrix
-from .services import build_offline_pack, judge_objective, make_submission_id, safe_print_source
+from .services import (
+    build_offline_pack,
+    build_contest_balloon,
+    contest_submission_is_balloon_eligible,
+    judge_objective,
+    make_submission_id,
+    reconcile_contest_balloon,
+    refresh_contest_balloon_for_submission,
+    safe_print_source,
+)
 from .db import Repository, get_repository, now
 from .object_storage import ObjectNotFoundError, ObjectStorage, get_object_storage
 from .problem_io import ProblemPackageError, export_problem_package, package_filename, parse_problem_package
@@ -1031,19 +1040,7 @@ def contest_balloon_payload(
     *,
     display_name: str,
 ) -> ContestBalloon:
-    return ContestBalloon(
-        contest_id=contest.id,
-        submission_id=submission.id,
-        user_id=submission.user_id,
-        display_name=display_name,
-        problem_id=submission.problem_id,
-        problem_title=submission.problem_title,
-        status=submission.status,
-        score=submission.score,
-        max_score=submission.max_score,
-        judged_at=submission.judged_at,
-        released=bool(submission.judged_at),
-    )
+    return build_contest_balloon(contest, submission, display_name=display_name, first_ac=False)
 
 
 def contest_submission_to_balloon(submission: Submission, store: Repository) -> ContestBalloon:
@@ -1051,11 +1048,25 @@ def contest_submission_to_balloon(submission: Submission, store: Repository) -> 
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     user = store.get_user(submission.user_id)
-    return contest_balloon_payload(
+    prior = next(
+        (
+            item
+            for item in store.list_contest_balloons(contest.id)
+            if str(item.get("user_id") or "") == submission.user_id and str(item.get("problem_id") or "") == submission.problem_id
+        ),
+        None,
+    )
+    siblings = [item for item in store.list_submissions() if item.contest_id == contest.id]
+    balloon = reconcile_contest_balloon(
         contest,
         submission,
         display_name=user.display_name if user else submission.user_id,
+        prior=prior,
+        siblings=siblings,
     )
+    if balloon is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Balloon not available")
+    return balloon
 
 
 def contest_print_payload(contest: Contest, submission: Submission | None, request: ContestPrintRequest) -> ContestPrintResponse:
@@ -2441,8 +2452,7 @@ def submit_contest_entry(
     )
     store.add_submission(submission)
     store.add_audit(user.id, "contest.submit.objective", f"submission:{submission.id}", {"contest_id": contest.id, "problem_id": problem.id})
-    balloon = contest_submission_to_balloon(submission, store)
-    store.upsert_contest_balloon(balloon.model_dump(mode="json"))
+    refresh_contest_balloon_for_submission(store, submission)
     return sanitized_submission(submission)
 
 
@@ -2482,15 +2492,29 @@ def list_contest_balloons(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    users = {item.id: item for item in store.list_users()}
+    if contest.rule != "ACM":
+        return []
     balloons = []
     for balloon in store.list_contest_balloons(contest_id):
         submission = store.get_submission(str(balloon.get("submission_id") or ""))
         if not submission:
             continue
-        payload = contest_submission_to_balloon(submission, store)
+        try:
+            payload = contest_submission_to_balloon(submission, store)
+        except HTTPException:
+            continue
         payload.released = bool(balloon.get("released", payload.released))
+        payload.released_at = auth_datetime(balloon.get("released_at"))
+        payload.released_by = str(balloon.get("released_by") or "") or None
         balloons.append(payload)
+    balloons.sort(
+        key=lambda item: (
+            item.released,
+            item.problem_id,
+            item.display_name,
+            item.judged_at or datetime.max.replace(tzinfo=timezone.utc),
+        )
+    )
     return balloons
 
 
@@ -2505,13 +2529,19 @@ def update_contest_balloon(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if contest.rule != "ACM":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Balloon tracking is only available for ACM contests")
     if payload.submission_id != submission_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission id mismatch")
     submission = store.get_submission(submission_id)
     if not submission or submission.contest_id != contest.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
     balloon = contest_submission_to_balloon(submission, store)
+    if not balloon.eligible:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission is not eligible for balloon tracking")
     balloon.released = payload.released
+    balloon.released_at = now() if payload.released else None
+    balloon.released_by = user.id if payload.released else None
     store.upsert_contest_balloon(balloon.model_dump(mode="json"))
     store.add_audit(
         user.id,

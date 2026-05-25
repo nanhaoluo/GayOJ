@@ -853,6 +853,16 @@
             "title": "Display Name",
             "type": "string"
           },
+          "eligible": {
+            "default": false,
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "first_ac": {
+            "default": false,
+            "title": "First Ac",
+            "type": "boolean"
+          },
           "judged_at": {
             "anyOf": [
               {
@@ -881,6 +891,29 @@
             "default": false,
             "title": "Released",
             "type": "boolean"
+          },
+          "released_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released At"
+          },
+          "released_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released By"
           },
           "score": {
             "title": "Score",
