@@ -1689,6 +1689,11 @@
           "problem_id": {
             "title": "Problem Id",
             "type": "string"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
           }
         },
         "required": [
@@ -1707,10 +1712,15 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
           }
         },
         "required": [
           "problem_id",
+          "reason_code",
           "reason"
         ],
         "title": "OfflineResultRejected",

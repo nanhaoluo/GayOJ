@@ -138,7 +138,13 @@ def test_offline_sync_respects_problem_sync_policy(client: TestClient, auth_head
     body = response.json()
     assert body["synced"] == []
     assert body["merged"] == []
-    assert body["rejected"] == [{"problem_id": "P1003", "reason": "离线策略不允许同步该题结果"}]
+    assert body["rejected"] == [
+        {
+            "problem_id": "P1003",
+            "reason_code": "offline_policy_denied",
+            "reason": "离线策略不允许同步该题结果",
+        }
+    ]
 
 
 def test_legacy_snapshot_backfills_offline_policy_defaults(tmp_path) -> None:

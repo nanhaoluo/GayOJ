@@ -931,6 +931,7 @@ class OfflineResultItem(BaseModel):
     answers: dict[str, Any]
     practiced_at: datetime | None = None
     client_result_key: str | None = Field(default=None, max_length=128)
+    source: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("client_result_key", mode="before")
     @classmethod
@@ -974,6 +975,7 @@ class OfflinePackResponse(BaseModel):
 
 class OfflineResultRejected(BaseModel):
     problem_id: str
+    reason_code: str
     reason: str
 
 

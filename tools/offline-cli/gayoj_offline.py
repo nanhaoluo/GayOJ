@@ -76,6 +76,16 @@ def load_pack(path: Path) -> dict[str, Any]:
     return payload
 
 
+def load_pack_envelope(path: Path) -> tuple[dict[str, Any], str]:
+    data = load_json(path)
+    payload = data.get("payload")
+    signature = data.get("signature", "")
+    if not isinstance(payload, dict):
+        raise SystemExit("Offline pack format error: missing payload.")
+    validated = load_pack(path)
+    return validated, str(signature)
+
+
 def problem_type_counts(problems: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for problem in problems:
@@ -315,17 +325,76 @@ def load_practice_cache(path: Path) -> list[dict[str, Any]]:
     return [item for item in results if isinstance(item, dict) and item.get("problem_id")]
 
 
-def write_practice_cache(path: Path, payload: dict[str, Any], results: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def pack_metadata(payload: dict[str, Any], signature: str | None = None) -> dict[str, Any]:
     problems = payload.get("problems", [])
-    problem_ids = [problem.get("id") for problem in problems if isinstance(problem, dict)]
+    problems = problems if isinstance(problems, list) else []
+    metadata = {
+        "version": payload.get("version"),
+        "generated_at": payload.get("generated_at"),
+        "expires_at": payload.get("expires_at"),
+        "scope": payload.get("scope"),
+        "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
+        "problem_ids": [problem.get("id") for problem in problems if isinstance(problem, dict)],
+    }
+    if signature:
+        metadata["signature"] = signature
+    return metadata
+
+
+def normalize_imported_results(data: Any) -> list[dict[str, Any]]:
+    results = data.get("results", []) if isinstance(data, dict) else data
+    if not isinstance(results, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in results:
+        if not isinstance(item, dict) or not item.get("problem_id") or "answers" not in item:
+            continue
+        normalized.append(item)
+    return normalized
+
+
+def result_identity(item: dict[str, Any]) -> str:
+    return str(
+        item.get("client_result_key")
+        or make_result_key(
+            str(item.get("problem_id", "")),
+            item.get("answers", {}) if isinstance(item.get("answers"), dict) else {},
+            str(item.get("practiced_at") or ""),
+        )
+    )
+
+
+def merge_results(existing: list[dict[str, Any]], imported: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged = list(existing)
+    keys = {result_identity(item) for item in merged}
+    for item in imported:
+        key = result_identity(item)
+        if key in keys:
+            continue
+        item = dict(item)
+        item["client_result_key"] = key
+        merged.append(item)
+        keys.add(key)
+    return merged
+
+
+def fill_local_scores(results: list[dict[str, Any]], problems_by_id: dict[str, dict[str, Any]]) -> None:
+    for item in results:
+        if "local_score" in item and "local_max_score" in item:
+            continue
+        problem = problems_by_id.get(str(item.get("problem_id")))
+        answers = item.get("answers")
+        if not problem or not isinstance(answers, dict):
+            continue
+        score, max_score = judge(problem, answers)
+        item["local_score"] = score
+        item["local_max_score"] = max_score
+
+
+def write_practice_cache(path: Path, payload: dict[str, Any], results: list[dict[str, Any]], signature: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     cache_payload = {
-        "pack": {
-            "version": payload.get("version"),
-            "generated_at": payload.get("generated_at"),
-            "expires_at": payload.get("expires_at"),
-            "problem_ids": problem_ids,
-        },
+        "pack": pack_metadata(payload, signature),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "results": results,
     }
@@ -391,14 +460,32 @@ def cmd_inspect(args: argparse.Namespace) -> None:
 
 
 def cmd_practice(args: argparse.Namespace) -> None:
-    payload = load_pack(Path(args.pack))
+    payload, signature = load_pack_envelope(Path(args.pack))
     problems = payload.get("problems", [])
     if not isinstance(problems, list) or not problems:
         raise SystemExit("Offline pack does not contain practice problems.")
+    for problem in problems:
+        ensure_supported_problem(problem)
+    problem_ids = {str(problem.get("id")) for problem in problems if isinstance(problem, dict)}
+    problems_by_id = {str(problem.get("id")): problem for problem in problems if isinstance(problem, dict)}
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
 
     answers_by_problem = load_answers(Path(args.answers)) if args.answers else None
     cache_path = Path(args.cache) if args.cache else default_cache_path(args.output)
     saved_results: list[dict[str, Any]] = load_practice_cache(cache_path) if args.resume else []
+    import_results_path = getattr(args, "import_results", None)
+    if import_results_path:
+        imported = normalize_imported_results(load_json(Path(import_results_path)))
+        outside_pack = sorted({str(item.get("problem_id")) for item in imported} - problem_ids)
+        if outside_pack:
+            raise SystemExit(f"Imported results contain problem not in current signed pack: {', '.join(outside_pack)}")
+        saved_results = merge_results(saved_results, imported)
+        print(f"Imported results: {len(imported)} candidates, cached={len(saved_results)}")
+    for item in saved_results:
+        item["client_result_key"] = result_identity(item)
+        if isinstance(source, dict) and source:
+            item.setdefault("source", source)
+    fill_local_scores(saved_results, problems_by_id)
     completed_problem_ids = {str(item["problem_id"]) for item in saved_results}
     print_pack_summary(payload)
     if args.resume and completed_problem_ids:
@@ -421,21 +508,25 @@ def cmd_practice(args: argparse.Namespace) -> None:
                 "answers": answers,
                 "practiced_at": practiced_at,
                 "client_result_key": make_result_key(problem["id"], answers, practiced_at),
+                "source": source,
                 "local_score": score,
                 "local_max_score": max_score,
             }
         )
         print(f"Score: {score}/{max_score}")
-        write_practice_cache(cache_path, payload, saved_results)
+        write_practice_cache(cache_path, payload, saved_results, signature)
 
     total_score = sum(int(item.get("local_score", 0)) for item in saved_results)
     total_max = sum(int(item.get("local_max_score", 0)) for item in saved_results)
     print(f"\nPractice summary: solved={len(saved_results)} score={total_score}/{total_max}")
     if args.output:
         output = Path(args.output)
-        output.write_text(json.dumps({"results": saved_results}, ensure_ascii=False, indent=2), encoding="utf-8")
+        output.write_text(
+            json.dumps({"pack": pack_metadata(payload, signature), "results": saved_results}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         print(f"Results saved: {output}")
-    write_practice_cache(cache_path, payload, saved_results)
+    write_practice_cache(cache_path, payload, saved_results, signature)
     print(f"Practice cache saved: {cache_path}")
 
 
@@ -444,6 +535,11 @@ def cmd_sync_results(args: argparse.Namespace) -> None:
     if not token:
         raise SystemExit("Provide a login token with --token or GAYOJ_TOKEN.")
     data = load_json(Path(args.results))
+    pack_source = {}
+    if isinstance(data, dict):
+        pack = data.get("pack")
+        if isinstance(pack, dict) and isinstance(pack.get("source"), dict):
+            pack_source = pack["source"]
     results = []
     for item in data.get("results", []):
         practiced_at = item.get("practiced_at")
@@ -452,12 +548,14 @@ def cmd_sync_results(args: argparse.Namespace) -> None:
             item["answers"],
             practiced_at,
         )
+        item_source = item.get("source") if isinstance(item.get("source"), dict) else pack_source
         results.append(
             {
                 "problem_id": item["problem_id"],
                 "answers": item["answers"],
                 "practiced_at": practiced_at,
                 "client_result_key": client_result_key,
+                "source": item_source,
             }
         )
     response = request_json(
@@ -513,6 +611,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--answers",
         help="JSON answers file for non-interactive practice. Use {\"answers\": {\"P1003\": {\"choice\": \"B\"}}}.",
     )
+    practice_parser.add_argument("--import-results", help="Import a previous offline-results JSON into the local cache before practice")
     practice_parser.add_argument("--cache", help="Path for local practice progress cache")
     practice_parser.add_argument("--resume", action="store_true", help="Resume from the local practice progress cache")
     practice_parser.add_argument("-o", "--output", default="offline-results.json", help="Path to save local results")

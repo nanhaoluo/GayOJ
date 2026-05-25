@@ -79,6 +79,7 @@ def test_offline_result_sync_rejects_conflicting_client_key(client: TestClient, 
     assert body["synced"] == []
     assert body["merged"] == []
     assert len(body["rejected"]) == 1
+    assert body["rejected"][0]["reason_code"] == "idempotency_conflict"
     assert "冲突" in body["rejected"][0]["reason"]
     assert len([item for item in store.list_submissions() if item.offline_result_key == "local-conflict-1"]) == 1
 
@@ -131,7 +132,39 @@ def test_offline_result_sync_still_rejects_code_problem(client: TestClient, auth
     assert body["synced"] == []
     assert body["merged"] == []
     assert len(body["rejected"]) == 1
+    assert body["rejected"][0]["reason_code"] == "unsupported_problem"
     assert "客观题" in body["rejected"][0]["reason"]
+
+
+def test_offline_result_sync_rejects_unauthorized_source(client: TestClient, auth_headers, store) -> None:
+    response = client.post(
+        "/api/v1/offline-results/sync",
+        headers=auth_headers("alice"),
+        json={
+            "results": [
+                {
+                    "problem_id": "P1004",
+                    "answers": {"choices": ["A", "C"]},
+                    "practiced_at": "2026-05-25T00:04:00+00:00",
+                    "client_result_key": "wrong-source-1",
+                    "source": {"type": "problem_set", "id": "PS1001"},
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["synced"] == []
+    assert body["merged"] == []
+    assert body["rejected"] == [
+        {
+            "problem_id": "P1004",
+            "reason_code": "source_not_authorized",
+            "reason": "离线结果来源未授权该题",
+        }
+    ]
+    assert len([item for item in store.list_submissions() if item.offline_result_key == "wrong-source-1"]) == 0
 
 
 def test_offline_cli_result_key_is_stable_and_sync_payload_backfills_legacy_key(
@@ -150,6 +183,7 @@ def test_offline_cli_result_key_is_stable_and_sync_payload_backfills_legacy_key(
     results_path.write_text(
         json.dumps(
             {
+                "pack": {"source": {"type": "problem_set", "id": "PS1002"}},
                 "results": [
                     {
                         "problem_id": "P1004",
@@ -179,4 +213,5 @@ def test_offline_cli_result_key_is_stable_and_sync_payload_backfills_legacy_key(
     item = captured["body"]["results"][0]
     assert item["client_result_key"] == key
     assert item["problem_id"] == "P1004"
+    assert item["source"] == {"type": "problem_set", "id": "PS1002"}
     assert captured["method"] == "POST"

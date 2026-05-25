@@ -69,14 +69,24 @@ def test_cli_practice_accepts_answers_file_and_saves_summary_results(
     results_path = tmp_path / "offline-results.json"
 
     offline_cli_module.cmd_practice(
-        argparse.Namespace(pack=str(pack_path), answers=str(answers_path), output=str(results_path), cache=None, resume=False)
+        argparse.Namespace(
+            pack=str(pack_path),
+            answers=str(answers_path),
+            import_results=None,
+            output=str(results_path),
+            cache=None,
+            resume=False,
+        )
     )
 
     output = capsys.readouterr().out
     assert "Practice summary: solved=2 score=100/100" in output
     data = json.loads(results_path.read_text(encoding="utf-8"))
     assert [item["problem_id"] for item in data["results"]] == ["P-BLANK", "P-SINGLE"]
+    assert data["pack"]["source"] == {"type": "test"}
+    assert data["pack"]["scope"] == "objective-only"
     assert all(item["client_result_key"].startswith("cli:") for item in data["results"])
+    assert all(item["source"] == {"type": "test"} for item in data["results"])
     assert data["results"][0]["answers"] == {"answer": " CTOJ "}
     assert data["results"][1]["answers"] == {"choice": "B"}
 
@@ -111,6 +121,7 @@ def test_cli_practice_can_resume_from_progress_cache(
     args = argparse.Namespace(
         pack=str(pack_path),
         answers=str(answers_path),
+        import_results=None,
         output=str(results_path),
         cache=str(cache_path),
         resume=False,
@@ -156,9 +167,112 @@ def test_cli_practice_rejects_missing_answers_file_entry(offline_cli_module: Any
             argparse.Namespace(
                 pack=str(pack_path),
                 answers=str(answers_path),
+                import_results=None,
                 output=str(tmp_path / "out.json"),
                 cache=None,
                 resume=False,
+            )
+        )
+
+
+def test_cli_practice_imports_previous_results_into_resume_cache(
+    offline_cli_module: Any,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pack_path = write_pack(
+        offline_cli_module,
+        tmp_path,
+        [
+            {
+                "id": "P-SINGLE",
+                "title": "Single",
+                "type": "single_choice",
+                "difficulty": "basic",
+                "tags": [],
+                "statement": "Pick one.",
+                "options": [{"key": "A", "text": "Wrong"}, {"key": "B", "text": "Right"}],
+                "blanks": [],
+                "judge_config": {"answer": "B", "score": 100},
+            }
+        ],
+    )
+    import_path = tmp_path / "old-results.json"
+    import_path.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "problem_id": "P-SINGLE",
+                        "answers": {"choice": "B"},
+                        "practiced_at": "2026-05-25T00:00:00+00:00",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_path = tmp_path / "practice-cache.json"
+    results_path = tmp_path / "offline-results.json"
+
+    offline_cli_module.cmd_practice(
+        argparse.Namespace(
+            pack=str(pack_path),
+            answers=None,
+            import_results=str(import_path),
+            output=str(results_path),
+            cache=str(cache_path),
+            resume=True,
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert "Imported results: 1 candidates, cached=1" in output
+    assert "Skipping cached result: P-SINGLE" in output
+    data = json.loads(results_path.read_text(encoding="utf-8"))
+    assert len(data["results"]) == 1
+    assert data["results"][0]["client_result_key"].startswith("cli:")
+    assert data["results"][0]["source"] == {"type": "test"}
+    assert data["results"][0]["local_score"] == 100
+    assert data["results"][0]["local_max_score"] == 100
+
+
+def test_cli_practice_import_rejects_results_outside_signed_pack(
+    offline_cli_module: Any,
+    tmp_path: Path,
+) -> None:
+    pack_path = write_pack(
+        offline_cli_module,
+        tmp_path,
+        [
+            {
+                "id": "P-SINGLE",
+                "title": "Single",
+                "type": "single_choice",
+                "difficulty": "basic",
+                "tags": [],
+                "statement": "Pick one.",
+                "options": [{"key": "A", "text": "Wrong"}, {"key": "B", "text": "Right"}],
+                "blanks": [],
+                "judge_config": {"answer": "B", "score": 100},
+            }
+        ],
+    )
+    import_path = tmp_path / "foreign-results.json"
+    import_path.write_text(
+        json.dumps({"results": [{"problem_id": "P-FOREIGN", "answers": {"choice": "B"}}]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="not in current signed pack"):
+        offline_cli_module.cmd_practice(
+            argparse.Namespace(
+                pack=str(pack_path),
+                answers=None,
+                import_results=str(import_path),
+                output=str(tmp_path / "out.json"),
+                cache=None,
+                resume=True,
             )
         )
 

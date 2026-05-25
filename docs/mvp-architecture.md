@@ -284,6 +284,13 @@
 - 拥有 `submission:read:all` 的教练、裁判或管理员可带 `include_expected=true` 查看标准答案，用于教学复盘或裁判审查。
 - 离线答卷列表和详情回看都会写入审计日志；普通提交详情、客观题即时判分响应和离线同步响应同样会对普通用户隐藏 `details.expected`。
 
+## P5-09 离线训练导入与断点续练
+
+- 离线结果文件和练习缓存都会保存签名离线包的 `source`、有效期和题目范围，便于联网同步时追踪来源。
+- CLI 新增 `practice --import-results <file>`，可把历史离线答卷导入当前缓存后继续 `--resume`；导入结果若包含当前签名包之外的题目会被拒绝。
+- `sync-results` 会把每条结果的来源传回 API；服务端会校验题单来源是否仍授权该题，未授权则返回 `source_not_authorized`。
+- 同步拒绝项新增 `reason_code`，让 CLI、smoke 和后续前端能稳定区分策略拒绝、来源未授权、幂等冲突和非客观题。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

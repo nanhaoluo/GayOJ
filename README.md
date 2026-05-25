@@ -579,6 +579,15 @@ standard answers for coaching or judging, and every list/detail review writes an
 audit log. Objective submit and offline sync responses use the same answer
 redaction so ordinary users do not receive `details.expected`.
 
+## P5-09 Offline import and resume
+
+Offline practice result files now keep signed-pack metadata, including `source`
+and the problem ids covered by the pack. `practice --import-results <file>` can
+merge a previous result file into the local cache before continuing, but only
+for problems present in the current signed pack. `sync-results` forwards the
+recorded source to the API; the API rejects results whose source problem set is
+not authorized for that problem and returns a machine-readable `reason_code`.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
@@ -768,6 +777,7 @@ For repeatable practice, prepare an optional answers file:
 ```powershell
 py -3.12 tools/offline-cli/gayoj_offline.py practice offline-pack.json
 py -3.12 tools/offline-cli/gayoj_offline.py practice ps1001-pack.json --answers answers.json --cache practice-cache.json --resume -o offline-results.json
+py -3.12 tools/offline-cli/gayoj_offline.py practice ps1001-pack.json --import-results offline-results.json --cache practice-cache.json --resume -o offline-results.json
 ```
 
 恢复联网后同步本地练习结果：

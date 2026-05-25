@@ -157,6 +157,31 @@ def same_offline_result(submission: Submission, problem_id: str, answers: dict[s
     return submission.problem_id == problem_id and _canonical_json(submission.answers or {}) == _canonical_json(answers)
 
 
+def offline_rejection(problem_id: str, reason_code: str, reason: str) -> dict[str, str]:
+    return {"problem_id": problem_id, "reason_code": reason_code, "reason": reason}
+
+
+def offline_source_matches_problem(source: dict[str, Any], problem: Problem, store: Repository) -> bool:
+    if not source:
+        return True
+    source_type = str(source.get("type") or "")
+    if source_type == "training":
+        return True
+    if source_type != "problem_set":
+        return False
+    problem_set_id = str(source.get("id") or "")
+    if not problem_set_id:
+        return False
+    problem_set = store.get_problem_set(problem_set_id)
+    if not problem_set or problem_set.visibility != "public" or not problem_set.offline_enabled:
+        return False
+    if problem_set.offline_policy.answer_visibility != "full":
+        return False
+    if problem_set.offline_policy.sync_mode == "disabled":
+        return False
+    return problem.id in problem_set.problem_ids
+
+
 def sanitized_submission(
     submission: Submission,
     *,
@@ -2427,14 +2452,17 @@ def sync_offline_results(
     for item in payload.results:
         problem = store.get_problem(item.problem_id)
         if not problem or not problem.visible or problem.type == "code":
-            rejected.append({"problem_id": item.problem_id, "reason": "仅支持同步客观题结果"})
+            rejected.append(offline_rejection(item.problem_id, "unsupported_problem", "仅支持同步授权客观题结果"))
             continue
         if (
             not problem.offline_enabled
             or problem.offline_policy.answer_visibility != "full"
             or problem.offline_policy.sync_mode == "disabled"
         ):
-            rejected.append({"problem_id": item.problem_id, "reason": "离线策略不允许同步该题结果"})
+            rejected.append(offline_rejection(item.problem_id, "offline_policy_denied", "离线策略不允许同步该题结果"))
+            continue
+        if not offline_source_matches_problem(item.source, problem, store):
+            rejected.append(offline_rejection(item.problem_id, "source_not_authorized", "离线结果来源未授权该题"))
             continue
         result_key = offline_result_key(problem.id, item.answers, item.practiced_at, item.client_result_key)
         duplicate = next(
@@ -2449,7 +2477,7 @@ def sync_offline_results(
             if same_offline_result(duplicate, problem.id, item.answers):
                 merged.append(duplicate)
             else:
-                rejected.append({"problem_id": item.problem_id, "reason": "离线结果幂等键冲突"})
+                rejected.append(offline_rejection(item.problem_id, "idempotency_conflict", "离线结果幂等键冲突"))
             continue
         score, max_score, details = judge_objective(problem, store.get_problem_judge_config(problem.id), item.answers)
         submission = Submission(
