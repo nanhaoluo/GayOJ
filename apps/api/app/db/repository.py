@@ -27,8 +27,8 @@ from ..models import (
 class Repository(Protocol):
     """Domain storage contract used by the API layer.
 
-    Current development uses a JSON-backed implementation. A later SQLAlchemy
-    adapter can implement this protocol without changing route or auth logic.
+    Runtime storage is supplied by SnapshotRepository, which persists the
+    normalized app state through the database layer under apps/api/storage.
     """
 
     def list_users(self) -> list[User]: ...

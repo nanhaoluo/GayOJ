@@ -253,21 +253,21 @@ def main() -> int:
     store_source = STORE.read_text(encoding="utf-8")
     for token in ["problem_judge_config", "get_problem_judge_config", "set_problem_judge_config"]:
         if token not in store_source:
-            fail(f"P1-05 JSON store must isolate objective judge config via {token}")
+            fail(f"P1-05 snapshot store must isolate objective judge config via {token}")
     for token in ["problem_test_data", "get_problem_test_data", "set_problem_test_data"]:
         if token not in store_source:
-            fail(f"P3-04 JSON store must preserve test-data metadata via {token}")
+            fail(f"P3-04 snapshot store must preserve test-data metadata via {token}")
     for token in ["list_tags", "add_tag", "update_tag", "delete_tag"]:
         if token not in store_source:
-            fail(f"P3-03 JSON store must support tag hierarchy via {token}")
+            fail(f"P3-03 snapshot store must support tag hierarchy via {token}")
     for token in ["judge_queue_jobs", "list_judge_queue_jobs", "add_judge_queue_job", "source_ref"]:
         if token not in store_source:
-            fail(f"P4-01 JSON store must support judge queue jobs via {token}")
+            fail(f"P4-01 snapshot store must support judge queue jobs via {token}")
     for token in ["compiler_configs", "list_compiler_configs", "update_compiler_config"]:
         if token not in store_source:
-            fail(f"P4-04 JSON store must manage compiler configs via {token}")
+            fail(f"P4-04 snapshot store must manage compiler configs via {token}")
     if "pop(\"judge_config\"" not in store_source and "pop('judge_config'" not in store_source:
-        fail("P1-05 JSON store must migrate embedded judge_config out of public problem rows")
+        fail("P1-05 snapshot store must migrate embedded judge_config out of public problem rows")
     for token in ["actor_id", "created_from", "created_to", "limit", "offset"]:
         if token not in store_source:
             fail(f"P1-06 audit log store query must support {token}")

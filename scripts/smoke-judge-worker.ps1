@@ -20,11 +20,11 @@ function Assert-True {
 
 $tempRoot = [System.IO.Path]::GetTempPath()
 $tempDir = Join-Path $tempRoot ("gayoj-p4-02-" + [System.Guid]::NewGuid().ToString("N"))
-$dbPath = Join-Path $tempDir "dev-db.json"
+$dbPath = Join-Path $tempDir "gayoj-smoke.sqlite3"
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 
 try {
-    Write-Step "preparing temporary JSON store with one queued code submission"
+    Write-Step "preparing temporary SQLite store with one queued code submission"
     $prepareScript = @'
 from pathlib import Path
 import sys
@@ -32,11 +32,11 @@ import sys
 root = Path.cwd()
 sys.path.insert(0, str(root / "apps" / "api"))
 
-from app.db import JsonRepository, now
+from app.db import SnapshotRepository, now
 from app.models import Submission
 from app.services import make_submission_id
 
-repository = JsonRepository(Path(sys.argv[1]))
+repository = SnapshotRepository.sqlite(Path(sys.argv[1]))
 submission = Submission(
     id=make_submission_id(),
     user_id="u-student",
@@ -77,9 +77,9 @@ import sys
 root = Path.cwd()
 sys.path.insert(0, str(root / "apps" / "api"))
 
-from app.db import JsonRepository
+from app.db import SnapshotRepository
 
-repository = JsonRepository(Path(sys.argv[1]))
+repository = SnapshotRepository.sqlite(Path(sys.argv[1]))
 submission = repository.get_submission(sys.argv[2])
 assert submission is not None
 assert submission.status == "judging"
@@ -102,7 +102,7 @@ root = Path.cwd()
 sys.path.insert(0, str(root / "apps" / "api"))
 sys.path.insert(0, str(root / "apps" / "judge"))
 
-from app.db import JsonRepository, now
+from app.db import SnapshotRepository, now
 from app.models import Submission
 from app.services import make_submission_id
 from gayoj_judge import CompileOutcome, RunOutcome
@@ -123,7 +123,7 @@ class SmokeExecutor:
     def cleanup(self, artifact):
         self.cleaned = True
 
-repository = JsonRepository(Path(sys.argv[1]))
+repository = SnapshotRepository.sqlite(Path(sys.argv[1]))
 submission = Submission(
     id=make_submission_id(),
     user_id="u-student",

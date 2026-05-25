@@ -1,6 +1,16 @@
-# gayoj MVP 架构说明
+﻿# gayoj MVP 架构说明
 
 本实现按 `1.md` 的模块化单体思路落地，先保证核心训练闭环可运行。
+
+## 当前存储实现
+
+- 运行时存储使用 `apps/api/storage` 中央数据库层：MySQL 为主存储，SQLite 为 MySQL 不可用时的兜底存储。
+- `apps/api/storage/database_config.py` 集中读取 MySQL、SQLite、种子文件路径、连接超时和缓存配置。
+- `apps/api/storage/database.py` 集中所有运行时 SQL，使用固定表名、参数化查询、状态键校验、SQLite WAL/busy timeout/cache，以及 MySQL 失败后的 SQLite 兜底。
+- `apps/api/app/db/snapshot_repository.py` 是业务仓储适配层；API、worker、测试都通过仓储函数读写，不在业务代码中散落 SQL 查询。
+- `apps/api/storage/dev-db.json` 仅作为兼容种子快照导入数据库，不再作为运行时写入存储。旧种子中的 `problem_judge_config`、标签、测试数据、版本、队列任务等兼容迁移逻辑仍在读取时执行，写回目标是数据库快照。
+- MySQL 可用时作为主库；MySQL 初始化、读写失败时写入 SQLite。MySQL 空但 SQLite 已有数据时，会把 SQLite 快照回灌主库。
+- 历史阶段段落保留演进记录；当前运行时存储边界以本节为准。
 
 ## 分层
 
@@ -15,12 +25,12 @@
 - 客观题规则由服务端保存，普通题目详情不向选手返回 `judge_config`。
 - 离线训练包包含授权客观题规则，并使用 HMAC 签名防篡改。
 - 离线 CLI 可保存客观题练习结果，并通过 `/api/v1/offline-results/sync` 恢复联网后同步。
-- 本地开发使用 JSON 文件持久化，文件位置为 `apps/api/storage/dev-db.json`。
+- 运行时存储使用 MySQL 主存储 + SQLite 兜底；`apps/api/storage/dev-db.json` 只作为兼容种子快照。
 
 ## P1-01 仓储层
 
 - `apps/api/app/db/repository.py` 定义 API 路由和认证模块使用的仓储协议。
-- `apps/api/app/db/json_repository.py` 将现有 JSON `Store` 适配为仓储实现，供本地开发继续使用。
+- `apps/api/app/db/snapshot_repository.py` 将领域仓储适配到 `apps/api/storage/database.py`。
 - `apps/api/app/db/get_repository()` 是 FastAPI 依赖入口，测试和后续数据库实现都应覆盖这个入口。
 - P1-01 不改变 `apps/api/storage/dev-db.json` 的文件格式，现有开发数据继续兼容。
 - 客观题 `judge_config` 仍只在管理端、服务端评判和授权离线包中出现；普通题面接口继续隔离答案。
@@ -60,7 +70,7 @@
 
 ## P1-06 Audit log persistence
 
-- The JSON repository keeps audit events in the existing top-level `audit_logs` section and remains compatible with current `apps/api/storage/dev-db.json` snapshots.
+- The snapshot repository keeps audit events in the existing top-level `audit_logs` section and can seed from current `apps/api/storage/dev-db.json` snapshots.
 - `GET /api/v1/admin/audit-logs` returns `{ items, total, limit, offset }` and supports `actor_id`, `action`, `resource`, `created_from`, `created_to`, `limit`, and `offset` query parameters.
 - Failed login attempts are audited with `auth.login_failed` and never persist the submitted password.
 - PostgreSQL migration `0003_audit_log_query_indexes.sql` adds actor/action/resource query indexes on the existing `audit_logs` table.
@@ -90,7 +100,7 @@
 - Password policy settings live in `system_config`: `password_min_length`, `password_require_letter`, `password_require_digit`, `login_max_failed_attempts`, and `login_lockout_minutes`.
 - Authenticated users can change their own password through `PUT /api/v1/users/me/password`; new passwords must satisfy the configured policy, and success/failure is audited.
 - The admin Web console edits the same password policy and lockout settings, keeping P2 account-security controls on one surface.
-- PostgreSQL migration `0005_auth_security_fields.sql` mirrors the JSON runtime fields and default policy keys.
+- PostgreSQL migration `0005_auth_security_fields.sql` mirrors the snapshot runtime fields and default policy keys.
 
 ## P2-04 用户资料与设置
 

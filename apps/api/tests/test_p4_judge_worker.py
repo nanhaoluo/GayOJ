@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.db import JsonRepository, now
+from app.db import SnapshotRepository, now
 from app.models import Submission
 from app.services import make_submission_id
 
@@ -229,9 +229,9 @@ def test_worker_poll_once_marks_claimed_job_failed_when_problem_metadata_is_inva
     assert job.status == "failed"
 
 
-def test_worker_cli_claims_task_from_json_store(tmp_path: Path) -> None:
-    db_path = tmp_path / "dev-db.json"
-    repository = JsonRepository(db_path)
+def test_worker_cli_claims_task_from_sqlite_store(tmp_path: Path) -> None:
+    db_path = tmp_path / "worker.sqlite3"
+    repository = SnapshotRepository.sqlite(db_path)
     submission = Submission(
         id=make_submission_id(),
         user_id="u-student",

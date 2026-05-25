@@ -35,6 +35,19 @@ def test_env_example_documents_required_local_and_compose_keys() -> None:
         "GAYOJ_OFFLINE_PACK_SECRET",
         "GAYOJ_OFFLINE_PACK_TTL_HOURS",
         "GAYOJ_API_CORS_ORIGINS",
+        "GAYOJ_STORAGE_BACKEND",
+        "GAYOJ_DEV_DB_JSON_PATH",
+        "GAYOJ_SQLITE_PATH",
+        "GAYOJ_SQLITE_BUSY_TIMEOUT_MS",
+        "GAYOJ_SQLITE_CACHE_ENABLED",
+        "GAYOJ_MYSQL_HOST",
+        "GAYOJ_MYSQL_PORT",
+        "GAYOJ_MYSQL_USER",
+        "GAYOJ_MYSQL_PASSWORD",
+        "GAYOJ_MYSQL_DATABASE",
+        "GAYOJ_MYSQL_CHARSET",
+        "GAYOJ_MYSQL_URL",
+        "GAYOJ_MYSQL_CONNECT_TIMEOUT_SECONDS",
         "GAYOJ_DATABASE_URL",
         "GAYOJ_API_HOST",
         "GAYOJ_API_PORT",
@@ -54,6 +67,8 @@ def test_env_example_documents_required_local_and_compose_keys() -> None:
 
     assert required_keys <= values.keys()
     assert values["VITE_API_BASE_URL"] == "/api/v1"
+    assert values["GAYOJ_STORAGE_BACKEND"] == "mysql"
+    assert values["GAYOJ_SQLITE_PATH"].endswith("gayoj.sqlite3")
     assert values["GAYOJ_TOKEN"] == ""
     assert "change-me-in-production" not in ENV_EXAMPLE.read_text(encoding="utf-8")
 
@@ -68,6 +83,19 @@ def test_docker_compose_uses_documented_environment_keys() -> None:
         "GAYOJ_OFFLINE_PACK_SECRET",
         "GAYOJ_OFFLINE_PACK_TTL_HOURS",
         "GAYOJ_API_CORS_ORIGINS",
+        "GAYOJ_STORAGE_BACKEND",
+        "GAYOJ_DEV_DB_JSON_PATH",
+        "GAYOJ_SQLITE_PATH",
+        "GAYOJ_SQLITE_BUSY_TIMEOUT_MS",
+        "GAYOJ_SQLITE_CACHE_ENABLED",
+        "GAYOJ_MYSQL_HOST",
+        "GAYOJ_MYSQL_PORT",
+        "GAYOJ_MYSQL_USER",
+        "GAYOJ_MYSQL_PASSWORD",
+        "GAYOJ_MYSQL_DATABASE",
+        "GAYOJ_MYSQL_CHARSET",
+        "GAYOJ_MYSQL_URL",
+        "GAYOJ_MYSQL_CONNECT_TIMEOUT_SECONDS",
         "GAYOJ_COMPOSE_API_PORT",
         "GAYOJ_COMPOSE_WEB_PORT",
         "VITE_API_BASE_URL",
@@ -88,6 +116,8 @@ def test_gitignore_excludes_local_env_but_not_example() -> None:
 
     assert ".env" in ignored
     assert ".env.example" not in ignored
+    assert "apps/api/storage/*.sqlite3" in ignored
+    assert "apps/api/storage/*.db" in ignored
 
 
 def test_cors_csv_parser_defaults_and_trimming() -> None:

@@ -15,7 +15,7 @@ API_ROOT = ROOT / "apps" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.db.json_repository import JsonRepository, now  # noqa: E402
+from app.db import SnapshotRepository, now  # noqa: E402
 from app.db.repository import Repository  # noqa: E402
 from app.models import JudgeNode, JudgeQueueJob, Problem, Submission  # noqa: E402
 from gayoj_judge import DockerSandboxExecutor, judge_submission  # noqa: E402
@@ -309,8 +309,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--storage",
         type=Path,
-        default=ROOT / "apps" / "api" / "storage" / "dev-db.json",
-        help="Path to the JSON development store used by this worker.",
+        default=ROOT / "apps" / "api" / "storage" / "gayoj.sqlite3",
+        help="Path to the SQLite fallback database used by this worker.",
     )
     parser.add_argument("--worker-id", default=default_worker_id(), help="Stable judge node id.")
     parser.add_argument("--name", default="", help="Human-readable judge node name.")
@@ -333,7 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    repository = JsonRepository(args.storage)
+    repository = SnapshotRepository.sqlite(args.storage)
     worker = JudgeWorker(
         repository,
         worker_id=args.worker_id,

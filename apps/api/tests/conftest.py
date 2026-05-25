@@ -16,13 +16,13 @@ CLI_PATH = ROOT / "tools" / "offline-cli" / "gayoj_offline.py"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.db import JsonRepository, Repository, get_repository  # noqa: E402
+from app.db import Repository, SnapshotRepository, get_repository  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture()
 def store(tmp_path: Path) -> Repository:
-    return JsonRepository(tmp_path / "dev-db.json")
+    return SnapshotRepository.sqlite(tmp_path / "gayoj-test.sqlite3")
 
 
 @pytest.fixture()

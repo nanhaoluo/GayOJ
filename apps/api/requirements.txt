@@ -5,3 +5,4 @@ python-multipart==0.0.20
 pytest==8.3.4
 httpx==0.28.1
 minio==7.2.15
+PyMySQL==1.1.1

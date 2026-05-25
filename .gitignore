@@ -7,6 +7,10 @@ venv/
 .env
 .learnings/
 apps/api/storage/dev-db.json
+apps/api/storage/*.sqlite3
+apps/api/storage/*.sqlite3-wal
+apps/api/storage/*.sqlite3-shm
+apps/api/storage/*.db
 apps/api/storage/objects/
 offline-pack.json
 offline-results.json

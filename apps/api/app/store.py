@@ -501,61 +501,74 @@ def seed_data() -> dict[str, Any]:
 
 
 class Store:
+    """In-memory domain store base.
+
+    Runtime persistence is implemented by app.db.SnapshotRepository through the
+    database layer in apps/api/storage. STORAGE_PATH remains only as the legacy
+    seed snapshot location for compatibility imports.
+    """
+
     def __init__(self, path: Path = STORAGE_PATH):
         self.path = path
         self._lock = threading.RLock()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._write(seed_data())
+        self._data = seed_data()
 
     def _read(self) -> dict[str, Any]:
         with self._lock:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            changed = False
-            seeded = seed_data()
-            for key, value in seeded.items():
-                if key == "problem_judge_config":
-                    continue
-                if key not in data:
-                    data[key] = value
-                    changed = True
-            for user in data.get("users", []):
-                if "password_hash" not in user:
-                    user["password_hash"] = _seed_password()
-                    changed = True
-                elif user.get("username") in DEMO_USERNAMES and user.get("password_hash") in LEGACY_DEMO_PASSWORD_HASHES:
-                    user["password_hash"] = _seed_password()
-                    changed = True
-                for key, default in {
-                    "failed_login_attempts": 0,
-                    "locked_until": None,
-                    "last_login_at": None,
-                    "password_changed_at": None,
-                }.items():
-                    if key not in user:
-                        user[key] = default
-                        changed = True
-                if user.get("role") == "student" and (
-                    not str(user.get("school", "")).strip()
-                    or str(user.get("school", "")).strip() in LEGACY_DEFAULT_STUDENT_SCHOOLS
-                ):
-                    user["school"] = DEFAULT_STUDENT_SCHOOL
-                    changed = True
-            if self._migrate_system_config(data, seeded["system_config"]):
-                changed = True
-            if self._migrate_problem_judge_config(data):
-                changed = True
-            if self._migrate_tags(data, seeded["tags"]):
-                changed = True
-            if self._migrate_compiler_configs(data, seeded["compiler_configs"]):
-                changed = True
-            if self._migrate_judge_nodes(data):
-                changed = True
-            if self._migrate_judge_queue_jobs(data):
-                changed = True
+            data = copy.deepcopy(self._data)
+            data, changed = self._normalize_data(data)
             if changed:
                 self._write(data)
             return data
+
+    def _write(self, data: dict[str, Any]) -> None:
+        with self._lock:
+            self._data = copy.deepcopy(data)
+
+    def _normalize_data(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        changed = False
+        seeded = seed_data()
+        for key, value in seeded.items():
+            if key == "problem_judge_config":
+                continue
+            if key not in data:
+                data[key] = value
+                changed = True
+        for user in data.get("users", []):
+            if "password_hash" not in user:
+                user["password_hash"] = _seed_password()
+                changed = True
+            elif user.get("username") in DEMO_USERNAMES and user.get("password_hash") in LEGACY_DEMO_PASSWORD_HASHES:
+                user["password_hash"] = _seed_password()
+                changed = True
+            for key, default in {
+                "failed_login_attempts": 0,
+                "locked_until": None,
+                "last_login_at": None,
+                "password_changed_at": None,
+            }.items():
+                if key not in user:
+                    user[key] = default
+                    changed = True
+            if user.get("role") == "student" and (
+                not str(user.get("school", "")).strip()
+                or str(user.get("school", "")).strip() in LEGACY_DEFAULT_STUDENT_SCHOOLS
+            ):
+                user["school"] = DEFAULT_STUDENT_SCHOOL
+                changed = True
+        if self._migrate_system_config(data, seeded["system_config"]):
+            changed = True
+        if self._migrate_problem_judge_config(data):
+            changed = True
+        if self._migrate_tags(data, seeded["tags"]):
+            changed = True
+        if self._migrate_compiler_configs(data, seeded["compiler_configs"]):
+            changed = True
+        if self._migrate_judge_nodes(data):
+            changed = True
+        if self._migrate_judge_queue_jobs(data):
+            changed = True
+        return data, changed
 
     def _migrate_system_config(self, data: dict[str, Any], defaults: dict[str, Any]) -> bool:
         config = data.get("system_config")
@@ -1588,9 +1601,12 @@ class Store:
         self._write(data)
 
 
-_store = Store()
+_store: Store | None = None
 
 
 def get_store() -> Store:
+    global _store
+    if _store is None:
+        _store = Store()
     return _store
 

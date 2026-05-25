@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.db import JsonRepository, seed_data
+from app.db import SnapshotRepository, seed_data
 
 
 def flatten_tag_names(nodes: list[dict[str, object]]) -> list[str]:
@@ -127,16 +127,16 @@ def test_tag_management_creates_hierarchy_and_updates_problem_tags(client: TestC
     assert delete_used.status_code == 409
 
 
-def test_json_repository_migrates_legacy_tag_shapes(tmp_path: Path) -> None:
+def test_sqlite_repository_migrates_legacy_tag_shapes(tmp_path: Path) -> None:
     data = seed_data()
     data["tags"] = ["LegacyRoot"]
     data["problems"][0]["tags"] = ["LegacyRoot", "LegacyLeaf", "LegacyLeaf"]
     target = tmp_path / "legacy-tags.json"
     target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-    repository = JsonRepository(target)
+    repository = SnapshotRepository.sqlite(tmp_path / "legacy-tags.sqlite3", seed_path=target)
     names = [tag.name for tag in repository.list_tags()]
-    after = json.loads(target.read_text(encoding="utf-8"))
+    after = json.loads(repository.database.read_payload())
 
     assert "算法" in names
     assert "LegacyRoot" in names

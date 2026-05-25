@@ -10,7 +10,7 @@ npm run check:api
 ```
 
 `npm run check:api` compiles `apps/api`, `apps/judge`, and `tools/offline-cli`, then runs `py -3.12 -m pytest`.
-The pytest suite uses a temporary JSON store, so it does not modify `apps/api/storage/dev-db.json`.
+The pytest suite uses temporary SQLite databases, so it does not modify the runtime storage under `apps/api/storage`.
 
 ## Frontend type checks
 
@@ -53,13 +53,13 @@ It covers login, problem browsing, public problem-detail answer isolation, objec
 
 ## Judge worker smoke test
 
-P4-02 adds an independent judge worker entrypoint that can claim queued code submissions from the JSON development queue:
+P4-02 adds an independent judge worker entrypoint that can claim queued code submissions through the repository queue metadata:
 
 ```powershell
 npm run smoke:judge-worker
 ```
 
-The smoke test uses a temporary JSON store, creates queued code submissions, runs `apps/judge/worker.py --once`, and verifies the default CLI path only moves a task to `judging`. It also exercises `JudgeWorker.execute_once(...)` with an injected sandbox executor to verify worker-side result writeback without requiring Docker. The claim event prints a redacted source reference only; it does not echo submitted code or the `source_code` storage field.
+The smoke test uses a temporary SQLite database, creates queued code submissions, runs `apps/judge/worker.py --once`, and verifies the default CLI path only moves a task to `judging`. It also exercises `JudgeWorker.execute_once(...)` with an injected sandbox executor to verify worker-side result writeback without requiring Docker. The claim event prints a redacted source reference only; it does not echo submitted code or the `source_code` storage field.
 
 ## Compiler configuration management
 
@@ -80,13 +80,18 @@ The Web admin console uses the same API to manage the seeded C/C++/Java/Python p
 
 ## Data repository layer
 
-P1-01 introduces a repository boundary under `apps/api/app/db`:
+The API uses a repository boundary under `apps/api/app/db`:
 
 - `repository.py` defines the API storage contract used by routes and auth.
-- `json_repository.py` adapts the existing JSON file store for local development.
-- `get_repository()` is the FastAPI dependency to override in tests or future database adapters.
+- `snapshot_repository.py` adapts the domain repository to the database layer.
+- `get_repository()` is the FastAPI dependency to override in tests.
 
-The current implementation still persists to `apps/api/storage/dev-db.json` and does not change that file format. Existing development data remains compatible, while later PostgreSQL work can add a SQLAlchemy/SQLModel adapter behind the same contract.
+Runtime database code is centralized under `apps/api/storage`:
+
+- `database_config.py` reads MySQL and SQLite settings.
+- `database.py` owns all runtime SQL, connection creation, parameterized reads/writes, SQLite WAL/cache settings, and MySQL-to-SQLite fallback.
+
+MySQL is the default primary store (`GAYOJ_STORAGE_BACKEND=mysql`). If MySQL cannot be opened, the API falls back to SQLite at `apps/api/storage/gayoj.sqlite3`. The legacy `apps/api/storage/dev-db.json` file is treated only as a compatible seed snapshot for first database initialization; it is not used as the runtime write store.
 
 ## PostgreSQL migrations
 
@@ -105,7 +110,7 @@ $env:GAYOJ_DATABASE_URL="postgresql://gayoj:gayoj@127.0.0.1:5432/gayoj"
 npm run migrate:db
 ```
 
-The first migration initializes the MVP tables and keeps objective `judge_config` in `problem_judge_config`, separate from the public `problems` table. Runtime still uses the JSON repository until a later database adapter is introduced.
+The first migration initializes the MVP tables and keeps objective `judge_config` in `problem_judge_config`, separate from the public `problems` table. The current runtime store is the MySQL/SQLite snapshot repository; the PostgreSQL scripts remain migration/export tooling.
 
 P1-03 adds RBAC tables and a queryable role-permission matrix:
 
@@ -140,9 +145,9 @@ The generated SQL writes public problem fields to `problems`, objective
 rules to `problem_judge_config`, and submission `source_code` as text data
 only. It does not compile, run, or judge submitted code.
 
-P1-05 applies the same judge-config isolation to the JSON development store.
-Existing snapshots with `judge_config` embedded in `problems` are migrated on
-read into top-level `problem_judge_config`, while public problem rows are kept
+P1-05 applies the same judge-config isolation to the database-backed snapshot.
+Seed snapshots with `judge_config` embedded in `problems` are migrated on read
+into top-level `problem_judge_config`, while public problem rows are kept
 answer-free. API routes that need rules use the repository methods
 `get_problem_judge_config()` / `set_problem_judge_config()`; ordinary problem
 detail responses still omit `judge_config`, and authorized offline packs remain
@@ -155,9 +160,9 @@ GET /api/v1/admin/audit-logs
 ```
 
 Supported filters are `actor_id`, `action`, `resource`, `created_from`,
-`created_to`, `limit`, and `offset`. The JSON development store keeps the
-existing top-level `audit_logs` section, and PostgreSQL migration `0003` adds
-query indexes for the same access pattern. Failed login attempts are audited
+`created_to`, `limit`, and `offset`. The snapshot store keeps the existing
+top-level `audit_logs` section, and PostgreSQL migration `0003` adds query
+indexes for the same access pattern. Failed login attempts are audited
 without storing submitted passwords.
 
 ## P02-01 Permission-code enforcement
@@ -173,8 +178,8 @@ ownership checks still apply where needed, so a user with only
 `submission:read:own` cannot read another user's submission.
 
 PostgreSQL migration `0004_permission_code_enforcement.sql` extends the seeded
-permission grants for the same model. The JSON development store format is
-unchanged and remains compatible with `apps/api/storage/dev-db.json`.
+permission grants for the same model. Existing `apps/api/storage/dev-db.json`
+snapshots remain compatible as database seeds.
 
 Ordinary problem-detail responses do not include `judge_config`, even for
 manager roles. Objective judging rules remain available only to server-side
@@ -190,9 +195,9 @@ PATCH /api/v1/admin/users/{user_id}/role
 
 The endpoint requires `user:role:update`, returns the updated public user with
 derived `permissions`, audits changes as `user.role.update`, and rejects changes
-that would remove the last active administrator. JSON development storage still
-uses the existing `users[*].role` field, so current `apps/api/storage/dev-db.json`
-snapshots remain compatible.
+that would remove the last active administrator. Runtime storage still keeps
+the existing `users[*].role` field in the normalized snapshot, so current
+`apps/api/storage/dev-db.json` seed snapshots remain compatible.
 
 The admin page also shows the RBAC matrix from `GET /api/v1/admin/rbac/matrix`.
 This UI only manages roles and permissions; it does not expose objective
@@ -202,7 +207,7 @@ This UI only manages roles and permissions; it does not expose objective
 
 P2-03 adds persistent login security state to user records:
 `failed_login_attempts`, `locked_until`, `last_login_at`, and
-`password_changed_at`. Existing JSON snapshots are migrated on read.
+`password_changed_at`. Existing seed snapshots are migrated on read.
 
 Repeated failed logins are audited as `auth.login_failed`; once the configured
 threshold is reached, the account is temporarily locked and an
@@ -219,7 +224,7 @@ can change their own password from `/settings` or through:
 PUT /api/v1/users/me/password
 ```
 
-PostgreSQL migration `0005_auth_security_fields.sql` mirrors the JSON runtime
+PostgreSQL migration `0005_auth_security_fields.sql` mirrors the snapshot runtime
 fields and seeds the same default policy keys.
 
 The admin Web console exposes the same password policy and lockout fields, so
@@ -238,8 +243,8 @@ The Web route `/settings` updates `display_name`, `school`, `email`, and the
 current user's password. The private `email` field is returned only by the
 profile endpoint; `/api/v1/auth/me` and public/admin user lists keep the public
 user shape. Updates are audited as `user.profile.update` and reuse existing user
-fields, so the JSON development store remains compatible with current
-`apps/api/storage/dev-db.json` snapshots.
+fields, so current `apps/api/storage/dev-db.json` seed snapshots remain
+compatible.
 
 ## P2-05 Account ban enforcement
 
@@ -314,7 +319,7 @@ DELETE /api/v1/admin/tags/{tag_id}
 ```
 
 `GET /api/v1/problems` supports multi-tag AND filters with repeated `tag`
-parameters or comma-separated `tags`. Existing JSON snapshots remain compatible:
+parameters or comma-separated `tags`. Existing seed snapshots remain compatible:
 missing top-level `tags` are backfilled from `problems[*].tags` on read. Public
 problem responses still omit `judge_config`, and code submissions stay queue-only.
 
@@ -379,27 +384,28 @@ metadata; API, Web, and CLI still do not compile, run, or locally judge code.
 Code submissions now create a `judge_queue_jobs` task alongside the `queued`
 submission. The task protocol stores `submission_id`, `problem_id`, `language`,
 `source_ref`, `source_sha256`, resource limits, and `testdata_ref`; it does not
-copy submitted source into the queue payload. Old JSON snapshots are migrated on
-read by deriving queue jobs for existing queued or judging code submissions.
+copy submitted source into the queue payload. Old seed snapshots are migrated
+on read by deriving queue jobs for existing queued or judging code submissions.
 
-The default local backend is `json`. `GAYOJ_JUDGE_QUEUE_BACKEND=redis|kafka`
-selects the optional publishing adapters while preserving the same repository
-metadata for monitor and worker compatibility. Missing or unavailable external
-brokers fail the code-submit request with 503 instead of silently pretending the
-job was published; the API also rolls back the local submission and queue-job
-metadata, or restores the previous submission/job when a rejudge enqueue fails.
+The default local queue publisher backend is `json`.
+`GAYOJ_JUDGE_QUEUE_BACKEND=redis|kafka` selects the optional publishing adapters
+while preserving the same repository metadata for monitor and worker
+compatibility. Missing or unavailable external brokers fail the code-submit
+request with 503 instead of silently pretending the job was published; the API
+also rolls back the local submission and queue-job metadata, or restores the
+previous submission/job when a rejudge enqueue fails.
 
 ## P4-02 Judge worker service
 
 `apps/judge/worker.py` is the queue-facing worker entrypoint. It registers a
-judge node heartbeat, leases a pending JSON queue job for a supported language,
+judge node heartbeat, leases a pending queue job for a supported language,
 and moves the matching code submission from `queued` to `judging`.
 
 By default this entrypoint is claim-only: it returns task metadata such as
 `source_ref`, limits, and `testdata_ref`, but it does not compile, run, or
 locally judge user code. Starting it with `--execute` runs the claimed task
 through the worker-side Docker sandbox and writes the final result back to the
-submission and queue job. Existing `apps/api/storage/dev-db.json` snapshots
+submission and queue job. Existing `apps/api/storage/dev-db.json` seed snapshots
 remain compatible because the implementation reuses `submissions`,
 `judge_queue_jobs`, and `judge_nodes`.
 
@@ -569,6 +575,19 @@ Local npm scripts read the same variable names used by Docker Compose. Useful ke
 | `GAYOJ_OFFLINE_PACK_SECRET` | dev placeholder | Offline objective-pack signing key |
 | `GAYOJ_OFFLINE_PACK_TTL_HOURS` | `168` | Signed offline-pack lifetime |
 | `GAYOJ_API_CORS_ORIGINS` | local web origins | Comma-separated CORS allowlist |
+| `GAYOJ_STORAGE_BACKEND` | `mysql` | Runtime app-state backend selector: `mysql` or `sqlite` |
+| `GAYOJ_DEV_DB_JSON_PATH` | `apps/api/storage/dev-db.json` | Compatible seed snapshot imported on first database initialization |
+| `GAYOJ_SQLITE_PATH` | `apps/api/storage/gayoj.sqlite3` | SQLite fallback database path |
+| `GAYOJ_SQLITE_BUSY_TIMEOUT_MS` | `5000` | SQLite busy timeout, clamped by the storage layer |
+| `GAYOJ_SQLITE_CACHE_ENABLED` | `true` | Enables the SQLite payload/version cache |
+| `GAYOJ_MYSQL_HOST` | `127.0.0.1` | MySQL primary host |
+| `GAYOJ_MYSQL_PORT` | `3306` | MySQL primary port |
+| `GAYOJ_MYSQL_USER` | `gayoj` | MySQL runtime user |
+| `GAYOJ_MYSQL_PASSWORD` | `gayoj` | MySQL runtime password |
+| `GAYOJ_MYSQL_DATABASE` | `gayoj` | MySQL runtime database |
+| `GAYOJ_MYSQL_CHARSET` | `utf8mb4` | MySQL connection charset |
+| `GAYOJ_MYSQL_URL` | empty | Optional full MySQL DSN overriding host/user/password fields |
+| `GAYOJ_MYSQL_CONNECT_TIMEOUT_SECONDS` | `2` | MySQL connection/read/write timeout before SQLite fallback |
 | `GAYOJ_JUDGE_QUEUE_BACKEND` | `json` | Judge queue backend selector: `json`, `redis`, or `kafka` |
 | `GAYOJ_JUDGE_QUEUE_TOPIC` | `gayoj.judge.submissions` | Redis list name or Kafka topic for code judge jobs |
 | `GAYOJ_REDIS_URL` | empty | Optional Redis URL when using the Redis queue backend |
@@ -583,7 +602,7 @@ Local npm scripts read the same variable names used by Docker Compose. Useful ke
 | `GAYOJ_TESTDATA_MAX_ARCHIVE_MB` | `50` | Maximum uploaded ZIP size |
 | `GAYOJ_TESTDATA_MAX_UNCOMPRESSED_MB` | `200` | Maximum total uncompressed ZIP size |
 | `GAYOJ_TESTDATA_MAX_FILES` | `1000` | Maximum number of files inside a test-data ZIP |
-| `GAYOJ_DATABASE_URL` | local postgres URL | Target used by migration scripts |
+| `GAYOJ_DATABASE_URL` | local postgres URL | Target used by legacy PostgreSQL migration scripts |
 | `GAYOJ_COMPOSE_API_PORT` | `8000` | Docker Compose API host port |
 | `GAYOJ_COMPOSE_WEB_PORT` | `8080` | Docker Compose web host port |
 

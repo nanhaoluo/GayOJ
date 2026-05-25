@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import app.judge_queue as judge_queue
-from app.db import JsonRepository, now, seed_data
+from app.db import SnapshotRepository, now, seed_data
 
 
 def test_code_submit_creates_queue_job_metadata_without_copying_source(
@@ -49,7 +49,7 @@ def test_code_submit_creates_queue_job_metadata_without_copying_source(
     assert "queued but not executed by API" not in json.dumps(queue, ensure_ascii=False)
 
 
-def test_json_store_migrates_legacy_queued_code_submissions_into_queue_jobs(tmp_path: Path) -> None:
+def test_sqlite_store_migrates_legacy_queued_code_submissions_into_queue_jobs(tmp_path: Path) -> None:
     data = seed_data()
     data.pop("judge_queue_jobs", None)
     data["submissions"].append(
@@ -72,7 +72,7 @@ def test_json_store_migrates_legacy_queued_code_submissions_into_queue_jobs(tmp_
     target = tmp_path / "legacy-dev-db.json"
     target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-    repository = JsonRepository(target)
+    repository = SnapshotRepository.sqlite(tmp_path / "legacy.sqlite3", seed_path=target)
     jobs = repository.list_judge_queue_jobs()
 
     job = next(item for item in jobs if item.submission_id == "S-LEGACY")
@@ -81,7 +81,7 @@ def test_json_store_migrates_legacy_queued_code_submissions_into_queue_jobs(tmp_
     assert job.source_ref == "submission:S-LEGACY:source_code"
     assert job.source_sha256
 
-    migrated = json.loads(target.read_text(encoding="utf-8"))
+    migrated = json.loads(repository.database.read_payload())
     migrated_submission = next(item for item in migrated["submissions"] if item["id"] == "S-LEGACY")
     assert migrated_submission["queue_job_id"] == job.id
     assert migrated_submission["queued_at"]
