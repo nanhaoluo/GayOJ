@@ -296,6 +296,10 @@ export interface Contest {
 export interface StandingProblemResult {
   score: number;
   status: string;
+  attempts: number;
+  accepted_at: string | null;
+  penalty_minutes: number;
+  first_blood: boolean;
 }
 
 export interface StandingRow {
@@ -303,6 +307,8 @@ export interface StandingRow {
   display_name: string;
   solved: number;
   score: number;
+  penalty: number;
+  first_blood: number;
   problems: Record<string, StandingProblemResult>;
 }
 
