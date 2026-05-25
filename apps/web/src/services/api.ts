@@ -1,6 +1,6 @@
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+export const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? '/api/v1';
 export const AUTH_TOKEN_KEY = 'gayoj_token';
-const LEGACY_AUTH_TOKEN_KEY = 'gayoj_token';
+const LEGACY_AUTH_TOKEN_KEYS = ['ctoj_token'];
 
 export class ApiError extends Error {
   status: number;
@@ -18,21 +18,29 @@ type RequestOptions = RequestInit & {
 export function getStoredAuthToken(): string | null {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (token) return token;
-  const legacyToken = localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
-  if (legacyToken) {
-    localStorage.setItem(AUTH_TOKEN_KEY, legacyToken);
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    const legacyToken = localStorage.getItem(key);
+    if (legacyToken) {
+      localStorage.setItem(AUTH_TOKEN_KEY, legacyToken);
+      localStorage.removeItem(key);
+      return legacyToken;
+    }
   }
-  return legacyToken;
+  return null;
 }
 
 export function setStoredAuthToken(token: string): void {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
-  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
 }
 
 export function clearStoredAuthToken(): void {
   localStorage.removeItem(AUTH_TOKEN_KEY);
-  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
