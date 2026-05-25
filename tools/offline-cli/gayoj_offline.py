@@ -17,6 +17,7 @@ from typing import Any
 
 PACK_SECRET = os.getenv("GAYOJ_OFFLINE_PACK_SECRET", "gayoj-offline-dev-secret")
 SIGNATURE_ALGORITHM = "hmac-sha256"
+SUPPORTED_PROBLEM_TYPES = {"blank", "single_choice", "multiple_choice"}
 DEFAULT_API_BASE = (
     os.getenv("GAYOJ_CLI_API_BASE")
     or os.getenv("GAYOJ_API_BASE")
@@ -31,6 +32,10 @@ def sign_payload(payload: dict[str, Any]) -> str:
 
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def load_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def make_result_key(problem_id: str, answers: dict[str, Any], practiced_at: str | None) -> str:
@@ -54,21 +59,57 @@ def parse_pack_datetime(value: Any) -> datetime | None:
 
 
 def load_pack(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    data = load_json(path)
     payload = data.get("payload")
     signature = data.get("signature", "")
     if not isinstance(payload, dict):
-        raise SystemExit("离线包格式错误：缺少 payload")
+        raise SystemExit("Offline pack format error: missing payload.")
     if payload.get("signature_algorithm") != SIGNATURE_ALGORITHM:
-        raise SystemExit("离线包签名算法不受支持。")
+        raise SystemExit("Offline pack signature algorithm is not supported.")
     if not hmac.compare_digest(sign_payload(payload), signature):
-        raise SystemExit("离线包签名校验失败，文件可能被篡改或密钥不一致。")
+        raise SystemExit("Offline pack signature verification failed: 签名校验失败.")
     expires_at = parse_pack_datetime(payload.get("expires_at"))
     if expires_at is None:
-        raise SystemExit("离线包格式错误：缺少有效过期时间。")
+        raise SystemExit("Offline pack format error: missing expires_at.")
     if expires_at <= datetime.now(timezone.utc):
-        raise SystemExit("离线包已过期，请重新下载。")
+        raise SystemExit("Offline pack has expired: 已过期. Download it again.")
     return payload
+
+
+def problem_type_counts(problems: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for problem in problems:
+        problem_type = str(problem.get("type", "unknown"))
+        counts[problem_type] = counts.get(problem_type, 0) + 1
+    return counts
+
+
+def format_type_counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{key}={counts[key]}" for key in sorted(counts)) or "none"
+
+
+def print_pack_summary(payload: dict[str, Any], *, output: Path | None = None) -> None:
+    problems = payload.get("problems", [])
+    problems = problems if isinstance(problems, list) else []
+    prefix = f"Offline pack saved: {output}" if output else "Offline pack summary"
+    print(prefix)
+    print(
+        "Pack summary: "
+        f"scope={payload.get('scope', 'unknown')} "
+        f"problems={len(problems)} "
+        f"expires_at={payload.get('expires_at', 'unknown')}"
+    )
+    print(f"Problem types: {format_type_counts(problem_type_counts(problems))}")
+
+
+def ensure_supported_problem(problem: dict[str, Any]) -> None:
+    problem_type = str(problem.get("type", ""))
+    if problem_type not in SUPPORTED_PROBLEM_TYPES:
+        problem_id = problem.get("id", "<unknown>")
+        raise SystemExit(
+            f"Offline CLI only supports blank, single_choice, and multiple_choice problems; "
+            f"{problem_id} is {problem_type or 'unknown'}."
+        )
 
 
 def normalize_blank(value: Any, case_sensitive: bool, trim_space: bool) -> str:
@@ -140,6 +181,7 @@ def blank_answer_matches(
 
 
 def judge(problem: dict[str, Any], answers: dict[str, Any]) -> tuple[int, int]:
+    ensure_supported_problem(problem)
     config = problem.get("judge_config", {})
     if problem["type"] == "blank":
         total = sum(int(v) for v in config.get("scores", {}).values()) or 100
@@ -168,7 +210,126 @@ def judge(problem: dict[str, Any], answers: dict[str, Any]) -> tuple[int, int]:
         received = sorted(answers.get("choices", []))
         return (total, total) if received == expected else (0, total)
 
-    raise SystemExit("离线 CLI 只支持填空题、单选题和多选题。")
+    raise SystemExit("Offline CLI only supports blank, single_choice, and multiple_choice problems.")
+
+
+def normalize_choice_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        items = value.replace(" ", "").split(",")
+    elif isinstance(value, list):
+        items = value
+    else:
+        items = []
+    return [str(item).strip().upper() for item in items if str(item).strip()]
+
+
+def normalize_answers_for_problem(problem: dict[str, Any], raw_answers: Any) -> dict[str, Any]:
+    ensure_supported_problem(problem)
+    problem_type = problem["type"]
+
+    if problem_type == "blank":
+        if not isinstance(raw_answers, dict):
+            raise SystemExit(f"Answers for {problem['id']} must be an object keyed by blank id.")
+        normalized: dict[str, Any] = {}
+        for blank in problem.get("blanks", []):
+            key = blank.get("key")
+            if key:
+                normalized[str(key)] = raw_answers.get(key, "")
+        return normalized
+
+    if problem_type == "single_choice":
+        if isinstance(raw_answers, dict):
+            choice = raw_answers.get("choice", "")
+        else:
+            choice = raw_answers
+        return {"choice": str(choice).strip().upper()}
+
+    if problem_type == "multiple_choice":
+        if isinstance(raw_answers, dict):
+            choices = raw_answers.get("choices", raw_answers.get("choice", []))
+        else:
+            choices = raw_answers
+        return {"choices": normalize_choice_list(choices)}
+
+    raise SystemExit("Offline CLI only supports blank, single_choice, and multiple_choice problems.")
+
+
+def load_answers(path: Path) -> dict[str, Any]:
+    data = load_json(path)
+    if isinstance(data, dict) and isinstance(data.get("answers"), dict):
+        return data["answers"]
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        answers: dict[str, Any] = {}
+        for item in data:
+            if isinstance(item, dict) and item.get("problem_id") and "answers" in item:
+                answers[str(item["problem_id"])] = item["answers"]
+        return answers
+    raise SystemExit("Answers file must be a JSON object or a list of result items.")
+
+
+def prompt_answers(problem: dict[str, Any]) -> dict[str, Any]:
+    ensure_supported_problem(problem)
+    answers: dict[str, Any] = {}
+    if problem["type"] == "blank":
+        for blank in problem.get("blanks", []):
+            answers[blank["key"]] = input(f"{blank['label']}: ").strip()
+    elif problem["type"] == "single_choice":
+        for option in problem.get("options", []):
+            print(f"  {option['key']}. {option['text']}")
+        answers["choice"] = input("Answer: ").strip().upper()
+    elif problem["type"] == "multiple_choice":
+        for option in problem.get("options", []):
+            print(f"  {option['key']}. {option['text']}")
+        raw = input("Answer, separate multiple choices with commas: ").strip().upper()
+        answers["choices"] = normalize_choice_list(raw)
+    return answers
+
+
+def answers_for_problem(
+    problem: dict[str, Any],
+    answers_by_problem: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if answers_by_problem is None:
+        return prompt_answers(problem)
+    problem_id = str(problem.get("id", ""))
+    if problem_id not in answers_by_problem:
+        raise SystemExit(f"Missing answers for problem {problem_id} in answers file.")
+    return normalize_answers_for_problem(problem, answers_by_problem[problem_id])
+
+
+def default_cache_path(output: str | None) -> Path:
+    if output:
+        return Path(f"{output}.cache.json")
+    return Path("offline-results.cache.json")
+
+
+def load_practice_cache(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    data = load_json(path)
+    results = data.get("results", []) if isinstance(data, dict) else []
+    if not isinstance(results, list):
+        return []
+    return [item for item in results if isinstance(item, dict) and item.get("problem_id")]
+
+
+def write_practice_cache(path: Path, payload: dict[str, Any], results: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    problems = payload.get("problems", [])
+    problem_ids = [problem.get("id") for problem in problems if isinstance(problem, dict)]
+    cache_payload = {
+        "pack": {
+            "version": payload.get("version"),
+            "generated_at": payload.get("generated_at"),
+            "expires_at": payload.get("expires_at"),
+            "problem_ids": problem_ids,
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "results": results,
+    }
+    path.write_text(json.dumps(cache_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def request_json(url: str, method: str = "GET", token: str | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -184,7 +345,9 @@ def request_json(url: str, method: str = "GET", token: str | None = None, body: 
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"请求失败：HTTP {exc.code} {detail}") from exc
+        raise SystemExit(f"Request failed: HTTP {exc.code} {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Request failed: {exc.reason}") from exc
 
 
 def cmd_login(args: argparse.Namespace) -> None:
@@ -200,7 +363,7 @@ def cmd_login(args: argparse.Namespace) -> None:
 def cmd_download(args: argparse.Namespace) -> None:
     token = args.token or os.getenv("GAYOJ_TOKEN")
     if not token:
-        raise SystemExit("请通过 --token 或 GAYOJ_TOKEN 提供登录令牌。")
+        raise SystemExit("Provide a login token with --token or GAYOJ_TOKEN.")
     api_base = args.api.rstrip("/")
     if getattr(args, "problem_set_id", None):
         data = request_json(f"{api_base}/problem-sets/{args.problem_set_id}/offline-package", token=token)
@@ -208,7 +371,11 @@ def cmd_download(args: argparse.Namespace) -> None:
         data = request_json(f"{api_base}/training/offline-pack", token=token)
     output = Path(args.output)
     output.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"已下载离线训练包：{output}")
+    payload = data.get("payload", {}) if isinstance(data, dict) else {}
+    if isinstance(payload, dict):
+        print_pack_summary(payload, output=output)
+    else:
+        print(f"Offline pack saved: {output}")
 
 
 def cmd_pull_set(args: argparse.Namespace) -> None:
@@ -216,31 +383,36 @@ def cmd_pull_set(args: argparse.Namespace) -> None:
     cmd_download(args)
 
 
+def cmd_inspect(args: argparse.Namespace) -> None:
+    payload = load_pack(Path(args.pack))
+    for problem in payload.get("problems", []):
+        ensure_supported_problem(problem)
+    print_pack_summary(payload)
+
+
 def cmd_practice(args: argparse.Namespace) -> None:
     payload = load_pack(Path(args.pack))
     problems = payload.get("problems", [])
-    if not problems:
-        raise SystemExit("离线包中没有可训练题目。")
+    if not isinstance(problems, list) or not problems:
+        raise SystemExit("Offline pack does not contain practice problems.")
 
-    total_score = 0
-    total_max = 0
-    saved_results: list[dict[str, Any]] = []
+    answers_by_problem = load_answers(Path(args.answers)) if args.answers else None
+    cache_path = Path(args.cache) if args.cache else default_cache_path(args.output)
+    saved_results: list[dict[str, Any]] = load_practice_cache(cache_path) if args.resume else []
+    completed_problem_ids = {str(item["problem_id"]) for item in saved_results}
+    print_pack_summary(payload)
+    if args.resume and completed_problem_ids:
+        print(f"Resuming cached practice: cache={cache_path} completed={len(completed_problem_ids)}")
+
     for problem in problems:
+        ensure_supported_problem(problem)
+        if str(problem.get("id")) in completed_problem_ids:
+            print(f"Skipping cached result: {problem['id']}")
+            continue
         print(f"\n[{problem['id']}] {problem['title']} ({problem['type']})")
-        print(problem["statement"])
-        answers: dict[str, Any] = {}
-        if problem["type"] == "blank":
-            for blank in problem.get("blanks", []):
-                answers[blank["key"]] = input(f"{blank['label']}: ").strip()
-        elif problem["type"] == "single_choice":
-            for option in problem.get("options", []):
-                print(f"  {option['key']}. {option['text']}")
-            answers["choice"] = input("答案: ").strip().upper()
-        elif problem["type"] == "multiple_choice":
-            for option in problem.get("options", []):
-                print(f"  {option['key']}. {option['text']}")
-            raw = input("答案，多选用逗号分隔: ").strip().upper()
-            answers["choices"] = [item.strip() for item in raw.replace(" ", "").split(",") if item.strip()]
+        if not args.answers:
+            print(problem["statement"])
+        answers = answers_for_problem(problem, answers_by_problem)
         score, max_score = judge(problem, answers)
         practiced_at = datetime.now(timezone.utc).isoformat()
         saved_results.append(
@@ -253,22 +425,25 @@ def cmd_practice(args: argparse.Namespace) -> None:
                 "local_max_score": max_score,
             }
         )
-        total_score += score
-        total_max += max_score
-        print(f"得分：{score}/{max_score}")
+        print(f"Score: {score}/{max_score}")
+        write_practice_cache(cache_path, payload, saved_results)
 
-    print(f"\n训练完成：{total_score}/{total_max}")
+    total_score = sum(int(item.get("local_score", 0)) for item in saved_results)
+    total_max = sum(int(item.get("local_max_score", 0)) for item in saved_results)
+    print(f"\nPractice summary: solved={len(saved_results)} score={total_score}/{total_max}")
     if args.output:
         output = Path(args.output)
         output.write_text(json.dumps({"results": saved_results}, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"练习结果已保存：{output}")
+        print(f"Results saved: {output}")
+    write_practice_cache(cache_path, payload, saved_results)
+    print(f"Practice cache saved: {cache_path}")
 
 
 def cmd_sync_results(args: argparse.Namespace) -> None:
     token = args.token or os.getenv("GAYOJ_TOKEN")
     if not token:
-        raise SystemExit("请通过 --token 或 GAYOJ_TOKEN 提供登录令牌。")
-    data = json.loads(Path(args.results).read_text(encoding="utf-8-sig"))
+        raise SystemExit("Provide a login token with --token or GAYOJ_TOKEN.")
+    data = load_json(Path(args.results))
     results = []
     for item in data.get("results", []):
         practiced_at = item.get("practiced_at")
@@ -285,52 +460,69 @@ def cmd_sync_results(args: argparse.Namespace) -> None:
                 "client_result_key": client_result_key,
             }
         )
-    payload = {"results": results}
     response = request_json(
         f"{args.api.rstrip('/')}/offline-results/sync",
         method="POST",
         token=token,
-        body=payload,
+        body={"results": results},
     )
+    synced_count = len(response.get("synced", []))
     merged_count = len(response.get("merged", []))
-    if merged_count:
-        print(f"Merged duplicate offline results: {merged_count}")
-    print(f"同步完成：{len(response.get('synced', []))} 条，拒绝 {len(response.get('rejected', []))} 条")
+    rejected_count = len(response.get("rejected", []))
+    print(f"Sync summary: synced={synced_count} merged={merged_count} rejected={rejected_count}")
+    if rejected_count:
+        for rejected in response.get("rejected", []):
+            print(f"Rejected {rejected.get('problem_id')}: {rejected.get('reason')}")
+        if getattr(args, "fail_on_rejected", False):
+            raise SystemExit(2)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="gayoj 客观题离线训练 CLI（不执行代码题）")
+    parser = argparse.ArgumentParser(
+        description="gayoj objective offline training CLI. Code problems are never executed locally."
+    )
     sub = parser.add_subparsers(required=True)
 
-    login_parser = sub.add_parser("login", help="登录并输出访问令牌")
+    login_parser = sub.add_parser("login", help="Log in and print an access token")
     login_parser.add_argument("--api", default=DEFAULT_API_BASE)
     login_parser.add_argument("-u", "--username", default="alice")
     login_parser.add_argument("-p", "--password")
     login_parser.set_defaults(func=cmd_login)
 
-    download_parser = sub.add_parser("download", help="下载签名离线训练包")
+    download_parser = sub.add_parser("download", help="Download a signed objective offline pack")
     download_parser.add_argument("--api", default=DEFAULT_API_BASE)
     download_parser.add_argument("--token")
-    download_parser.add_argument("--problem-set-id", help="只下载指定题单中的客观题")
+    download_parser.add_argument("--problem-set-id", help="Download only objective problems from a problem set")
     download_parser.add_argument("-o", "--output", default="offline-pack.json")
     download_parser.set_defaults(func=cmd_download)
 
-    pull_set_parser = sub.add_parser("pull-set", help="下载指定题单的客观题离线训练包")
+    pull_set_parser = sub.add_parser("pull-set", help="Download an objective offline pack for one problem set")
     pull_set_parser.add_argument("problem_set_id")
     pull_set_parser.add_argument("--api", default=DEFAULT_API_BASE)
     pull_set_parser.add_argument("--token")
     pull_set_parser.add_argument("-o", "--output", default="offline-pack.json")
     pull_set_parser.set_defaults(func=cmd_pull_set)
 
-    practice_parser = sub.add_parser("practice", help="使用离线训练包答题并本地判分")
+    inspect_parser = sub.add_parser("inspect", help="Verify a pack and print its summary")
+    inspect_parser.add_argument("pack")
+    inspect_parser.set_defaults(func=cmd_inspect)
+
+    practice_parser = sub.add_parser("practice", help="Practice objective problems and save local results")
     practice_parser.add_argument("pack")
-    practice_parser.add_argument("-o", "--output", default="offline-results.json", help="保存本地练习结果，便于恢复联网后同步")
+    practice_parser.add_argument(
+        "--answers",
+        help="JSON answers file for non-interactive practice. Use {\"answers\": {\"P1003\": {\"choice\": \"B\"}}}.",
+    )
+    practice_parser.add_argument("--cache", help="Path for local practice progress cache")
+    practice_parser.add_argument("--resume", action="store_true", help="Resume from the local practice progress cache")
+    practice_parser.add_argument("-o", "--output", default="offline-results.json", help="Path to save local results")
     practice_parser.set_defaults(func=cmd_practice)
 
-    sync_parser = sub.add_parser("sync-results", help="同步本地客观题练习结果")
+    sync_parser = sub.add_parser("sync-results", help="Sync local objective practice results")
     sync_parser.add_argument("results")
     sync_parser.add_argument("--api", default=DEFAULT_API_BASE)
     sync_parser.add_argument("--token")
+    sync_parser.add_argument("--fail-on-rejected", action="store_true", help="Exit with code 2 if any result is rejected")
     sync_parser.set_defaults(func=cmd_sync_results)
     return parser
 
@@ -344,4 +536,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -263,6 +263,13 @@
 - 如果同一 key 对应的题目或答案与历史提交不一致，接口把该条结果放入 `rejected` 并标记幂等键冲突，避免覆盖已有成绩。
 - 该流程仍只接受填空题、单选题和多选题；代码题继续只能进入在线评测队列或 worker，不在 API/Web/CLI 本地执行。
 
+## P5-06 CLI 用户体验增强
+
+- `download`、`pull-set`、`inspect`、`practice` 和 `sync-results` 输出题量、题型、得分、同步数量等可读摘要，文档命令可直接回放。
+- `practice` 支持 `--answers` 导入答案文件，支持 `--cache` 写入本地练习进度，并可通过 `--resume` 从缓存跳过已完成题目。
+- `sync-results` 输出 `synced`、`merged`、`rejected` 统计，并支持 `--fail-on-rejected` 供 smoke/CI 在拒绝同步时失败。
+- CLI 在检查离线包、练习和本地判分前都会拒绝非客观题；代码题仍不得在 CLI 本地执行。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

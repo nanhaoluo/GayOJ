@@ -51,6 +51,19 @@ npm run smoke:api
 
 It covers login, problem browsing, public problem-detail answer isolation, objective submission, code-submission queue flow, problem sets, notifications, and banned-account enforcement.
 
+## Offline CLI smoke test
+
+Run the P5-06 offline CLI flow with a temporary API and SQLite store:
+
+```powershell
+npm run smoke:offline-cli
+```
+
+The smoke logs in, runs `pull-set`, verifies the signed pack with `inspect`,
+executes `practice --answers` non-interactively, checks the local progress cache
+and `--resume`, syncs results, and repeats the sync to verify merged duplicates.
+It only handles blank, single-choice, and multiple-choice problems.
+
 ## Judge worker smoke test
 
 P4-02 adds an independent judge worker entrypoint that can claim queued code submissions through the repository queue metadata:
@@ -537,6 +550,15 @@ sent with different problem data or answers, the row is rejected as a conflict.
 Legacy result files without a key are still accepted through a deterministic
 fallback key derived from problem id, answers, and `practiced_at`.
 
+## P5-06 Offline CLI UX
+
+The offline CLI now prints concise summaries for `download`, `pull-set`,
+`inspect`, `practice`, and `sync-results`. `practice` accepts an `--answers`
+JSON file for repeatable, non-interactive training, writes a local progress
+cache, and can continue from that cache with `--resume`. `sync-results` can use
+`--fail-on-rejected` in smoke or CI scripts. The CLI still refuses any
+non-objective problem in a pack and never executes code locally.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
@@ -701,16 +723,38 @@ py -3.12 tools/offline-cli/gayoj_offline.py download -o offline-pack.json
 py -3.12 tools/offline-cli/gayoj_offline.py pull-set PS1001 -o ps1001-pack.json
 ```
 
+Inspect the signed offline pack:
+
+```powershell
+py -3.12 tools/offline-cli/gayoj_offline.py inspect ps1001-pack.json
+```
+
+For repeatable practice, prepare an optional answers file:
+
+```json
+{
+  "answers": {
+    "P1002": {
+      "edge_formula": "n(n-1)/2"
+    },
+    "P1003": "B",
+    "P1004": ["A", "C"]
+  }
+}
+```
+
 本地答题：
 
 ```powershell
 py -3.12 tools/offline-cli/gayoj_offline.py practice offline-pack.json
+py -3.12 tools/offline-cli/gayoj_offline.py practice ps1001-pack.json --answers answers.json --cache practice-cache.json --resume -o offline-results.json
 ```
 
 恢复联网后同步本地练习结果：
 
 ```powershell
 py -3.12 tools/offline-cli/gayoj_offline.py sync-results offline-results.json
+py -3.12 tools/offline-cli/gayoj_offline.py sync-results offline-results.json --fail-on-rejected
 ```
 
 ## 工程结构

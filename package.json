@@ -11,6 +11,7 @@
     "smoke:web-renderer": "tsx scripts/check-web-renderer.mjs",
     "smoke:web-auth": "tsx scripts/check-web-auth-token.mjs",
     "smoke:api": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-api.ps1",
+    "smoke:offline-cli": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-offline-cli.ps1",
     "smoke:judge-worker": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-judge-worker.ps1",
     "smoke:judge-sandbox": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-judge-sandbox.ps1",
     "build:judge-runner": "docker build -f deploy/Dockerfile.judge-runner -t gayoj/judge-runner:ubuntu24.04 .",
