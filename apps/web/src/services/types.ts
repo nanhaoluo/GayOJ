@@ -295,6 +295,7 @@ export interface Contest {
 
 export interface StandingProblemResult {
   score: number;
+  max_score: number;
   status: string;
   attempts: number;
   accepted_at: string | null;
