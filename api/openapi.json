@@ -4369,6 +4369,33 @@
       },
       "StandingProblemResult": {
         "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "attempts": {
+            "default": 0,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "first_blood": {
+            "default": false,
+            "title": "First Blood",
+            "type": "boolean"
+          },
+          "penalty_minutes": {
+            "default": 0,
+            "title": "Penalty Minutes",
+            "type": "integer"
+          },
           "score": {
             "default": 0,
             "title": "Score",
@@ -4388,6 +4415,16 @@
           "display_name": {
             "title": "Display Name",
             "type": "string"
+          },
+          "first_blood": {
+            "default": 0,
+            "title": "First Blood",
+            "type": "integer"
+          },
+          "penalty": {
+            "default": 0,
+            "title": "Penalty",
+            "type": "integer"
           },
           "problems": {
             "additionalProperties": {

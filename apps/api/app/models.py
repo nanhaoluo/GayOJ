@@ -549,6 +549,10 @@ class ContestDetail(Contest):
 class StandingProblemResult(BaseModel):
     score: int = 0
     status: str = ""
+    attempts: int = 0
+    accepted_at: datetime | None = None
+    penalty_minutes: int = 0
+    first_blood: bool = False
 
 
 class StandingRow(BaseModel):
@@ -556,6 +560,8 @@ class StandingRow(BaseModel):
     display_name: str
     solved: int
     score: int
+    penalty: int = 0
+    first_blood: int = 0
     problems: dict[str, StandingProblemResult] = Field(default_factory=dict)
 
 
