@@ -1590,6 +1590,19 @@ class Store:
         self._write(data)
         return dict(balloon)
 
+    def delete_contest_balloon(self, contest_id: str, user_id: str, problem_id: str) -> None:
+        data = self._read()
+        data["contest_balloons"] = [
+            item
+            for item in data.get("contest_balloons", [])
+            if not (
+                str(item.get("contest_id") or "") == str(contest_id or "")
+                and str(item.get("user_id") or "") == str(user_id or "")
+                and str(item.get("problem_id") or "") == str(problem_id or "")
+            )
+        ]
+        self._write(data)
+
     def list_judge_nodes(self) -> list[JudgeNode]:
         return [JudgeNode(**item) for item in self._read()["judge_nodes"]]
 

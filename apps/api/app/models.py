@@ -960,6 +960,13 @@ class RejudgeBatchResponse(BaseModel):
     skipped_count: int
 
 
+class ContestRejudgeResponse(RejudgeBatchResponse):
+    contest_id: str
+    rejudge_at: datetime
+    rejudge_by: str
+    rejudge_reason: str
+
+
 class ProblemSet(BaseModel):
     id: str
     title: str

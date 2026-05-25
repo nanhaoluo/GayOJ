@@ -320,26 +320,48 @@ def refresh_contest_balloon_for_submission(store: Any, submission: Submission) -
     if not contest_id:
         return None
     contest = store.get_contest(contest_id)
-    if not contest or not contest_submission_is_balloon_eligible(contest, submission):
+    if not contest:
         return None
     user: User | None = store.get_user(submission.user_id)
-    prior = next(
-        (
-            item
-            for item in store.list_contest_balloons(contest.id)
-            if str(item.get("user_id") or "") == submission.user_id and str(item.get("problem_id") or "") == submission.problem_id
-        ),
-        None,
-    )
     siblings = [item for item in store.list_submissions() if item.contest_id == contest.id]
+    sibling_group = [
+        item
+        for item in siblings
+        if item.user_id == submission.user_id and item.problem_id == submission.problem_id
+    ]
+    accepted_group = [
+        item
+        for item in sibling_group
+        if contest_submission_is_balloon_eligible(contest, item)
+    ]
+    existing = [
+        item
+        for item in store.list_contest_balloons(contest.id)
+        if str(item.get("user_id") or "") == submission.user_id and str(item.get("problem_id") or "") == submission.problem_id
+    ]
+    if contest.rule != "ACM":
+        if existing:
+            store.delete_contest_balloon(contest.id, submission.user_id, submission.problem_id)
+        return None
+    if not accepted_group:
+        if existing:
+            store.delete_contest_balloon(contest.id, submission.user_id, submission.problem_id)
+        return None
+    candidate = min(
+        accepted_group,
+        key=lambda item: (contest_submission_effective_time(item), str(item.id)),
+    )
+    prior = existing[0] if existing else None
     balloon = reconcile_contest_balloon(
         contest,
-        submission,
+        candidate,
         display_name=user.display_name if user else submission.user_id,
         prior=prior,
         siblings=siblings,
     )
     if balloon is None:
+        if existing:
+            store.delete_contest_balloon(contest.id, submission.user_id, submission.problem_id)
         return None
     store.upsert_contest_balloon(balloon.model_dump(mode="json"))
     return balloon

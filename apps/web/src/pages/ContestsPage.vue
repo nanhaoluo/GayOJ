@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { Lock, LockOpen, MessageSquare, Trophy } from 'lucide-vue-next';
+import { Lock, LockOpen, MessageSquare, RotateCcw, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
-import type { Contest } from '@/services/types';
+import type { Contest, ContestRejudgeResponse } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const router = useRouter();
 const contests = ref<Contest[]>([]);
 const selected = ref('');
 const actionError = ref('');
+const notice = ref('');
+const rejudgingContestId = ref('');
 
 const canManageContests = computed(() => Boolean(authState.user?.permissions.includes('contest:manage')));
+const canTriggerContestRejudge = computed(() => {
+  const permissions = authState.user?.permissions ?? [];
+  return permissions.includes('submission:override') && (permissions.includes('judge:monitor') || permissions.includes('contest:manage'));
+});
 
 async function load() {
   contests.value = await apiRequest<Contest[]>('/contests');
@@ -27,8 +33,21 @@ async function openClarifications(id: string) {
   await router.push(`/contests/${id}/clar`);
 }
 
+function contestEnded(contest: Contest): boolean {
+  return new Date(contest.end_at).getTime() <= Date.now();
+}
+
+function canRejudgeContest(contest: Contest): boolean {
+  return canTriggerContestRejudge.value && contestEnded(contest);
+}
+
+function rejudgeMeta(contest: Contest): string {
+  return contest.rejudge_at ? `最近重测 ${formatDate(contest.rejudge_at)}` : '';
+}
+
 async function freezeContest(contest: Contest) {
   actionError.value = '';
+  notice.value = '';
   try {
     await apiRequest<Contest>(`/contests/${contest.id}/freeze`, {
       method: 'POST',
@@ -42,6 +61,7 @@ async function freezeContest(contest: Contest) {
 
 async function unfreezeContest(contest: Contest) {
   actionError.value = '';
+  notice.value = '';
   try {
     await apiRequest<Contest>(`/contests/${contest.id}/unfreeze`, {
       method: 'POST',
@@ -50,6 +70,25 @@ async function unfreezeContest(contest: Contest) {
     await load();
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : '解封失败';
+  }
+}
+
+async function rejudgeContest(contest: Contest) {
+  if (!canRejudgeContest(contest)) return;
+  actionError.value = '';
+  notice.value = '';
+  rejudgingContestId.value = contest.id;
+  try {
+    const result = await apiRequest<ContestRejudgeResponse>(`/contests/${contest.id}/rejudge`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'manual contest rejudge from contest list' }),
+    });
+    notice.value = `比赛 ${contest.title} 已重测 ${result.requeued_count} 条代码提交${result.skipped_count ? `，跳过 ${result.skipped_count} 条` : ''}。`;
+    await load();
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : '赛后重测失败';
+  } finally {
+    rejudgingContestId.value = '';
   }
 }
 
@@ -70,6 +109,7 @@ onMounted(load);
 
     <section class="panel set-list-panel">
       <p v-if="actionError" class="form-error">{{ actionError }}</p>
+      <p v-if="notice" class="form-success">{{ notice }}</p>
       <div class="set-table-row set-table-head">
         <span>比赛</span>
         <span>赛制</span>
@@ -87,6 +127,7 @@ onMounted(load);
         <div class="contest-status-stack">
           <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
           <small v-if="contest.freeze_active">已封榜</small>
+          <small v-if="rejudgeMeta(contest)">{{ rejudgeMeta(contest) }}</small>
         </div>
         <div class="row-actions">
           <button
@@ -110,6 +151,15 @@ onMounted(load);
           </button>
           <button class="secondary-action" type="button" @click="openClarifications(contest.id)">
             <MessageSquare :size="16" />提问
+          </button>
+          <button
+            v-if="canRejudgeContest(contest)"
+            class="secondary-action"
+            type="button"
+            :disabled="rejudgingContestId === contest.id"
+            @click="rejudgeContest(contest)"
+          >
+            <RotateCcw :size="16" />赛后重测
           </button>
         </div>
       </div>

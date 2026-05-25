@@ -375,6 +375,11 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
 
 
 def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.end_at = datetime(2026, 5, 20, 17, 0, tzinfo=timezone.utc)
+    store.update_contest(contest)
+
     forbidden = client.post(
         "/api/v1/contests/C1001/freeze",
         headers=auth_headers("alice"),
@@ -397,16 +402,91 @@ def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient
     )
     assert submitted.status_code == 200, submitted.text
 
+    judge_rejudge = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={"reason": "judge contest rejudge"},
+    )
+    assert judge_rejudge.status_code == 200, judge_rejudge.text
+    judge_payload = judge_rejudge.json()
+    assert judge_payload["contest_id"] == "C1001"
+    assert judge_payload["requeued_count"] == 1
+    assert judge_payload["skipped_count"] == 0
+    assert judge_payload["rejudge_by"] == "u-judge"
+    assert judge_payload["rejudge_reason"] == "judge contest rejudge"
+
     rejudge = client.post(
         "/api/v1/contests/C1001/rejudge",
         headers=auth_headers("admin"),
         json={"reason": "contest rejudge"},
     )
     assert rejudge.status_code == 200, rejudge.text
+    rejudge_payload = rejudge.json()
+    assert rejudge_payload["contest_id"] == "C1001"
+    assert rejudge_payload["requeued_count"] == 1
+    assert rejudge_payload["skipped_count"] == 0
 
     contest = store.get_contest("C1001")
     assert contest is not None
     assert contest.rejudge_by == "u-admin"
+    assert contest.rejudge_reason == "contest rejudge"
+
+
+def test_contest_rejudge_requires_judge_or_admin_and_contest_end(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+
+    coach_denied = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("coach"),
+        json={"reason": "coach should not rejudge"},
+    )
+    assert coach_denied.status_code == 403
+
+    contest.end_at = datetime(2099, 5, 26, 17, 0, tzinfo=timezone.utc)
+    store.update_contest(contest)
+
+    running_response = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={"reason": "too early"},
+    )
+    assert running_response.status_code == 409
+    assert "after the contest ends" in running_response.json()["detail"]
+
+
+def test_contest_rejudge_skips_objective_submissions_with_clear_reason(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.end_at = datetime(2026, 5, 20, 17, 0, tzinfo=timezone.utc)
+    store.update_contest(contest)
+
+    code_submitted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('rejudge mix')\n"},
+    )
+    assert code_submitted.status_code == 200, code_submitted.text
+
+    objective_submitted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert objective_submitted.status_code == 200, objective_submitted.text
+
+    response = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={"reason": "contest-wide consistency check"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["requeued_count"] == 1
+    assert payload["requeued"][0]["id"] == code_submitted.json()["id"]
+    assert payload["skipped_count"] == 1
+    skipped = {item["submission_id"]: item["reason"] for item in payload["skipped"]}
+    assert "Only code submissions can be rejudged" in skipped[objective_submitted.json()["id"]]
 
 
 def test_contest_unfreeze_requires_manage_permission(client: TestClient, auth_headers, store) -> None:
