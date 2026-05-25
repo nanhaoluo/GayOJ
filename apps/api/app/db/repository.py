@@ -12,6 +12,7 @@ from ..models import (
     Discussion,
     JudgeQueueJob,
     JudgeNode,
+    OfflinePackRecord,
     Notification,
     Problem,
     ProblemTestData,
@@ -183,3 +184,11 @@ class Repository(Protocol):
         resource: str,
         metadata: dict[str, Any] | None = None,
     ) -> None: ...
+
+    def list_offline_packs(self) -> list[OfflinePackRecord]: ...
+
+    def get_offline_pack(self, pack_id: str) -> OfflinePackRecord | None: ...
+
+    def add_offline_pack(self, pack: OfflinePackRecord) -> OfflinePackRecord: ...
+
+    def update_offline_pack(self, pack: OfflinePackRecord) -> OfflinePackRecord: ...

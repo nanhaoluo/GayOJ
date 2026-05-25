@@ -56,6 +56,11 @@ from .models import (
     LoginResponse,
     Notification,
     OfflinePackResponse,
+    OfflinePackLifecycle,
+    OfflinePackStatusResponse,
+    OfflinePackCreate,
+    OfflinePackRecord,
+    OfflinePackStatus,
     OfflinePolicyUpdate,
     OfflineResultReview,
     ObjectiveSubmitRequest,
@@ -145,11 +150,20 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def offline_result_key(problem_id: str, answers: dict[str, Any], practiced_at: datetime | None, client_key: str | None) -> str:
+def offline_result_key(
+    problem_id: str,
+    answers: dict[str, Any],
+    practiced_at: datetime | None,
+    client_key: str | None,
+    pack_id: str | None = None,
+) -> str:
     if client_key:
+        if pack_id:
+            raw_key = f"{pack_id}:{client_key}"
+            return raw_key[:128] if len(raw_key) <= 128 else f"{pack_id}:{hashlib.sha256(raw_key.encode('utf-8')).hexdigest()}"
         return client_key[:128]
     practiced_at_text = practiced_at.isoformat() if practiced_at else ""
-    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at_text}
+    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at_text, "pack_id": pack_id or ""}
     return f"legacy:{hashlib.sha256(_canonical_json(payload).encode('utf-8')).hexdigest()[:48]}"
 
 
@@ -182,6 +196,41 @@ def offline_source_matches_problem(source: dict[str, Any], problem: Problem, sto
     return problem.id in problem_set.problem_ids
 
 
+def offline_pack_source_matches_record(record: OfflinePackRecord, source: dict[str, Any]) -> bool:
+    if not source:
+        return True
+    record_source = record.source if isinstance(record.source, dict) else {}
+    if not record_source:
+        return True
+    source_type = str(source.get("type") or "")
+    record_type = str(record_source.get("type") or "")
+    if source_type != record_type:
+        return False
+    if source_type in {"training", "problem_set"}:
+        return str(source.get("id") or "") == str(record_source.get("id") or "")
+    return source == record_source
+
+
+def offline_pack_authorizes_problem(
+    pack_id: str | None,
+    problem: Problem,
+    store: Repository,
+    *,
+    user_id: str | None = None,
+) -> bool:
+    if not pack_id:
+        return True
+    record = store.get_offline_pack(pack_id)
+    if not record:
+        return False
+    if user_id and record.created_by != user_id:
+        return False
+    status_value = pack_record_status(record)
+    if status_value != "active":
+        return False
+    return problem.id in record.problem_ids
+
+
 def sanitized_submission(
     submission: Submission,
     *,
@@ -211,6 +260,54 @@ def offline_result_review(submission: Submission, *, include_expected: bool = Fa
     ).model_dump()
     payload["expected_visible"] = include_expected
     return OfflineResultReview(**payload)
+
+
+def pack_lifecycle(
+    source: dict[str, Any],
+    policy: Any,
+    *,
+    downloaded: int = 0,
+    status: str = "active",
+    problem_ids: list[str] | None = None,
+) -> OfflinePackLifecycle:
+    return OfflinePackLifecycle(
+        status=status,
+        downloaded=downloaded,
+        max_downloads=getattr(policy, "max_downloads", None),
+        retention_days=getattr(policy, "retention_days", None),
+        source=source,
+        problem_set_id=source.get("id") if isinstance(source, dict) else None,
+        problem_ids=problem_ids or [],
+    )
+
+
+def pack_record_status(record: OfflinePackRecord, *, now_value: datetime | None = None) -> str:
+    current = now_value or now()
+    if record.status in {"disabled", "expired", "download_limit_reached"}:
+        return record.status
+    if record.expires_at <= current:
+        return "expired"
+    if record.max_downloads is not None and record.downloaded >= record.max_downloads:
+        return "download_limit_reached"
+    return "active"
+
+
+def pack_record_to_status(record: OfflinePackRecord, *, now_value: datetime | None = None) -> OfflinePackStatus:
+    status_value = pack_record_status(record, now_value=now_value)
+    return OfflinePackStatus(
+        pack_id=record.pack_id,
+        status=status_value,
+        source=record.source,
+        problem_set_id=record.problem_set_id,
+        problem_ids=record.problem_ids,
+        generated_at=record.generated_at,
+        expires_at=record.expires_at,
+        ttl_hours=record.ttl_hours,
+        retention_days=record.retention_days,
+        max_downloads=record.max_downloads,
+        downloaded=record.downloaded,
+        last_downloaded_at=record.last_downloaded_at,
+    )
 
 
 def problem_summary(problem: Problem, submissions: list[Submission], participant_ids: set[str] | None = None) -> ProblemSummary:
@@ -663,6 +760,50 @@ def offline_ttl_hours(*policies: Any) -> int | None:
     return min(values) if values else None
 
 
+def pack_record_from_payload(
+    payload: dict[str, Any],
+    *,
+    created_by: str,
+    source: dict[str, Any],
+    problem_set_id: str | None = None,
+    problem_ids: list[str] | None = None,
+    ttl_hours: int | None = None,
+    retention_days: int | None = None,
+    max_downloads: int | None = None,
+    status: str = "active",
+    downloaded: int = 0,
+) -> OfflinePackRecord:
+    generated_at = datetime.fromisoformat(str(payload["generated_at"]).replace("Z", "+00:00"))
+    expires_at = datetime.fromisoformat(str(payload["expires_at"]).replace("Z", "+00:00"))
+    return OfflinePackRecord(
+        pack_id=str(payload["pack_id"]),
+        source=source,
+        problem_set_id=problem_set_id or source.get("id"),
+        problem_ids=problem_ids or [str(problem.get("id")) for problem in payload.get("problems", []) if isinstance(problem, dict)],
+        generated_at=generated_at,
+        expires_at=expires_at,
+        ttl_hours=ttl_hours,
+        retention_days=retention_days,
+        max_downloads=max_downloads,
+        downloaded=downloaded,
+        status=status if status in {"active", "expired", "disabled", "download_limit_reached"} else "active",
+        created_by=created_by,
+        created_at=generated_at,
+        last_downloaded_at=None,
+    )
+
+
+def pack_problem_ids(payload: dict[str, Any]) -> list[str]:
+    problems = payload.get("problems", [])
+    if not isinstance(problems, list):
+        return []
+    return [str(problem.get("id")) for problem in problems if isinstance(problem, dict) and str(problem.get("id", "")).strip()]
+
+
+def pack_is_expired(record: OfflinePackRecord, *, now_value: datetime | None = None) -> bool:
+    return record.expires_at <= (now_value or now())
+
+
 def can_export_offline_problem(problem: Problem, judge_config: dict[str, Any]) -> bool:
     if not problem.visible or problem.type == "code":
         return False
@@ -679,6 +820,7 @@ def objective_offline_pack_response(
     *,
     ttl_hours: int | None = None,
     source: dict[str, Any] | None = None,
+    created_by: str | None = None,
 ) -> OfflinePackResponse:
     exportable: list[Problem] = []
     judge_configs: dict[str, dict[str, Any]] = {}
@@ -689,7 +831,48 @@ def objective_offline_pack_response(
         exportable.append(problem)
         judge_configs[problem.id] = judge_config
     pack_ttl_hours = ttl_hours or offline_ttl_hours(*(problem.offline_policy for problem in exportable))
-    return OfflinePackResponse(**build_offline_pack(exportable, judge_configs, ttl_hours=pack_ttl_hours, source=source))
+    generated_at = datetime.now(timezone.utc)
+    expires_at = generated_at + timedelta(hours=max(pack_ttl_hours or app_config.OFFLINE_PACK_TTL_HOURS, 1))
+    max_downloads = next((problem.offline_policy.max_downloads for problem in exportable if problem.offline_policy.max_downloads is not None), None)
+    retention_days = next((problem.offline_policy.retention_days for problem in exportable if problem.offline_policy.retention_days is not None), None)
+    pack_id = f"pack-{uuid4().hex[:16]}"
+    problem_ids = [problem.id for problem in exportable]
+    built = build_offline_pack(
+        exportable,
+        judge_configs,
+        ttl_hours=pack_ttl_hours,
+        source=source,
+        pack_id=pack_id,
+        lifecycle=pack_lifecycle(
+            source or {"type": "training"},
+            type("Policy", (), {"max_downloads": max_downloads, "retention_days": retention_days})(),
+            problem_ids=problem_ids,
+        ),
+        generated_at=generated_at,
+        expires_at=expires_at,
+    )
+    payload = built["payload"]
+    payload["lifecycle"] = pack_lifecycle(
+        source or {"type": "training"},
+        type("Policy", (), {"max_downloads": max_downloads, "retention_days": retention_days})(),
+        downloaded=0,
+        status="active",
+        problem_ids=problem_ids,
+    )
+    record = pack_record_from_payload(
+        payload,
+        created_by=created_by or str((source or {}).get("type") or "system"),
+        source=source or {"type": "training"},
+        problem_set_id=(source or {}).get("id") if isinstance(source, dict) else None,
+        problem_ids=problem_ids,
+        ttl_hours=pack_ttl_hours,
+        retention_days=retention_days,
+        max_downloads=max_downloads,
+        status="active",
+        downloaded=0,
+    )
+    store.add_offline_pack(record)
+    return OfflinePackResponse(**built)
 
 
 @app.get("/health", response_model=HealthResponse, include_in_schema=False)
@@ -2437,7 +2620,30 @@ def offline_pack(
         "training:objective",
         {"problem_count": exportable_count, "filtered_count": max(0, len(problems) - exportable_count), "source": source},
     )
-    return objective_offline_pack_response(problems, store, source=source)
+    return objective_offline_pack_response(problems, store, source=source, created_by=user.id)
+
+
+@app.get("/api/v1/training/offline-pack/status", response_model=list[OfflinePackStatus])
+def list_offline_pack_status(
+    user: User = Depends(require_permissions("training:offline")),
+    store: Repository = Depends(get_repository),
+) -> list[OfflinePackStatus]:
+    can_read_all = role_has_permission(user.role, "problem:edit:all")
+    return [pack_record_to_status(record) for record in store.list_offline_packs() if can_read_all or record.created_by == user.id]
+
+
+@app.get("/api/v1/training/offline-pack/{pack_id}", response_model=OfflinePackStatusResponse)
+def get_offline_pack_status(
+    pack_id: str,
+    user: User = Depends(require_permissions("training:offline")),
+    store: Repository = Depends(get_repository),
+) -> OfflinePackStatusResponse:
+    record = store.get_offline_pack(pack_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offline pack not found")
+    if record.created_by != user.id and not role_has_permission(user.role, "problem:edit:all"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    return OfflinePackStatusResponse(payload=pack_record_to_status(record))
 
 
 @app.post("/api/v1/offline-results/sync", response_model=OfflineResultSyncResponse)
@@ -2464,12 +2670,22 @@ def sync_offline_results(
         if not offline_source_matches_problem(item.source, problem, store):
             rejected.append(offline_rejection(item.problem_id, "source_not_authorized", "离线结果来源未授权该题"))
             continue
-        result_key = offline_result_key(problem.id, item.answers, item.practiced_at, item.client_result_key)
+        pack_record = store.get_offline_pack(item.pack_id) if item.pack_id else None
+        if item.pack_id and not pack_record:
+            rejected.append(offline_rejection(item.problem_id, "pack_not_authorized", "离线包未授权该题或已失效"))
+            continue
+        if pack_record and not offline_pack_source_matches_record(pack_record, item.source):
+            rejected.append(offline_rejection(item.problem_id, "source_not_authorized", "离线结果来源与离线包不一致"))
+            continue
+        if not offline_pack_authorizes_problem(item.pack_id, problem, store, user_id=user.id):
+            rejected.append(offline_rejection(item.problem_id, "pack_not_authorized", "离线包未授权该题或已失效"))
+            continue
+        result_key = offline_result_key(problem.id, item.answers, item.practiced_at, item.client_result_key, item.pack_id)
         duplicate = next(
             (
                 submission
                 for submission in store.list_submissions()
-                if submission.user_id == user.id and submission.offline_result_key == result_key
+                if submission.user_id == user.id and submission.offline_result_key == result_key and submission.offline_pack_id == item.pack_id
             ),
             None,
         )
@@ -2488,6 +2704,7 @@ def sync_offline_results(
             problem_type=problem.type,
             answers=item.answers,
             offline_result_key=result_key,
+            offline_pack_id=item.pack_id,
             status="accepted" if score == max_score else "wrong_answer",
             score=score,
             max_score=max_score,
@@ -2526,12 +2743,19 @@ def list_offline_results(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     target_user_id = user_id if can_read_all else user.id
     show_expected = include_expected and can_read_all
+    current = now()
     submissions = [
         submission
         for submission in store.list_submissions()
         if submission.offline_result_key
         and (not target_user_id or submission.user_id == target_user_id)
         and (not problem_id or submission.problem_id == problem_id)
+        and (
+            not submission.offline_pack_id
+            or not (pack_record := store.get_offline_pack(submission.offline_pack_id))
+            or not pack_record.retention_days
+            or submission.created_at >= current - timedelta(days=pack_record.retention_days or 0)
+        )
     ]
     store.add_audit(
         user.id,
@@ -2560,6 +2784,10 @@ def get_offline_result(
     can_read_all = role_has_permission(user.role, "submission:read:all")
     if submission.user_id != user.id and not can_read_all:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if submission.offline_pack_id:
+        record = store.get_offline_pack(submission.offline_pack_id)
+        if record and record.retention_days and submission.created_at < now() - timedelta(days=record.retention_days):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offline result expired")
     show_expected = include_expected and can_read_all
     store.add_audit(
         user.id,

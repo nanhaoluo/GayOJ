@@ -20,6 +20,7 @@ from .models import (
     Discussion,
     JudgeQueueJob,
     JudgeNode,
+    OfflinePackRecord,
     Notification,
     Problem,
     ProblemTestData,
@@ -99,6 +100,21 @@ def _normalize_offline_policy(value: Any) -> dict[str, Any]:
         normalized["ttl_hours"] = None
     normalized["answer_visibility"] = value.get("answer_visibility") if value.get("answer_visibility") in {"full", "none"} else "full"
     normalized["sync_mode"] = value.get("sync_mode") if value.get("sync_mode") in {"allow", "disabled"} else "allow"
+    max_downloads = value.get("max_downloads")
+    if max_downloads is None:
+        normalized["max_downloads"] = None
+    else:
+        try:
+            max_value = int(max_downloads)
+        except (TypeError, ValueError):
+            max_value = 0
+        normalized["max_downloads"] = max_value if max_value > 0 else None
+    retention_days = value.get("retention_days", 30)
+    try:
+        retention = int(retention_days)
+    except (TypeError, ValueError):
+        retention = 30
+    normalized["retention_days"] = retention if retention > 0 else 30
     return normalized
 
 
@@ -510,6 +526,7 @@ def seed_data() -> dict[str, Any]:
         "judge_nodes": [n.model_dump(mode="json") for n in nodes],
         "compiler_configs": _seed_compiler_configs(created),
         "audit_logs": [],
+        "offline_packs": [],
         "problem_sets": [p.model_dump(mode="json") for p in problem_sets],
         "teams": [t.model_dump(mode="json") for t in teams],
         "assignments": [a.model_dump(mode="json") for a in assignments],
@@ -600,6 +617,8 @@ class Store:
         if self._migrate_judge_nodes(data):
             changed = True
         if self._migrate_judge_queue_jobs(data):
+            changed = True
+        if self._migrate_offline_packs(data):
             changed = True
         return data, changed
 
@@ -909,6 +928,39 @@ class Store:
 
         if normalized_jobs != jobs:
             data["judge_queue_jobs"] = normalized_jobs
+            changed = True
+        return changed
+
+    def _migrate_offline_packs(self, data: dict[str, Any]) -> bool:
+        packs = data.get("offline_packs")
+        if not isinstance(packs, list):
+            data["offline_packs"] = []
+            return True
+        changed = False
+        normalized: list[dict[str, Any]] = []
+        for item in packs:
+            if not isinstance(item, dict) or not item.get("pack_id"):
+                changed = True
+                continue
+            record = {
+                "pack_id": str(item.get("pack_id")),
+                "source": item.get("source") if isinstance(item.get("source"), dict) else {},
+                "problem_set_id": item.get("problem_set_id"),
+                "problem_ids": [str(pid) for pid in item.get("problem_ids", []) if str(pid).strip()],
+                "generated_at": item.get("generated_at") or now().isoformat(),
+                "expires_at": item.get("expires_at") or now().isoformat(),
+                "ttl_hours": item.get("ttl_hours"),
+                "retention_days": item.get("retention_days"),
+                "max_downloads": item.get("max_downloads"),
+                "downloaded": max(0, int(item.get("downloaded", 0) or 0)),
+                "status": item.get("status") if item.get("status") in {"active", "expired", "disabled", "download_limit_reached"} else "active",
+                "created_by": str(item.get("created_by") or "system"),
+                "created_at": item.get("created_at") or now().isoformat(),
+                "last_downloaded_at": item.get("last_downloaded_at"),
+            }
+            normalized.append(record)
+        if normalized != packs:
+            data["offline_packs"] = normalized
             changed = True
         return changed
 
@@ -1665,6 +1717,24 @@ class Store:
             ).model_dump(mode="json"),
         )
         self._write(data)
+
+    def list_offline_packs(self) -> list[OfflinePackRecord]:
+        return [OfflinePackRecord(**item) for item in self._read().get("offline_packs", [])]
+
+    def get_offline_pack(self, pack_id: str) -> OfflinePackRecord | None:
+        return next((item for item in self.list_offline_packs() if item.pack_id == pack_id), None)
+
+    def add_offline_pack(self, pack: OfflinePackRecord) -> OfflinePackRecord:
+        data = self._read()
+        packs = data.setdefault("offline_packs", [])
+        packs = [item for item in packs if item.get("pack_id") != pack.pack_id]
+        packs.append(pack.model_dump(mode="json"))
+        data["offline_packs"] = packs
+        self._write(data)
+        return pack
+
+    def update_offline_pack(self, pack: OfflinePackRecord) -> OfflinePackRecord:
+        return self.add_offline_pack(pack)
 
 
 _store: Store | None = None
