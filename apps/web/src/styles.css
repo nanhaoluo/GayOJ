@@ -91,6 +91,17 @@ a {
   color: var(--muted);
 }
 
+.freeze-banner {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--warning) 34%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in oklch, white 78%, var(--warning) 22%);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
 .inline-form {
   display: flex;
   gap: 8px;
@@ -1317,6 +1328,17 @@ pre {
 .standing-problem-cell.first-blood {
   border-color: color-mix(in oklch, var(--accent) 52%, var(--line));
   background: color-mix(in oklch, white 72%, var(--accent) 28%);
+}
+
+.contest-status-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.contest-status-stack small {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .submissions-table {

@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { MessageSquare, Trophy } from 'lucide-vue-next';
-import { onMounted, ref } from 'vue';
+import { Lock, LockOpen, MessageSquare, Trophy } from 'lucide-vue-next';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate } from '@/services/api';
 import type { Contest } from '@/services/types';
+import { authState } from '@/stores/auth';
 
 const router = useRouter();
 const contests = ref<Contest[]>([]);
 const selected = ref('');
+const actionError = ref('');
+
+const canManageContests = computed(() => Boolean(authState.user?.permissions.includes('contest:manage')));
 
 async function load() {
-  contests.value = await apiRequest<Contest[]>('/contests', { auth: false });
+  contests.value = await apiRequest<Contest[]>('/contests');
   selected.value = contests.value[0]?.id ?? '';
 }
 
@@ -21,6 +25,32 @@ async function openStandings(id: string) {
 
 async function openClarifications(id: string) {
   await router.push(`/contests/${id}/clar`);
+}
+
+async function freezeContest(contest: Contest) {
+  actionError.value = '';
+  try {
+    await apiRequest<Contest>(`/contests/${contest.id}/freeze`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'manual freeze from contest list' }),
+    });
+    await load();
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : '封榜失败';
+  }
+}
+
+async function unfreezeContest(contest: Contest) {
+  actionError.value = '';
+  try {
+    await apiRequest<Contest>(`/contests/${contest.id}/unfreeze`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'manual unfreeze from contest list' }),
+    });
+    await load();
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : '解封失败';
+  }
 }
 
 onMounted(load);
@@ -39,6 +69,7 @@ onMounted(load);
     </section>
 
     <section class="panel set-list-panel">
+      <p v-if="actionError" class="form-error">{{ actionError }}</p>
       <div class="set-table-row set-table-head">
         <span>比赛</span>
         <span>赛制</span>
@@ -53,8 +84,27 @@ onMounted(load);
         </div>
         <span>{{ contest.rule }}</span>
         <span>{{ contest.problems.length }} 题</span>
-        <StatusBadge :status="contest.frozen ? 'disabled' : contest.status" />
+        <div class="contest-status-stack">
+          <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
+          <small v-if="contest.freeze_active">已封榜</small>
+        </div>
         <div class="row-actions">
+          <button
+            v-if="canManageContests && !contest.freeze_active"
+            class="secondary-action"
+            type="button"
+            @click="freezeContest(contest)"
+          >
+            <Lock :size="16" />封榜
+          </button>
+          <button
+            v-if="canManageContests && contest.frozen"
+            class="secondary-action"
+            type="button"
+            @click="unfreezeContest(contest)"
+          >
+            <LockOpen :size="16" />解封
+          </button>
           <button class="secondary-action" type="button" @click="openStandings(contest.id)">
             <Trophy :size="16" />榜单
           </button>

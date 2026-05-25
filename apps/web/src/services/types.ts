@@ -282,14 +282,17 @@ export interface Contest {
   start_at: string;
   end_at: string;
   status: string;
-   visibility: 'public' | 'private';
-   frozen: boolean;
-   frozen_at: string | null;
-   frozen_by: string | null;
-   freeze_reason: string;
-   rejudge_at: string | null;
-   rejudge_by: string | null;
-   rejudge_reason: string;
+  visibility: 'public' | 'private';
+  frozen: boolean;
+  freeze_disabled: boolean;
+  frozen_at: string | null;
+  frozen_by: string | null;
+  freeze_reason: string;
+  freeze_active: boolean;
+  freeze_effective_at: string | null;
+  rejudge_at: string | null;
+  rejudge_by: string | null;
+  rejudge_reason: string;
   problems: ProblemSummary[];
 }
 
