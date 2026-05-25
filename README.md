@@ -488,6 +488,15 @@ The Web submissions page exposes the same controls to users with
 `submission:override`. Rejudge only places work back on the online judge queue;
 API, Web, and the offline CLI still do not compile, run, or locally judge code.
 
+## P5-01 Objective rule tests
+
+The objective rule regression suite lives in
+`apps/api/tests/test_p5_objective_rules.py`. It covers blank, single-choice, and
+multiple-choice scoring and compares `apps/api/app/services.py::judge_objective`
+with `tools/offline-cli/gayoj_offline.py::judge` for the same answer payloads.
+It also keeps the explicit code-problem boundary: API objective rules reject
+code problems, and the offline CLI remains objective-only.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
