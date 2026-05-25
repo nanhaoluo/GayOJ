@@ -136,6 +136,128 @@ a {
   resize: vertical;
 }
 
+.clarification-page {
+  max-width: 960px;
+}
+
+.clarification-ask,
+.clarification-card,
+.clarification-answer {
+  display: grid;
+  gap: 12px;
+}
+
+.clarification-ask-row,
+.clarification-card-head,
+.clarification-answer-head,
+.clarification-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.clarification-ask-row {
+  align-items: stretch;
+}
+
+.clarification-ask-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: white;
+}
+
+.clarification-list {
+  gap: 14px;
+}
+
+.clarification-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.clarification-card-title {
+  display: grid;
+  gap: 4px;
+}
+
+.clarification-card-title span,
+.clarification-answer-head span,
+.clarification-card small,
+.clarification-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.clarification-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.clarification-chip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--surface-strong) 75%, white 25%);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.clarification-question,
+.clarification-answer p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.clarification-answer {
+  padding: 12px;
+  border: 1px solid color-mix(in oklch, var(--line) 85%, white 15%);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, white 92%, var(--surface-strong) 8%);
+}
+
+.clarification-answer small {
+  color: var(--muted);
+}
+
+.clarification-reply-form {
+  display: grid;
+  gap: 12px;
+}
+
+.clarification-textarea {
+  min-height: 132px;
+}
+
+.clarification-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.clarification-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.clarification-mode input {
+  margin: 0;
+}
+
 .sidebar {
   position: sticky;
   top: 0;

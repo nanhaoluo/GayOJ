@@ -266,6 +266,57 @@
             ],
             "title": "Answer"
           },
+          "answered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "answered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By"
+          },
+          "answered_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By Name"
+          },
+          "broadcast": {
+            "default": false,
+            "title": "Broadcast",
+            "type": "boolean"
+          },
+          "broadcast_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broadcast At"
+          },
           "contest_id": {
             "title": "Contest Id",
             "type": "string"
@@ -279,6 +330,28 @@
             "title": "Id",
             "type": "string"
           },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "problem_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Title"
+          },
           "public": {
             "default": false,
             "title": "Public",
@@ -286,6 +359,11 @@
           },
           "question": {
             "title": "Question",
+            "type": "string"
+          },
+          "user_display_name": {
+            "default": "",
+            "title": "User Display Name",
             "type": "string"
           },
           "user_id": {
@@ -304,8 +382,24 @@
         "type": "object"
       },
       "ClarificationCreate": {
+        "additionalProperties": false,
         "properties": {
+          "problem_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
           "question": {
+            "maxLength": 4000,
+            "minLength": 1,
             "title": "Question",
             "type": "string"
           }
@@ -317,10 +411,18 @@
         "type": "object"
       },
       "ClarificationReply": {
+        "additionalProperties": false,
         "properties": {
           "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
             "title": "Answer",
             "type": "string"
+          },
+          "broadcast": {
+            "default": false,
+            "title": "Broadcast",
+            "type": "boolean"
           },
           "public": {
             "default": false,
