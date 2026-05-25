@@ -524,6 +524,13 @@ class Contest(BaseModel):
     problem_ids: list[str]
     status: Literal["scheduled", "running", "ended"]
     visibility: Literal["public", "private"] = "public"
+    frozen: bool = False
+    frozen_at: datetime | None = None
+    frozen_by: str | None = None
+    freeze_reason: str = ""
+    rejudge_at: datetime | None = None
+    rejudge_by: str | None = None
+    rejudge_reason: str = ""
 
 
 class ContestCreate(BaseModel):
@@ -578,6 +585,105 @@ class ClarificationCreate(BaseModel):
 class ClarificationReply(BaseModel):
     answer: str
     public: bool = False
+
+
+class ContestFreezeRequest(BaseModel):
+    reason: str = Field(default="", max_length=300)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+
+class ContestPrintRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    submission_id: str | None = Field(default=None, min_length=1, max_length=64)
+    source_code: str | None = Field(default=None, min_length=1, max_length=65536)
+    problem_id: str | None = Field(default=None, min_length=1, max_length=64)
+    language: str | None = Field(default=None, max_length=32)
+
+    @field_validator("submission_id", "problem_id", "language", mode="before")
+    @classmethod
+    def strip_optional_print_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("source_code", mode="before")
+    @classmethod
+    def strip_source_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value)
+        return text if text.strip() else None
+
+    @model_validator(mode="after")
+    def require_source(self) -> "ContestPrintRequest":
+        if not self.submission_id and not self.source_code:
+            raise ValueError("Print request requires submission_id or source_code")
+        return self
+
+
+class ContestPrintResponse(BaseModel):
+    contest_id: str
+    submission_id: str | None = None
+    problem_id: str | None = None
+    language: str | None = None
+    source_kind: Literal["submission", "request"]
+    source_code: str
+    line_count: int = Field(ge=0)
+
+
+class ContestSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problem_id: str = Field(min_length=1, max_length=64)
+    language: LanguageCode | None = None
+    source_code: str | None = Field(default=None, min_length=1, max_length=65536)
+    answers: dict[str, Any] | None = None
+
+    @field_validator("problem_id", "language", mode="before")
+    @classmethod
+    def strip_submit_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @model_validator(mode="after")
+    def require_payload(self) -> "ContestSubmitRequest":
+        if not self.source_code and not self.answers:
+            raise ValueError("Contest submission requires source_code or answers")
+        return self
+
+
+class ContestBalloonUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    submission_id: str = Field(min_length=1, max_length=64)
+    released: bool = True
+
+    @field_validator("submission_id", mode="before")
+    @classmethod
+    def strip_balloon_submission(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+
+class ContestBalloon(BaseModel):
+    contest_id: str
+    submission_id: str
+    user_id: str
+    display_name: str
+    problem_id: str
+    problem_title: str
+    status: SubmissionStatus
+    score: int
+    max_score: int
+    judged_at: datetime | None = None
+    released: bool = False
 
 
 class JudgeNode(BaseModel):
@@ -1058,6 +1164,9 @@ class JudgeMonitorResponse(BaseModel):
     last_submissions: list[Submission]
     judge_nodes: list[JudgeNode]
     clarifications: list[Clarification]
+    contests: list[Contest] = Field(default_factory=list)
+    frozen_contests: list[Contest] = Field(default_factory=list)
+    balloons: list[ContestBalloon] = Field(default_factory=list)
 
 
 class SystemConfig(BaseModel):

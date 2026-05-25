@@ -523,6 +523,7 @@ def seed_data() -> dict[str, Any]:
         "judge_queue_jobs": [],
         "contests": [contest.model_dump(mode="json")],
         "clarifications": [],
+        "contest_balloons": [],
         "judge_nodes": [n.model_dump(mode="json") for n in nodes],
         "compiler_configs": _seed_compiler_configs(created),
         "audit_logs": [],
@@ -1537,6 +1538,15 @@ class Store:
         self._write(data)
         return contest
 
+    def update_contest(self, contest: Contest) -> Contest:
+        data = self._read()
+        data["contests"] = [
+            contest.model_dump(mode="json") if item.get("id") == contest.id else item
+            for item in data["contests"]
+        ]
+        self._write(data)
+        return contest
+
     def list_clarifications(self) -> list[Clarification]:
         return [Clarification(**item) for item in self._read()["clarifications"]]
 
@@ -1557,6 +1567,20 @@ class Store:
         ]
         self._write(data)
         return clarification
+
+    def list_contest_balloons(self, contest_id: str | None = None) -> list[dict[str, Any]]:
+        balloons = [dict(item) for item in self._read().get("contest_balloons", [])]
+        if contest_id:
+            balloons = [item for item in balloons if str(item.get("contest_id") or "") == contest_id]
+        return balloons
+
+    def upsert_contest_balloon(self, balloon: dict[str, Any]) -> dict[str, Any]:
+        data = self._read()
+        balloons = [item for item in data.get("contest_balloons", []) if item.get("submission_id") != balloon.get("submission_id")]
+        balloons.append(dict(balloon))
+        data["contest_balloons"] = balloons
+        self._write(data)
+        return dict(balloon)
 
     def list_judge_nodes(self) -> list[JudgeNode]:
         return [JudgeNode(**item) for item in self._read()["judge_nodes"]]

@@ -29,6 +29,10 @@ body {
   min-height: 100vh;
 }
 
+#app {
+  min-height: 100vh;
+}
+
 body.modal-open {
   overflow: hidden;
 }
@@ -54,6 +58,71 @@ a {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 204px minmax(0, 1fr);
+}
+
+.pure-page {
+  min-height: 100vh;
+  padding: 20px 24px 28px;
+  background: var(--bg);
+}
+
+.pure-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.pure-content {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.pure-heading h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.pure-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: white;
+}
+
+.print-preview {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.pure-textarea {
+  min-height: 220px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  resize: vertical;
 }
 
 .sidebar {
