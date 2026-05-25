@@ -170,15 +170,22 @@ def sign_payload(payload: dict[str, Any]) -> str:
     return hmac.new(PACK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
 
 
-def build_offline_pack(problems: list[Problem], judge_configs: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def build_offline_pack(
+    problems: list[Problem],
+    judge_configs: dict[str, dict[str, Any]],
+    *,
+    ttl_hours: int | None = None,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc)
-    expires_at = generated_at + timedelta(hours=max(OFFLINE_PACK_TTL_HOURS, 1))
+    expires_at = generated_at + timedelta(hours=max(ttl_hours or OFFLINE_PACK_TTL_HOURS, 1))
     pack = {
         "version": "1.0",
         "generated_at": generated_at.isoformat(),
         "expires_at": expires_at.isoformat(),
         "signature_algorithm": "hmac-sha256",
         "scope": "objective-only",
+        "source": source or {"type": "training"},
         "problems": [
             {
                 "id": p.id,

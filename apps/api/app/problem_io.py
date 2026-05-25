@@ -93,6 +93,8 @@ def _export_qdu(problems: list[tuple[Problem, dict[str, Any]]]) -> dict[str, Any
                 "time_limit": problem.time_limit_ms,
                 "memory_limit": problem.memory_limit_mb,
                 "visible": problem.visible,
+                "offline_enabled": problem.offline_enabled,
+                "offline_policy": problem.offline_policy.model_dump(mode="json"),
                 "judge_config": judge_config,
             }
             for problem, judge_config in problems
@@ -123,6 +125,8 @@ def _export_hydro(problems: list[tuple[Problem, dict[str, Any]]]) -> dict[str, A
                     "memory_mb": problem.memory_limit_mb,
                 },
                 "visible": problem.visible,
+                "offline_enabled": problem.offline_enabled,
+                "offline_policy": problem.offline_policy.model_dump(mode="json"),
                 "judge": judge_config,
             }
             for problem, judge_config in problems
@@ -143,8 +147,14 @@ def _export_fps(problems: list[tuple[Problem, dict[str, Any]]]) -> str:
             "input": problem.input_format,
             "output": problem.output_format,
             "visible": "true" if problem.visible else "false",
+            "offline_enabled": "true" if problem.offline_enabled else "false",
         }.items():
             ET.SubElement(item, key).text = str(value or "")
+        ET.SubElement(item, "offline_policy").text = json.dumps(
+            problem.offline_policy.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         if problem.time_limit_ms is not None:
             ET.SubElement(item, "time_limit", {"unit": "ms"}).text = str(problem.time_limit_ms)
         if problem.memory_limit_mb is not None:
@@ -209,6 +219,8 @@ def _read_qdu(content: str) -> list[dict[str, Any]]:
                 "time_limit_ms": raw.get("time_limit_ms") or raw.get("time_limit"),
                 "memory_limit_mb": raw.get("memory_limit_mb") or raw.get("memory_limit"),
                 "visible": raw.get("visible", True),
+                "offline_enabled": raw.get("offline_enabled", True),
+                "offline_policy": raw.get("offline_policy") if isinstance(raw.get("offline_policy"), dict) else {},
                 "judge_config": raw.get("judge_config") or raw.get("config") or {},
             }
         )
@@ -235,6 +247,8 @@ def _read_hydro(content: str) -> list[dict[str, Any]]:
                 "time_limit_ms": raw.get("time_limit_ms") or limits.get("time_ms") or limits.get("time"),
                 "memory_limit_mb": raw.get("memory_limit_mb") or limits.get("memory_mb") or limits.get("memory"),
                 "visible": raw.get("visible", True),
+                "offline_enabled": raw.get("offline_enabled", True),
+                "offline_policy": raw.get("offline_policy") if isinstance(raw.get("offline_policy"), dict) else {},
                 "judge_config": raw.get("judge") or raw.get("judge_config") or raw.get("config") or {},
             }
         )
@@ -275,7 +289,12 @@ def _read_fps(content: str) -> list[dict[str, Any]]:
             )
 
         judge_config_text = _child_text(item, "judge_config")
-        judge_config = json.loads(judge_config_text) if judge_config_text.strip() else {}
+        offline_policy_text = _child_text(item, "offline_policy")
+        try:
+            judge_config = json.loads(judge_config_text) if judge_config_text.strip() else {}
+            offline_policy = json.loads(offline_policy_text) if offline_policy_text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise ProblemPackageError(f"Invalid FPS JSON field: {exc}") from exc
         raw_items.append(
             {
                 "id": _child_text(item, "id"),
@@ -292,6 +311,8 @@ def _read_fps(content: str) -> list[dict[str, Any]]:
                 "time_limit_ms": _int_or_none(_child_text(item, "time_limit")),
                 "memory_limit_mb": _int_or_none(_child_text(item, "memory_limit")),
                 "visible": _bool_value(_child_text(item, "visible"), True),
+                "offline_enabled": _bool_value(_child_text(item, "offline_enabled"), True),
+                "offline_policy": offline_policy if isinstance(offline_policy, dict) else {},
                 "judge_config": judge_config,
             }
         )
@@ -314,6 +335,8 @@ def _normalize_problem_payload(raw: dict[str, Any]) -> dict[str, Any]:
         "time_limit_ms": _int_or_none(raw.get("time_limit_ms")),
         "memory_limit_mb": _int_or_none(raw.get("memory_limit_mb")),
         "visible": _bool_value(raw.get("visible"), True),
+        "offline_enabled": _bool_value(raw.get("offline_enabled"), problem_type != "code"),
+        "offline_policy": raw.get("offline_policy") if isinstance(raw.get("offline_policy"), dict) else {},
         "judge_config": raw.get("judge_config") if isinstance(raw.get("judge_config"), dict) else {},
     }
 

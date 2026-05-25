@@ -7,6 +7,8 @@ import StatusBadge from '@/components/StatusBadge.vue';
 import { API_BASE, apiRequest, formatDate, getStoredAuthToken, problemTypeLabel } from '@/services/api';
 import type {
   ProblemAdminDetail,
+  OfflineAnswerVisibility,
+  OfflineSyncMode,
   ProblemExportResponse,
   ProblemFormPayload,
   ProblemImportConflictStrategy,
@@ -87,6 +89,10 @@ const form = reactive({
   multipleAnswers: ['A'] as string[],
   objectiveScore: 100,
   codeJudgeConfigText: '{\n  "mode": "standard"\n}',
+  offline_enabled: false,
+  offlineTtlHours: null as number | null,
+  offlineAnswerVisibility: 'full' as OfflineAnswerVisibility,
+  offlineSyncMode: 'allow' as OfflineSyncMode,
 });
 
 const typeOptions: Array<{ value: ProblemType; label: string }> = [
@@ -113,6 +119,14 @@ const blankMatchOptions: Array<{ value: BlankMatchType; label: string }> = [
   { value: 'regex', label: 'Regex' },
   { value: 'numeric', label: 'Numeric' },
 ];
+const offlineAnswerVisibilityOptions: Array<{ value: OfflineAnswerVisibility; label: string }> = [
+  { value: 'full', label: 'Full' },
+  { value: 'none', label: 'None' },
+];
+const offlineSyncModeOptions: Array<{ value: OfflineSyncMode; label: string }> = [
+  { value: 'allow', label: 'Allow' },
+  { value: 'disabled', label: 'Disabled' },
+];
 
 function defaultBlankRow(index = 0): BlankRow {
   return {
@@ -136,6 +150,14 @@ function normalizeBlankRows(rows: BlankRow[]): BlankRow[] {
 
 function normalizeBlankMatch(value: unknown): BlankMatchType {
   return value === 'regex' || value === 'numeric' ? value : 'exact';
+}
+
+function normalizeOfflineAnswerVisibility(value: unknown): OfflineAnswerVisibility {
+  return value === 'none' ? 'none' : 'full';
+}
+
+function normalizeOfflineSyncMode(value: unknown): OfflineSyncMode {
+  return value === 'disabled' ? 'disabled' : 'allow';
 }
 
 function flattenTags(items: TagTreeNode[], depth = 0): FlatTag[] {
@@ -184,6 +206,10 @@ function resetForm() {
   form.multipleAnswers = ['A'];
   form.objectiveScore = 100;
   form.codeJudgeConfigText = '{\n  "mode": "standard"\n}';
+  form.offline_enabled = false;
+  form.offlineTtlHours = null;
+  form.offlineAnswerVisibility = 'full';
+  form.offlineSyncMode = 'allow';
   notice.value = '';
   error.value = '';
   versions.value = [];
@@ -197,7 +223,9 @@ function setType(type: ProblemType) {
   if (type === 'code') {
     form.time_limit_ms = form.time_limit_ms ?? 1000;
     form.memory_limit_mb = form.memory_limit_mb ?? 128;
+    form.offline_enabled = false;
   }
+  if (type !== 'code' && mode.value === 'create') form.offline_enabled = true;
   if (type === 'blank' && form.blankRows.length === 0) {
     form.blankRows = [defaultBlankRow()];
   }
@@ -224,6 +252,10 @@ function editProblem(problem: ProblemAdminDetail) {
   form.time_limit_ms = problem.time_limit_ms;
   form.memory_limit_mb = problem.memory_limit_mb;
   form.visible = problem.visible;
+  form.offline_enabled = problem.offline_enabled;
+  form.offlineTtlHours = problem.offline_policy?.ttl_hours ?? null;
+  form.offlineAnswerVisibility = normalizeOfflineAnswerVisibility(problem.offline_policy?.answer_visibility);
+  form.offlineSyncMode = normalizeOfflineSyncMode(problem.offline_policy?.sync_mode);
   form.codeJudgeConfigText = JSON.stringify(problem.judge_config ?? {}, null, 2);
 
   const judgeConfig = problem.judge_config ?? {};
@@ -342,6 +374,12 @@ function buildPayload(): ProblemFormPayload {
     time_limit_ms: form.type === 'code' ? form.time_limit_ms : null,
     memory_limit_mb: form.type === 'code' ? form.memory_limit_mb : null,
     visible: form.visible,
+    offline_enabled: form.type !== 'code' && form.offline_enabled,
+    offline_policy: {
+      ttl_hours: form.offlineTtlHours ? Number(form.offlineTtlHours) : null,
+      answer_visibility: form.offlineAnswerVisibility,
+      sync_mode: form.offlineSyncMode,
+    },
     judge_config: {},
   };
 
@@ -802,8 +840,8 @@ onMounted(() => {
               <strong>{{ selectedProblem.options.length }}</strong>
             </div>
             <div>
-              <span>测试数据</span>
-              <strong>{{ selectedProblem.test_data ? selectedProblem.test_data.case_count : 0 }}</strong>
+              <span>离线包</span>
+              <strong>{{ selectedProblem.type === 'code' ? 'No' : (selectedProblem.offline_enabled ? 'Yes' : 'No') }}</strong>
             </div>
           </div>
 
@@ -822,6 +860,18 @@ onMounted(() => {
               <strong>题面预览</strong>
             </div>
             <p class="summary-text">{{ selectedProblem.statement || '暂无题面内容。' }}</p>
+          </div>
+
+          <div v-if="selectedProblem.type !== 'code'" class="summary-section">
+            <div class="field-head">
+              <strong>Offline Policy</strong>
+              <StatusBadge :status="selectedProblem.offline_enabled ? 'visible' : 'hidden'" />
+            </div>
+            <div class="testdata-meta">
+              <span>{{ selectedProblem.offline_policy.answer_visibility }}</span>
+              <span>{{ selectedProblem.offline_policy.sync_mode }}</span>
+              <span>{{ selectedProblem.offline_policy.ttl_hours ? `${selectedProblem.offline_policy.ttl_hours}h` : 'Default TTL' }}</span>
+            </div>
           </div>
         </template>
         <div v-else class="empty-state summary-empty">
@@ -891,6 +941,36 @@ onMounted(() => {
             <input v-model="form.visible" type="checkbox" />
             <span>公开显示</span>
           </label>
+
+          <div v-if="form.type !== 'code'" class="field-block">
+            <div class="field-head">
+              <strong>Offline Policy</strong>
+              <span>{{ form.offline_enabled ? 'Enabled' : 'Disabled' }}</span>
+            </div>
+            <div class="form-grid two">
+              <label class="choice-line">
+                <input v-model="form.offline_enabled" type="checkbox" />
+                <span>Allow offline pack</span>
+              </label>
+              <label>TTL hours<input v-model.number="form.offlineTtlHours" type="number" min="1" max="8760" /></label>
+            </div>
+            <div class="form-grid two">
+              <label>Answers
+                <select v-model="form.offlineAnswerVisibility">
+                  <option v-for="option in offlineAnswerVisibilityOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label>Sync
+                <select v-model="form.offlineSyncMode">
+                  <option v-for="option in offlineSyncModeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+            </div>
+          </div>
 
           <template v-if="form.type === 'code'">
             <div class="form-grid two">

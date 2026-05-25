@@ -115,6 +115,7 @@ def test_offline_pack_is_authorized_objective_only(client: TestClient, auth_head
     payload = response.json()["payload"]
     assert payload["scope"] == "objective-only"
     assert payload["signature_algorithm"] == "hmac-sha256"
+    assert payload["source"] == {"type": "training", "id": "objective"}
     assert datetime.fromisoformat(payload["expires_at"]).astimezone(timezone.utc) > datetime.now(timezone.utc)
     assert {problem["type"] for problem in payload["problems"]} <= {"blank", "single_choice", "multiple_choice"}
     assert all(problem["judge_config"] for problem in payload["problems"])
@@ -136,6 +137,8 @@ def test_problem_set_offline_package_is_authorized_objective_only_and_signed(
     payload = body["payload"]
     problems = payload["problems"]
     assert payload["scope"] == "objective-only"
+    assert payload["source"]["type"] == "problem_set"
+    assert payload["source"]["id"] == "PS1001"
     assert [problem["id"] for problem in problems] == ["P1002", "P1003"]
     assert {problem["type"] for problem in problems} == {"blank", "single_choice"}
     assert "P1001" not in {problem["id"] for problem in problems}

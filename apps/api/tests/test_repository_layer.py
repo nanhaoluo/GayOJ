@@ -41,6 +41,8 @@ def test_sqlite_repository_loads_current_dev_db_seed(tmp_path: Path) -> None:
     assert "problem_test_data" in after
     blank_problem = next(problem for problem in after["problems"] if problem["id"] == "P1002")
     assert "judge_config" not in blank_problem
+    assert blank_problem["offline_enabled"] is True
+    assert blank_problem["offline_policy"]["answer_visibility"] == "full"
     assert after["problem_judge_config"]["P1002"]["answers"]["edge_formula"]
     assert repository.get_problem("P1002").judge_config == {}
     assert repository.get_problem_judge_config("P1002")["answers"]["edge_formula"]
@@ -62,6 +64,8 @@ def test_sqlite_repository_backfills_legacy_json_defaults(tmp_path: Path) -> Non
     assert alice.school == DEFAULT_STUDENT_SCHOOL
     assert repository.get_system_config()["site_name"] == "gayoj"
     assert repository.list_notifications("u-student")
+    assert repository.get_problem("P1001").offline_enabled is False  # type: ignore[union-attr]
+    assert repository.get_problem_set("PS1001").offline_enabled is True  # type: ignore[union-attr]
 
 
 def test_sqlite_repository_migrates_legacy_default_student_school(tmp_path: Path) -> None:

@@ -6,6 +6,14 @@ export type JudgeNodeStatus = 'online' | 'offline' | 'draining';
 export type JudgeQueueJobStatus = 'pending' | 'leased' | 'completed' | 'failed';
 export type JudgeQueueBackend = 'json' | 'redis' | 'kafka';
 export type CompilerLanguageCode = 'c' | 'cpp' | 'java' | 'python';
+export type OfflineAnswerVisibility = 'full' | 'none';
+export type OfflineSyncMode = 'allow' | 'disabled';
+
+export interface OfflinePolicy {
+  ttl_hours: number | null;
+  answer_visibility: OfflineAnswerVisibility;
+  sync_mode: OfflineSyncMode;
+}
 
 export interface PublicUser {
   id: string;
@@ -141,6 +149,8 @@ export interface ProblemTestData {
 
 export interface ProblemAdminDetail extends ProblemDetail {
   visible: boolean;
+  offline_enabled: boolean;
+  offline_policy: OfflinePolicy;
   judge_config: Record<string, unknown>;
   test_data: ProblemTestData | null;
 }
@@ -161,6 +171,8 @@ export interface ProblemVersionSnapshot {
   memory_limit_mb: number | null;
   author_id: string;
   visible: boolean;
+  offline_enabled: boolean;
+  offline_policy: OfflinePolicy;
   judge_config: Record<string, unknown>;
   created_at: string;
 }
@@ -224,6 +236,8 @@ export interface ProblemFormPayload {
   time_limit_ms: number | null;
   memory_limit_mb: number | null;
   visible: boolean;
+  offline_enabled: boolean;
+  offline_policy: OfflinePolicy;
   judge_config: Record<string, unknown>;
 }
 
@@ -346,6 +360,8 @@ export interface ProblemSet {
   owner_id: string;
   duration_minutes: number | null;
   due_at: string | null;
+  offline_enabled: boolean;
+  offline_policy: OfflinePolicy;
   created_at: string;
   updated_at: string;
 }

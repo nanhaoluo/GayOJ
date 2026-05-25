@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS problems (
     memory_limit_mb INTEGER,
     author_id TEXT NOT NULL REFERENCES users(id),
     visible BOOLEAN NOT NULL DEFAULT true,
+    offline_enabled BOOLEAN NOT NULL DEFAULT false,
+    offline_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -141,6 +143,8 @@ CREATE TABLE IF NOT EXISTS problem_sets (
     owner_id TEXT NOT NULL REFERENCES users(id),
     duration_minutes INTEGER,
     due_at TIMESTAMPTZ,
+    offline_enabled BOOLEAN NOT NULL DEFAULT true,
+    offline_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (duration_minutes IS NULL OR duration_minutes > 0)

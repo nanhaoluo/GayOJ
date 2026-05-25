@@ -77,6 +77,31 @@ def _split_problem_dump(problem: Problem) -> tuple[dict[str, Any], dict[str, Any
     return item, judge_config
 
 
+def _default_offline_enabled(problem_type: str | None = None) -> bool:
+    return problem_type != "code"
+
+
+def _normalize_offline_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        value = {}
+    normalized: dict[str, Any] = {}
+    ttl_hours = value.get("ttl_hours")
+    if ttl_hours is not None:
+        try:
+            ttl = int(ttl_hours)
+        except (TypeError, ValueError):
+            ttl = 0
+        if 1 <= ttl <= 24 * 365:
+            normalized["ttl_hours"] = ttl
+        else:
+            normalized["ttl_hours"] = None
+    else:
+        normalized["ttl_hours"] = None
+    normalized["answer_visibility"] = value.get("answer_visibility") if value.get("answer_visibility") in {"full", "none"} else "full"
+    normalized["sync_mode"] = value.get("sync_mode") if value.get("sync_mode") in {"allow", "disabled"} else "allow"
+    return normalized
+
+
 def _clean_tag_name(value: Any) -> str:
     return str(value or "").strip()
 
@@ -281,6 +306,7 @@ def seed_data() -> dict[str, Any]:
             time_limit_ms=1000,
             memory_limit_mb=128,
             author_id="u-admin",
+            offline_enabled=False,
             judge_config={"mode": "standard", "tests": 12, "simulator_hint": "source must contain addition"},
             created_at=created,
         ),
@@ -293,6 +319,7 @@ def seed_data() -> dict[str, Any]:
             statement="含 n 个不同顶点的无向完全图共有多少条边？请填写关于 n 的表达式。",
             blanks=[{"key": "edge_formula", "label": "边数公式", "score": 100}],
             author_id="u-coach",
+            offline_enabled=True,
             judge_config={
                 "case_sensitive": False,
                 "trim_space": True,
@@ -315,6 +342,7 @@ def seed_data() -> dict[str, Any]:
                 {"key": "D", "text": "时间复杂度必须为 O(n)"},
             ],
             author_id="u-coach",
+            offline_enabled=True,
             judge_config={"answer": "B", "score": 100},
             created_at=created,
         ),
@@ -332,6 +360,7 @@ def seed_data() -> dict[str, Any]:
                 {"key": "D", "text": "将用户代码直接在 API 服务器进程内执行"},
             ],
             author_id="u-judge",
+            offline_enabled=True,
             judge_config={"answer": ["A", "C"], "score": 100},
             created_at=created,
         ),
@@ -374,6 +403,7 @@ def seed_data() -> dict[str, Any]:
             visibility="public",
             problem_ids=["P1001", "P1002", "P1003"],
             owner_id="u-coach",
+            offline_enabled=True,
             created_at=created,
             updated_at=created,
         ),
@@ -385,6 +415,7 @@ def seed_data() -> dict[str, Any]:
             visibility="public",
             problem_ids=["P1004"],
             owner_id="u-coach",
+            offline_enabled=True,
             due_at=created + timedelta(days=7),
             created_at=created,
             updated_at=created,
@@ -560,6 +591,8 @@ class Store:
             changed = True
         if self._migrate_problem_judge_config(data):
             changed = True
+        if self._migrate_offline_policy(data):
+            changed = True
         if self._migrate_tags(data, seeded["tags"]):
             changed = True
         if self._migrate_compiler_configs(data, seeded["compiler_configs"]):
@@ -647,6 +680,39 @@ class Store:
                     configs[problem_id] = embedded
             if problem_id not in configs:
                 configs[problem_id] = {}
+                changed = True
+
+        return changed
+
+    def _migrate_offline_policy(self, data: dict[str, Any]) -> bool:
+        changed = False
+        for problem in data.get("problems", []):
+            if not isinstance(problem, dict):
+                continue
+            problem_type = str(problem.get("type") or problem.get("problem_type") or "")
+            if "offline_enabled" not in problem:
+                problem["offline_enabled"] = _default_offline_enabled(problem_type)
+                changed = True
+            if not isinstance(problem.get("offline_enabled"), bool):
+                problem["offline_enabled"] = bool(problem.get("offline_enabled"))
+                changed = True
+            policy = _normalize_offline_policy(problem.get("offline_policy"))
+            if problem.get("offline_policy") != policy:
+                problem["offline_policy"] = policy
+                changed = True
+
+        for problem_set in data.get("problem_sets", []):
+            if not isinstance(problem_set, dict):
+                continue
+            if "offline_enabled" not in problem_set:
+                problem_set["offline_enabled"] = True
+                changed = True
+            if not isinstance(problem_set.get("offline_enabled"), bool):
+                problem_set["offline_enabled"] = bool(problem_set.get("offline_enabled"))
+                changed = True
+            policy = _normalize_offline_policy(problem_set.get("offline_policy"))
+            if problem_set.get("offline_policy") != policy:
+                problem_set["offline_policy"] = policy
                 changed = True
 
         return changed

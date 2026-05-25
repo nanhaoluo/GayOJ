@@ -346,6 +346,8 @@ def problem_rows(problems: list[dict[str, Any]]) -> list[dict[str, str]]:
                 "memory_limit_mb": sql_literal(problem.get("memory_limit_mb")),
                 "author_id": sql_literal(problem.get("author_id", "")),
                 "visible": sql_literal(problem.get("visible", True)),
+                "offline_enabled": sql_literal(problem.get("offline_enabled", problem.get("type") != "code")),
+                "offline_policy": sql_json(problem.get("offline_policy", {})),
                 "created_at": sql_time(problem.get("created_at")),
             }
         )
@@ -617,6 +619,8 @@ def problem_set_rows(problem_sets: list[dict[str, Any]]) -> list[dict[str, str]]
                 "owner_id": sql_literal(problem_set.get("owner_id", "")),
                 "duration_minutes": sql_literal(problem_set.get("duration_minutes")),
                 "due_at": sql_time(problem_set.get("due_at"), nullable=True),
+                "offline_enabled": sql_literal(problem_set.get("offline_enabled", True)),
+                "offline_policy": sql_json(problem_set.get("offline_policy", {})),
                 "created_at": sql_time(problem_set.get("created_at")),
                 "updated_at": sql_time(problem_set.get("updated_at")),
             }
@@ -778,6 +782,8 @@ def generate_sql(data: dict[str, Any]) -> str:
                 "memory_limit_mb",
                 "author_id",
                 "visible",
+                "offline_enabled",
+                "offline_policy",
                 "created_at",
             ],
             problem_rows(problems),
@@ -955,6 +961,8 @@ def generate_sql(data: dict[str, Any]) -> str:
                 "owner_id",
                 "duration_minutes",
                 "due_at",
+                "offline_enabled",
+                "offline_policy",
                 "created_at",
                 "updated_at",
             ],

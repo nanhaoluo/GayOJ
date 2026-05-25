@@ -16,6 +16,7 @@ def signed_pack(offline_cli_module: Any, problems: list[dict[str, Any]]) -> dict
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
         "signature_algorithm": "hmac-sha256",
         "scope": "objective-only",
+        "source": {"type": "test"},
         "problems": problems,
     }
     return {"payload": payload, "signature": offline_cli_module.sign_payload(payload)}

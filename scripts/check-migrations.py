@@ -82,6 +82,8 @@ EXPECTED_INDEXES = [
     "idx_problem_tags_tag_problem",
     "idx_judge_queue_jobs_status_priority",
     "idx_judge_queue_jobs_submission",
+    "idx_problems_offline_enabled",
+    "idx_problem_sets_offline_enabled",
 ]
 
 DANGEROUS_PATTERNS = [
@@ -154,10 +156,18 @@ def main() -> int:
         fail("problems table block could not be parsed")
     if "judge_config" in problems_block:
         fail("judge_config must not be stored on the public problems table")
+    for token in ["offline_enabled boolean", "offline_policy jsonb"]:
+        if token not in problems_block:
+            fail(f"problems table must include {token}")
 
     judge_config_block = table_block(combined, "problem_judge_config").lower()
     if "config jsonb" not in judge_config_block:
         fail("problem_judge_config must store config as JSONB")
+
+    problem_sets_block = table_block(combined, "problem_sets").lower()
+    for token in ["offline_enabled boolean", "offline_policy jsonb"]:
+        if token not in problem_sets_block:
+            fail(f"problem_sets table must include {token}")
 
     tags_block = table_block(combined, "tags").lower()
     problem_tags_block = table_block(combined, "problem_tags").lower()
@@ -254,6 +264,9 @@ def main() -> int:
     for token in ["problem_judge_config", "get_problem_judge_config", "set_problem_judge_config"]:
         if token not in store_source:
             fail(f"P1-05 snapshot store must isolate objective judge config via {token}")
+    for token in ["offline_enabled", "offline_policy", "_migrate_offline_policy"]:
+        if token not in store_source:
+            fail(f"P5-07 snapshot store must preserve offline policy via {token}")
     for token in ["problem_test_data", "get_problem_test_data", "set_problem_test_data"]:
         if token not in store_source:
             fail(f"P3-04 snapshot store must preserve test-data metadata via {token}")

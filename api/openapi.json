@@ -1493,6 +1493,11 @@
             "title": "Signature Algorithm",
             "type": "string"
           },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1593,6 +1598,61 @@
           "signature"
         ],
         "title": "OfflinePackResponse",
+        "type": "object"
+      },
+      "OfflinePolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_visibility": {
+            "default": "full",
+            "enum": [
+              "full",
+              "none"
+            ],
+            "title": "Answer Visibility",
+            "type": "string"
+          },
+          "sync_mode": {
+            "default": "allow",
+            "enum": [
+              "allow",
+              "disabled"
+            ],
+            "title": "Sync Mode",
+            "type": "string"
+          },
+          "ttl_hours": {
+            "anyOf": [
+              {
+                "maximum": 8760.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Hours"
+          }
+        },
+        "title": "OfflinePolicy",
+        "type": "object"
+      },
+      "OfflinePolicyUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "offline_enabled": {
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
+          }
+        },
+        "required": [
+          "offline_enabled"
+        ],
+        "title": "OfflinePolicyUpdate",
         "type": "object"
       },
       "OfflineResultItem": {
@@ -1839,6 +1899,14 @@
             ],
             "title": "Memory Limit Mb"
           },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
+          },
           "options": {
             "items": {
               "additionalProperties": {
@@ -1964,6 +2032,14 @@
               }
             ],
             "title": "Memory Limit Mb"
+          },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
           },
           "options": {
             "items": {
@@ -2098,6 +2174,14 @@
               }
             ],
             "title": "Memory Limit Mb"
+          },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
           },
           "options": {
             "items": {
@@ -2506,6 +2590,7 @@
         "type": "object"
       },
       "ProblemSetCreate": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "default": "",
@@ -2534,6 +2619,14 @@
               }
             ],
             "title": "Duration Minutes"
+          },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
           },
           "problem_ids": {
             "items": {
@@ -2610,6 +2703,14 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
           },
           "owner_id": {
             "title": "Owner Id",
@@ -2857,6 +2958,14 @@
               }
             ],
             "title": "Memory Limit Mb"
+          },
+          "offline_enabled": {
+            "default": true,
+            "title": "Offline Enabled",
+            "type": "boolean"
+          },
+          "offline_policy": {
+            "$ref": "#/components/schemas/OfflinePolicy"
           },
           "options": {
             "items": {
@@ -4961,6 +5070,71 @@
           }
         },
         "summary": "Admin Update Problem"
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/offline-policy": {
+      "patch": {
+        "operationId": "admin_update_problem_offline_policy_api_v1_admin_problems__problem_id__offline_policy_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "title": "Problem Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfflinePolicyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemAdminDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Update Problem Offline Policy"
       }
     },
     "/api/v1/admin/problems/{problem_id}/testdata": {
@@ -7291,6 +7465,71 @@
           }
         },
         "summary": "Problem Set Offline Package"
+      }
+    },
+    "/api/v1/problem-sets/{problem_set_id}/offline-policy": {
+      "patch": {
+        "operationId": "update_problem_set_offline_policy_api_v1_problem_sets__problem_set_id__offline_policy_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_set_id",
+            "required": true,
+            "schema": {
+              "title": "Problem Set Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfflinePolicyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemSetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Problem Set Offline Policy"
       }
     },
     "/api/v1/problems": {

@@ -56,6 +56,7 @@ from .models import (
     LoginResponse,
     Notification,
     OfflinePackResponse,
+    OfflinePolicyUpdate,
     ObjectiveSubmitRequest,
     OfflineResultSyncRequest,
     OfflineResultSyncResponse,
@@ -200,6 +201,8 @@ def admin_problem_detail(problem: Problem, store: Repository) -> ProblemAdminDet
             judge_config=store.get_problem_judge_config(problem.id),
         ).model_dump(),
         visible=problem.visible,
+        offline_enabled=problem.offline_enabled,
+        offline_policy=problem.offline_policy,
         test_data=store.get_problem_test_data(problem.id),
     )
 
@@ -597,14 +600,38 @@ def problem_set_detail(problem_set: ProblemSet, store: Repository) -> ProblemSet
     )
 
 
-def objective_offline_pack_response(problems: list[Problem], store: Repository) -> OfflinePackResponse:
-    visible_problems = [problem for problem in problems if problem.visible]
-    judge_configs = {
-        problem.id: store.get_problem_judge_config(problem.id)
-        for problem in visible_problems
-        if problem.type != "code"
-    }
-    return OfflinePackResponse(**build_offline_pack(visible_problems, judge_configs))
+def offline_ttl_hours(*policies: Any) -> int | None:
+    values = [int(policy.ttl_hours) for policy in policies if policy and policy.ttl_hours is not None]
+    return min(values) if values else None
+
+
+def can_export_offline_problem(problem: Problem, judge_config: dict[str, Any]) -> bool:
+    if not problem.visible or problem.type == "code":
+        return False
+    if not problem.offline_enabled:
+        return False
+    if problem.offline_policy.answer_visibility != "full":
+        return False
+    return bool(judge_config)
+
+
+def objective_offline_pack_response(
+    problems: list[Problem],
+    store: Repository,
+    *,
+    ttl_hours: int | None = None,
+    source: dict[str, Any] | None = None,
+) -> OfflinePackResponse:
+    exportable: list[Problem] = []
+    judge_configs: dict[str, dict[str, Any]] = {}
+    for problem in problems:
+        judge_config = store.get_problem_judge_config(problem.id) if problem.type != "code" else {}
+        if not can_export_offline_problem(problem, judge_config):
+            continue
+        exportable.append(problem)
+        judge_configs[problem.id] = judge_config
+    pack_ttl_hours = ttl_hours or offline_ttl_hours(*(problem.offline_policy for problem in exportable))
+    return OfflinePackResponse(**build_offline_pack(exportable, judge_configs, ttl_hours=pack_ttl_hours, source=source))
 
 
 @app.get("/health", response_model=HealthResponse, include_in_schema=False)
@@ -1229,6 +1256,35 @@ def admin_update_problem_visibility(
         {
             "title": problem.title,
             "visible": payload.visible,
+            "previous_version": archived.version,
+        },
+    )
+    return admin_problem_detail(updated, store)
+
+
+@app.patch("/api/v1/admin/problems/{problem_id}/offline-policy", response_model=ProblemAdminDetail)
+def admin_update_problem_offline_policy(
+    problem_id: str,
+    payload: OfflinePolicyUpdate,
+    user: User = Depends(require_permissions("problem:edit:own")),
+    store: Repository = Depends(get_repository),
+) -> ProblemAdminDetail:
+    problem = store.get_problem(problem_id)
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    ensure_problem_editable(user, problem)
+    problem.judge_config = store.get_problem_judge_config(problem.id)
+    archived = store.add_problem_version(problem, user.id, "update")
+    problem.offline_enabled = payload.offline_enabled
+    problem.offline_policy = payload.offline_policy
+    updated = store.update_problem(problem)
+    store.add_audit(
+        user.id,
+        "problem.offline_policy.update",
+        f"problem:{problem.id}",
+        {
+            "offline_enabled": updated.offline_enabled,
+            "offline_policy": updated.offline_policy.model_dump(mode="json"),
             "previous_version": archived.version,
         },
     )
@@ -2132,16 +2188,34 @@ def problem_set_offline_package(
     problem_set = store.get_problem_set(problem_set_id)
     if not problem_set or problem_set.visibility != "public":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem set not found")
+    if not problem_set.offline_enabled:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Problem set is not authorized for offline training")
+    if problem_set.offline_policy.answer_visibility != "full":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Problem set offline policy does not allow answer export")
     visible_problems = {problem.id: problem for problem in store.list_problems() if problem.visible}
     problems = [visible_problems[pid] for pid in problem_set.problem_ids if pid in visible_problems]
-    objective_count = sum(1 for problem in problems if problem.type != "code")
+    objective_count = sum(
+        1
+        for problem in problems
+        if can_export_offline_problem(problem, store.get_problem_judge_config(problem.id) if problem.type != "code" else {})
+    )
     store.add_audit(
         user.id,
         "problem_set.offline_package",
         f"problem_set:{problem_set.id}",
-        {"problem_count": objective_count},
+        {
+            "problem_count": objective_count,
+            "filtered_count": max(0, len(problems) - objective_count),
+            "ttl_hours": offline_ttl_hours(problem_set.offline_policy),
+            "source": {"type": "problem_set", "id": problem_set.id, "title": problem_set.title},
+        },
     )
-    return objective_offline_pack_response(problems, store)
+    return objective_offline_pack_response(
+        problems,
+        store,
+        ttl_hours=offline_ttl_hours(problem_set.offline_policy),
+        source={"type": "problem_set", "id": problem_set.id, "title": problem_set.title},
+    )
 
 
 @app.put("/api/v1/problem-sets/{problem_set_id}", response_model=ProblemSetDetail)
@@ -2160,12 +2234,41 @@ def update_problem_set(
     missing = [pid for pid in payload.problem_ids if pid not in existing]
     if missing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problems: {', '.join(missing)}")
-    for key, value in payload.model_dump().items():
+    for key, value in payload.model_dump(exclude={"offline_policy"}).items():
         setattr(problem_set, key, value)
+    problem_set.offline_policy = payload.offline_policy
     problem_set.updated_at = now()
     store.update_problem_set(problem_set)
     store.add_audit(user.id, "problem_set.update", f"problem_set:{problem_set.id}")
     return problem_set_detail(problem_set, store)
+
+
+@app.patch("/api/v1/problem-sets/{problem_set_id}/offline-policy", response_model=ProblemSetDetail)
+def update_problem_set_offline_policy(
+    problem_set_id: str,
+    payload: OfflinePolicyUpdate,
+    user: User = Depends(require_permissions("problem_set:edit:own")),
+    store: Repository = Depends(get_repository),
+) -> ProblemSetDetail:
+    problem_set = store.get_problem_set(problem_set_id)
+    if not problem_set:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem set not found")
+    if problem_set.owner_id != user.id and not role_has_permission(user.role, "problem_set:edit:all"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    problem_set.offline_enabled = payload.offline_enabled
+    problem_set.offline_policy = payload.offline_policy
+    problem_set.updated_at = now()
+    updated = store.update_problem_set(problem_set)
+    store.add_audit(
+        user.id,
+        "problem_set.offline_policy.update",
+        f"problem_set:{updated.id}",
+        {
+            "offline_enabled": updated.offline_enabled,
+            "offline_policy": updated.offline_policy.model_dump(mode="json"),
+        },
+    )
+    return problem_set_detail(updated, store)
 
 
 @app.get("/api/v1/discussions", response_model=list[Discussion])
@@ -2261,9 +2364,20 @@ def offline_pack(
     user: User = Depends(require_student_permissions("training:offline")),
     store: Repository = Depends(get_repository),
 ) -> OfflinePackResponse:
-    store.add_audit(user.id, "training.offline_pack", "training:objective")
     problems = [problem for problem in store.list_problems() if problem.visible]
-    return objective_offline_pack_response(problems, store)
+    exportable_count = sum(
+        1
+        for problem in problems
+        if can_export_offline_problem(problem, store.get_problem_judge_config(problem.id) if problem.type != "code" else {})
+    )
+    source = {"type": "training", "id": "objective"}
+    store.add_audit(
+        user.id,
+        "training.offline_pack",
+        "training:objective",
+        {"problem_count": exportable_count, "filtered_count": max(0, len(problems) - exportable_count), "source": source},
+    )
+    return objective_offline_pack_response(problems, store, source=source)
 
 
 @app.post("/api/v1/offline-results/sync", response_model=OfflineResultSyncResponse)
@@ -2279,6 +2393,13 @@ def sync_offline_results(
         problem = store.get_problem(item.problem_id)
         if not problem or not problem.visible or problem.type == "code":
             rejected.append({"problem_id": item.problem_id, "reason": "仅支持同步客观题结果"})
+            continue
+        if (
+            not problem.offline_enabled
+            or problem.offline_policy.answer_visibility != "full"
+            or problem.offline_policy.sync_mode == "disabled"
+        ):
+            rejected.append({"problem_id": item.problem_id, "reason": "离线策略不允许同步该题结果"})
             continue
         result_key = offline_result_key(problem.id, item.answers, item.practiced_at, item.client_result_key)
         duplicate = next(

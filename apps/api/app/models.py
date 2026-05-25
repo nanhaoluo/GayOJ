@@ -30,8 +30,25 @@ JudgeQueueBackend = Literal["json", "redis", "kafka"]
 JudgeQueueJobStatus = Literal["pending", "leased", "completed", "failed"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
+OfflineAnswerVisibility = Literal["full", "none"]
+OfflineSyncMode = Literal["allow", "disabled"]
 
 DEFAULT_STUDENT_SCHOOL = "GayOJ University (GOJU)"
+
+
+class OfflinePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ttl_hours: int | None = Field(default=None, ge=1, le=24 * 365)
+    answer_visibility: OfflineAnswerVisibility = "full"
+    sync_mode: OfflineSyncMode = "allow"
+
+
+class OfflinePolicyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    offline_enabled: bool
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
 
 
 class User(BaseModel):
@@ -153,6 +170,8 @@ class Problem(BaseModel):
     memory_limit_mb: int | None = None
     author_id: str
     visible: bool = True
+    offline_enabled: bool = True
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
     judge_config: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
@@ -173,6 +192,8 @@ class ProblemCreate(BaseModel):
     time_limit_ms: int | None = Field(default=None, ge=1)
     memory_limit_mb: int | None = Field(default=None, ge=1)
     visible: bool = True
+    offline_enabled: bool = True
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
     judge_config: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("title", "statement", "input_format", "output_format", mode="before")
@@ -209,6 +230,7 @@ class ProblemCreate(BaseModel):
             raise ValueError("Blank keys must be unique")
 
         if self.type == "code":
+            self.offline_enabled = False
             return self
 
         if self.type == "blank":
@@ -370,6 +392,8 @@ class ProblemTestData(BaseModel):
 
 class ProblemAdminDetail(ProblemDetail):
     visible: bool
+    offline_enabled: bool = True
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
     judge_config: dict[str, Any] = Field(default_factory=dict)
     test_data: ProblemTestData | None = None
 
@@ -753,11 +777,15 @@ class ProblemSet(BaseModel):
     owner_id: str
     duration_minutes: int | None = None
     due_at: datetime | None = None
+    offline_enabled: bool = True
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
     created_at: datetime
     updated_at: datetime
 
 
 class ProblemSetCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str
     description: str = ""
     type: Literal["set", "exam", "assignment"] = "set"
@@ -765,6 +793,8 @@ class ProblemSetCreate(BaseModel):
     problem_ids: list[str]
     duration_minutes: int | None = None
     due_at: datetime | None = None
+    offline_enabled: bool = True
+    offline_policy: OfflinePolicy = Field(default_factory=OfflinePolicy)
 
 
 class ProblemSetDetail(ProblemSet):
@@ -906,6 +936,7 @@ class OfflinePackPayload(BaseModel):
     expires_at: str
     signature_algorithm: Literal["hmac-sha256"] = "hmac-sha256"
     scope: Literal["objective-only"]
+    source: dict[str, Any] = Field(default_factory=dict)
     problems: list[OfflinePackProblem]
 
 

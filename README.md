@@ -559,6 +559,15 @@ cache, and can continue from that cache with `--resume`. `sync-results` can use
 `--fail-on-rejected` in smoke or CI scripts. The CLI still refuses any
 non-objective problem in a pack and never executes code locally.
 
+## P5-07 Objective offline policy
+
+Objective problems and problem sets now carry `offline_enabled` and
+`offline_policy`. Authorized offline packs include a signed `source` block,
+apply the shortest configured TTL, and only export visible objective problems
+whose answer visibility is `full`. Problem-set downloads return 403 when the set
+is not authorized for offline training, while ordinary problem detail responses
+still omit both answers and offline policy metadata.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:

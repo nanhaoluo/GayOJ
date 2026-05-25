@@ -270,6 +270,13 @@
 - `sync-results` 输出 `synced`、`merged`、`rejected` 统计，并支持 `--fail-on-rejected` 供 smoke/CI 在拒绝同步时失败。
 - CLI 在检查离线包、练习和本地判分前都会拒绝非客观题；代码题仍不得在 CLI 本地执行。
 
+## P5-07 客观题公开配置与离线策略管理
+
+- 题目和题单新增 `offline_enabled` 与 `offline_policy`，支持包有效期、答案导出粒度和同步开关。
+- 离线包生成只接收可见、客观、已授权且允许导出完整答案的题目；题单本身未授权时直接返回 403。
+- 离线包 payload 新增 `source`，区分全局训练包与题单包，并继续由 HMAC 签名覆盖完整内容。
+- 普通题面仍不返回 `judge_config`、`offline_enabled` 或 `offline_policy`；这些策略只在管理端和授权离线下载路径生效。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。
