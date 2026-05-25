@@ -210,3 +210,8 @@ def build_offline_pack(
         ],
     }
     return {"payload": pack, "signature": sign_payload(pack)}
+
+
+def safe_print_source(source_code: str) -> str:
+    source = source_code.replace("\r\n", "\n").replace("\r", "\n")
+    return source if source.endswith("\n") else f"{source}\n"

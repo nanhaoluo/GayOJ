@@ -282,7 +282,28 @@ export interface Contest {
   start_at: string;
   end_at: string;
   status: string;
+   visibility: 'public' | 'private';
+   frozen: boolean;
+   frozen_at: string | null;
+   frozen_by: string | null;
+   freeze_reason: string;
+   rejudge_at: string | null;
+   rejudge_by: string | null;
+   rejudge_reason: string;
   problems: ProblemSummary[];
+}
+
+export interface StandingProblemResult {
+  score: number;
+  status: string;
+}
+
+export interface StandingRow {
+  user_id: string;
+  display_name: string;
+  solved: number;
+  score: number;
+  problems: Record<string, StandingProblemResult>;
 }
 
 export interface JudgeNode {
@@ -331,6 +352,10 @@ export interface JudgeMonitor {
   queue: JudgeQueueSummary;
   last_submissions: Submission[];
   judge_nodes: JudgeNode[];
+  clarifications: Clarification[];
+  contests: Contest[];
+  frozen_contests: Contest[];
+  balloons: ContestBalloon[];
 }
 
 export interface AuditLog {
@@ -399,6 +424,30 @@ export interface Clarification {
   answer: string | null;
   public: boolean;
   created_at: string;
+}
+
+export interface ContestPrintResponse {
+  contest_id: string;
+  submission_id: string | null;
+  problem_id: string | null;
+  language: string | null;
+  source_kind: 'submission' | 'request';
+  source_code: string;
+  line_count: number;
+}
+
+export interface ContestBalloon {
+  contest_id: string;
+  submission_id: string;
+  user_id: string;
+  display_name: string;
+  problem_id: string;
+  problem_title: string;
+  status: string;
+  score: number;
+  max_score: number;
+  judged_at: string | null;
+  released: boolean;
 }
 
 export interface Team {

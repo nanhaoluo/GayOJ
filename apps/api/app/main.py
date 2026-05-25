@@ -47,6 +47,12 @@ from .models import (
     Contest,
     ContestCreate,
     ContestDetail,
+    ContestBalloon,
+    ContestFreezeRequest,
+    ContestPrintRequest,
+    ContestPrintResponse,
+    ContestSubmitRequest,
+    ContestBalloonUpdate,
     Discussion,
     DiscussionCreate,
     DiscussionReplyCreate,
@@ -114,7 +120,7 @@ from .models import (
     JudgeNodeStatusUpdate,
 )
 from .rbac import role_has_permission, role_permission_matrix
-from .services import build_offline_pack, judge_objective, make_submission_id
+from .services import build_offline_pack, judge_objective, make_submission_id, safe_print_source
 from .db import Repository, get_repository, now
 from .object_storage import ObjectNotFoundError, ObjectStorage, get_object_storage
 from .problem_io import ProblemPackageError, export_problem_package, package_filename, parse_problem_package
@@ -739,6 +745,123 @@ def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
             if pid in problems
         ],
     )
+
+
+def contest_owners(store: Repository, contest: Contest) -> set[str]:
+    owners: set[str] = set()
+    for clarification in store.list_clarifications():
+        if clarification.contest_id == contest.id:
+            owners.add(clarification.user_id)
+    for submission in store.list_submissions():
+        if submission.contest_id == contest.id:
+            owners.add(submission.user_id)
+    return owners
+
+
+def ensure_contest_access(user: User, contest: Contest, store: Repository) -> None:
+    if role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all"):
+        return
+    if user.role != "student":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+
+def ensure_contest_resource_owner(user: User, contest: Contest, store: Repository, *, include_students: bool = True) -> None:
+    if role_has_permission(user.role, "contest:manage"):
+        return
+    if not include_students or user.role != "student":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if user.id not in contest_owners(store, contest):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+
+def ensure_contest_submission_owner(user: User, contest: Contest, submission: Submission) -> None:
+    if submission.contest_id != contest.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
+    if role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage"):
+        return
+    if submission.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+
+def contest_problem_lookup(contest: Contest, store: Repository, problem_id: str) -> Problem:
+    problem = store.get_problem(problem_id)
+    if not problem or not problem.visible or problem_id not in contest.problem_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    return problem
+
+
+def contest_problem_details(contest: Contest, store: Repository, user: User | None = None) -> list[ProblemDetail]:
+    problems = []
+    for problem_id in contest.problem_ids:
+        problem = store.get_problem(problem_id)
+        if not problem or not problem.visible:
+            continue
+        problems.append(problem_detail(problem))
+    return problems
+
+
+def contest_balloon_payload(
+    contest: Contest,
+    submission: Submission,
+    *,
+    display_name: str,
+) -> ContestBalloon:
+    return ContestBalloon(
+        contest_id=contest.id,
+        submission_id=submission.id,
+        user_id=submission.user_id,
+        display_name=display_name,
+        problem_id=submission.problem_id,
+        problem_title=submission.problem_title,
+        status=submission.status,
+        score=submission.score,
+        max_score=submission.max_score,
+        judged_at=submission.judged_at,
+        released=bool(submission.judged_at),
+    )
+
+
+def contest_submission_to_balloon(submission: Submission, store: Repository) -> ContestBalloon:
+    contest = store.get_contest(submission.contest_id or "")
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    user = store.get_user(submission.user_id)
+    return contest_balloon_payload(
+        contest,
+        submission,
+        display_name=user.display_name if user else submission.user_id,
+    )
+
+
+def contest_print_payload(contest: Contest, submission: Submission | None, request: ContestPrintRequest) -> ContestPrintResponse:
+    if submission:
+        source_code = submission.source_code or ""
+        source_kind = "submission"
+        problem_id = submission.problem_id
+        language = submission.language
+        submission_id = submission.id
+    else:
+        source_code = request.source_code or ""
+        source_kind = "request"
+        problem_id = request.problem_id
+        language = request.language
+        submission_id = request.submission_id
+    source_code = safe_print_source(source_code)
+    return ContestPrintResponse(
+        contest_id=contest.id,
+        submission_id=submission_id,
+        problem_id=problem_id,
+        language=language,
+        source_kind=source_kind,  # type: ignore[arg-type]
+        source_code=source_code,
+        line_count=source_code.count("\n") + (0 if source_code.endswith("\n") else 1),
+    )
+
+
+def contest_submission_is_objective(problem: Problem) -> bool:
+    return problem.type in {"blank", "single_choice", "multiple_choice"}
 
 
 def problem_set_detail(problem_set: ProblemSet, store: Repository) -> ProblemSetDetail:
@@ -1764,8 +1887,16 @@ def get_submission(
 
 
 @app.get("/api/v1/contests", response_model=list[ContestDetail])
-def list_contests(store: Repository = Depends(get_repository)) -> list[ContestDetail]:
-    return [contest_detail(contest, store) for contest in store.list_contests()]
+def list_contests(
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> list[ContestDetail]:
+    contests = store.list_contests()
+    if not user:
+        contests = [contest for contest in contests if contest.visibility == "public"]
+    elif not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all")):
+        contests = [contest for contest in contests if contest.visibility == "public"]
+    return [contest_detail(contest, store) for contest in contests]
 
 
 @app.post("/api/v1/contests", response_model=ContestDetail)
@@ -1797,19 +1928,81 @@ def create_contest(
     return contest_detail(contest, store)
 
 
-@app.get("/api/v1/contests/{contest_id}", response_model=ContestDetail)
-def get_contest(contest_id: str, store: Repository = Depends(get_repository)) -> ContestDetail:
+@app.post("/api/v1/contests/{contest_id}/freeze", response_model=ContestDetail)
+def freeze_contest(
+    contest_id: str,
+    payload: ContestFreezeRequest,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestDetail:
     contest = store.get_contest(contest_id)
     if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if contest.frozen:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest is already frozen")
+    contest.frozen = True
+    contest.frozen_at = now()
+    contest.frozen_by = user.id
+    contest.freeze_reason = payload.reason
+    store.update_contest(contest)
+    store.add_audit(user.id, "contest.freeze", f"contest:{contest.id}", payload.model_dump())
+    return contest_detail(contest, store)
+
+
+@app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestDetail)
+def rejudge_contest(
+    contest_id: str,
+    payload: ContestFreezeRequest,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestDetail:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    contest.rejudge_at = now()
+    contest.rejudge_by = user.id
+    contest.rejudge_reason = payload.reason
+    store.update_contest(contest)
+    requeued = 0
+    for submission in store.list_submissions():
+        if submission.contest_id != contest.id or submission.problem_type != "code":
+            continue
+        try:
+            requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.rejudge")
+            requeued += 1
+        except Exception:
+            continue
+    store.add_audit(user.id, "contest.rejudge", f"contest:{contest.id}", payload.model_dump())
+    return contest_detail(contest, store)
+
+
+@app.get("/api/v1/contests/{contest_id}", response_model=ContestDetail)
+def get_contest(
+    contest_id: str,
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> ContestDetail:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user and contest.visibility != "public" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor") and not role_has_permission(user.role, "clarification:read:all"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if not user and contest.visibility != "public":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     return contest_detail(contest, store)
 
 
 @app.get("/api/v1/contests/{contest_id}/standings", response_model=list[StandingRow])
-def standings(contest_id: str, store: Repository = Depends(get_repository)) -> list[StandingRow]:
+def standings(
+    contest_id: str,
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> list[StandingRow]:
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user and user.role != "student" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     users = {u.id: u for u in store.list_users()}
     participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
     rows: dict[str, dict[str, Any]] = {}
@@ -1837,6 +2030,22 @@ def standings(contest_id: str, store: Repository = Depends(get_repository)) -> l
     return [StandingRow(**row) for row in sorted(rows.values(), key=lambda item: (-item["solved"], -item["score"], item["display_name"]))]
 
 
+@app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ProblemDetail], response_model_exclude_none=True)
+def list_contest_problems(
+    contest_id: str,
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> list[ProblemDetail]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not user and contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user:
+        ensure_contest_access(user, contest, store)
+    return contest_problem_details(contest, store, user)
+
+
 @app.post("/api/v1/contests/{contest_id}/clarifications", response_model=Clarification)
 def create_clarification(
     contest_id: str,
@@ -1844,8 +2053,10 @@ def create_clarification(
     user: User = Depends(require_student_permissions("clarification:create")),
     store: Repository = Depends(get_repository),
 ) -> Clarification:
-    if not store.get_contest(contest_id):
+    contest = store.get_contest(contest_id)
+    if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
     clarification = Clarification(
         id=f"CL{uuid4().hex[:8].upper()}",
         contest_id=contest_id,
@@ -1867,10 +2078,16 @@ def list_contest_clarifications(
     user: User | None = Depends(get_optional_user),
     store: Repository = Depends(get_repository),
 ) -> list[Clarification]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    ensure_contest_access(user, contest, store)
     clarifications = [c for c in store.list_clarifications() if c.contest_id == contest_id]
-    if user and role_has_permission(user.role, "clarification:read:all"):
+    if role_has_permission(user.role, "clarification:read:all") or role_has_permission(user.role, "contest:manage"):
         return clarifications
-    return [c for c in clarifications if c.public or (user and c.user_id == user.id)]
+    return [c for c in clarifications if c.public or c.user_id == user.id]
 
 
 @app.patch("/api/v1/clarifications/{clarification_id}", response_model=Clarification)
@@ -1883,6 +2100,9 @@ def reply_clarification(
     clarification = store.get_clarification(clarification_id)
     if not clarification:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clarification not found")
+    contest = store.get_contest(clarification.contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     clarification.answer = payload.answer
     clarification.public = payload.public
     store.update_clarification(clarification)
@@ -1893,6 +2113,168 @@ def reply_clarification(
                 add_notification(store, target.id, "比赛公告", payload.answer, "contest")
     store.add_audit(user.id, "clarification.reply", f"clarification:{clarification.id}", payload.model_dump())
     return clarification
+
+
+@app.get("/api/v1/contests/{contest_id}/submissions", response_model=list[SubmissionReview])
+def list_contest_submissions(
+    contest_id: str,
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> list[SubmissionReview]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user.role != "student" and not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    items = [submission for submission in store.list_submissions() if submission.contest_id == contest_id]
+    if not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
+        items = [submission for submission in items if submission.user_id == user.id]
+    return [sanitized_submission(submission, include_expected=True) for submission in items]
+
+
+@app.post("/api/v1/contests/{contest_id}/submit", response_model=SubmissionReview)
+def submit_contest_entry(
+    contest_id: str,
+    payload: ContestSubmitRequest,
+    user: User = Depends(require_student_permissions("submission:create")),
+    store: Repository = Depends(get_repository),
+) -> SubmissionReview:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
+    problem = contest_problem_lookup(contest, store, payload.problem_id)
+    if problem.type == "code":
+        if not payload.language or not payload.source_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code contest submissions require language and source_code")
+        compiler_config = ensure_enabled_compiler_language(store, payload.language)
+        submission = Submission(
+            id=make_submission_id(),
+            user_id=user.id,
+            problem_id=problem.id,
+            problem_title=problem.title,
+            problem_type=problem.type,
+            contest_id=contest.id,
+            language=payload.language,
+            source_code=payload.source_code,
+            status="queued",
+            score=0,
+            max_score=100,
+            created_at=now(),
+        )
+        try:
+            enqueue_code_submission_job(store, submission, problem, message="已进入比赛在线评测队列。")
+        except QueueBackendUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        store.add_audit(
+            user.id,
+            "contest.submit.code",
+            f"submission:{submission.id}",
+            {"contest_id": contest.id, "problem_id": problem.id, "language": compiler_config.code},
+        )
+        return sanitized_submission(submission)
+    if problem.type not in {"blank", "single_choice", "multiple_choice"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported contest problem type")
+    if not payload.answers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Objective contest submissions require answers")
+    score, max_score, details = judge_objective(problem, store.get_problem_judge_config(problem.id), payload.answers)
+    submission = Submission(
+        id=make_submission_id(),
+        user_id=user.id,
+        problem_id=problem.id,
+        problem_title=problem.title,
+        problem_type=problem.type,
+        contest_id=contest.id,
+        answers=payload.answers,
+        status="accepted" if score == max_score else "wrong_answer",
+        score=score,
+        max_score=max_score,
+        details=details,
+        message="比赛客观题即时判分完成。",
+        created_at=now(),
+        judged_at=now(),
+    )
+    store.add_submission(submission)
+    store.add_audit(user.id, "contest.submit.objective", f"submission:{submission.id}", {"contest_id": contest.id, "problem_id": problem.id})
+    balloon = contest_submission_to_balloon(submission, store)
+    store.upsert_contest_balloon(balloon.model_dump(mode="json"))
+    return sanitized_submission(submission)
+
+
+@app.post("/api/v1/contests/{contest_id}/print", response_model=ContestPrintResponse)
+def print_contest_source(
+    contest_id: str,
+    payload: ContestPrintRequest,
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> ContestPrintResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user.role != "student" and not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    submission: Submission | None = None
+    if payload.submission_id:
+        submission = store.get_submission(payload.submission_id)
+        if not submission:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
+        ensure_contest_submission_owner(user, contest, submission)
+        if not submission.source_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission has no printable source")
+    elif payload.source_code and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    elif payload.problem_id and not payload.source_code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires source_code")
+    return contest_print_payload(contest, submission, payload)
+
+
+@app.get("/api/v1/contests/{contest_id}/balloons", response_model=list[ContestBalloon])
+def list_contest_balloons(
+    contest_id: str,
+    user: User = Depends(require_permissions("judge:monitor")),
+    store: Repository = Depends(get_repository),
+) -> list[ContestBalloon]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    users = {item.id: item for item in store.list_users()}
+    balloons = []
+    for balloon in store.list_contest_balloons(contest_id):
+        submission = store.get_submission(str(balloon.get("submission_id") or ""))
+        if not submission:
+            continue
+        payload = contest_submission_to_balloon(submission, store)
+        payload.released = bool(balloon.get("released", payload.released))
+        balloons.append(payload)
+    return balloons
+
+
+@app.patch("/api/v1/contests/{contest_id}/balloons/{submission_id}", response_model=ContestBalloon)
+def update_contest_balloon(
+    contest_id: str,
+    submission_id: str,
+    payload: ContestBalloonUpdate,
+    user: User = Depends(require_permissions("judge:monitor")),
+    store: Repository = Depends(get_repository),
+) -> ContestBalloon:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if payload.submission_id != submission_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission id mismatch")
+    submission = store.get_submission(submission_id)
+    if not submission or submission.contest_id != contest.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
+    balloon = contest_submission_to_balloon(submission, store)
+    balloon.released = payload.released
+    store.upsert_contest_balloon(balloon.model_dump(mode="json"))
+    store.add_audit(
+        user.id,
+        "contest.balloon.update",
+        f"contest:{contest.id}",
+        {"submission_id": submission_id, "released": payload.released},
+    )
+    return balloon
 
 
 @app.get("/api/v1/rankings", response_model=list[RankingRow])
@@ -2031,6 +2413,13 @@ def judge_monitor(
         last_submissions=submissions[:10],
         judge_nodes=store.list_judge_nodes(),
         clarifications=store.list_clarifications(),
+        contests=store.list_contests(),
+        frozen_contests=[contest for contest in store.list_contests() if contest.frozen],
+        balloons=[
+            contest_submission_to_balloon(submission, store)
+            for submission in submissions
+            if submission.judged_at and submission.contest_id
+        ],
     )
 
 
