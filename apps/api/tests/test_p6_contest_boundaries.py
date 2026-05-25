@@ -101,8 +101,8 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
 def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient, auth_headers, store) -> None:
     forbidden = client.post(
         "/api/v1/contests/C1001/freeze",
-        headers=auth_headers("judge"),
-        json={"reason": "judge cannot freeze"},
+        headers=auth_headers("coach"),
+        json={"reason": "coach cannot freeze"},
     )
     assert forbidden.status_code == 403
 
