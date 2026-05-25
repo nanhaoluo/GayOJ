@@ -258,6 +258,99 @@ a {
   margin: 0;
 }
 
+.balloon-page {
+  max-width: 980px;
+}
+
+.balloon-section {
+  display: grid;
+  gap: 14px;
+}
+
+.balloon-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.balloon-section-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.balloon-section-head span,
+.balloon-empty,
+.balloon-card-title span {
+  color: var(--muted);
+}
+
+.balloon-list {
+  gap: 12px;
+}
+
+.balloon-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.balloon-card.released {
+  background: color-mix(in oklch, white 82%, var(--surface-strong) 18%);
+}
+
+.balloon-card-main,
+.balloon-card-title,
+.balloon-card-meta {
+  display: flex;
+  gap: 10px;
+}
+
+.balloon-card-main {
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.balloon-card-title {
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.balloon-card-title strong,
+.balloon-card-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.balloon-card-meta {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.balloon-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in oklch, white 74%, var(--accent) 26%);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .sidebar {
   position: sticky;
   top: 0;

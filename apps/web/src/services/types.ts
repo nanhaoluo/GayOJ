@@ -461,11 +461,15 @@ export interface ContestBalloon {
   display_name: string;
   problem_id: string;
   problem_title: string;
+  eligible: boolean;
+  first_ac: boolean;
   status: string;
   score: number;
   max_score: number;
   judged_at: string | null;
   released: boolean;
+  released_at: string | null;
+  released_by: string | null;
 }
 
 export interface Team {
