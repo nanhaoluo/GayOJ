@@ -49,6 +49,7 @@ from .models import (
     ContestDetail,
     ContestBalloon,
     ContestFreezeRequest,
+    ContestRejudgeResponse,
     ContestUnfreezeRequest,
     ContestPrintRequest,
     ContestPrintResponse,
@@ -757,6 +758,13 @@ def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
             if pid in problems
         ],
     )
+
+
+def contest_has_ended(contest: Contest, *, current: datetime | None = None) -> bool:
+    end_at = auth_datetime(contest.end_at)
+    if end_at is None:
+        return False
+    return (current or now()) >= end_at
 
 
 def contest_owners(store: Repository, contest: Contest) -> set[str]:
@@ -2206,31 +2214,55 @@ def unfreeze_contest(
     return contest_detail(contest, store)
 
 
-@app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestDetail)
+@app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestRejudgeResponse)
 def rejudge_contest(
     contest_id: str,
-    payload: ContestFreezeRequest,
-    user: User = Depends(require_permissions("contest:manage")),
+    payload: RejudgeRequest,
+    user: User = Depends(require_permissions("submission:override")),
     store: Repository = Depends(get_repository),
-) -> ContestDetail:
+) -> ContestRejudgeResponse:
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if not contest_has_ended(contest):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
     contest.rejudge_at = now()
     contest.rejudge_by = user.id
     contest.rejudge_reason = payload.reason
     store.update_contest(contest)
-    requeued = 0
+    requeued: list[Submission] = []
+    skipped: list[RejudgeSkipped] = []
     for submission in store.list_submissions():
-        if submission.contest_id != contest.id or submission.problem_type != "code":
+        if submission.contest_id != contest.id:
             continue
         try:
-            requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.rejudge")
-            requeued += 1
-        except Exception:
-            continue
-    store.add_audit(user.id, "contest.rejudge", f"contest:{contest.id}", payload.model_dump())
-    return contest_detail(contest, store)
+            requeued.append(requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.rejudge"))
+        except ValueError as exc:
+            skipped.append(RejudgeSkipped(submission_id=submission.id, reason=str(exc)))
+        except QueueBackendUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    store.add_audit(
+        user.id,
+        "contest.rejudge",
+        f"contest:{contest.id}",
+        {
+            "reason": payload.reason,
+            "requeued_count": len(requeued),
+            "skipped_count": len(skipped),
+        },
+    )
+    return ContestRejudgeResponse(
+        contest_id=contest.id,
+        rejudge_at=contest.rejudge_at or now(),
+        rejudge_by=contest.rejudge_by or user.id,
+        rejudge_reason=contest.rejudge_reason,
+        requeued=requeued,
+        skipped=skipped,
+        requeued_count=len(requeued),
+        skipped_count=len(skipped),
+    )
 
 
 @app.get("/api/v1/contests/{contest_id}", response_model=ContestDetail)

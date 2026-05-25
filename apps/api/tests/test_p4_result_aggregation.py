@@ -120,6 +120,75 @@ def test_worker_creates_pending_balloon_for_accepted_contest_code_submission(sto
     assert matching[0]["released"] is False
 
 
+def test_balloon_reconciles_when_first_ac_is_rejudged_away(store) -> None:
+    from datetime import timedelta
+
+    from app.db import now
+    from app.models import Submission
+    from app.services import make_submission_id, refresh_contest_balloon_for_submission
+
+    contest = store.get_contest("C1001")
+    problem = store.get_problem("P1001")
+    assert contest is not None and problem is not None
+    first_time = now()
+    second_time = first_time + timedelta(minutes=1)
+
+    first = Submission(
+        id=make_submission_id(),
+        user_id="u-student",
+        problem_id=problem.id,
+        problem_title=problem.title,
+        problem_type=problem.type,
+        contest_id=contest.id,
+        language="python",
+        source_code="print('first')\n",
+        status="accepted",
+        score=100,
+        max_score=100,
+        details=[],
+        message="accepted",
+        created_at=first_time,
+        judged_at=first_time,
+    )
+    second = Submission(
+        id=make_submission_id(),
+        user_id="u-student",
+        problem_id=problem.id,
+        problem_title=problem.title,
+        problem_type=problem.type,
+        contest_id=contest.id,
+        language="python",
+        source_code="print('second')\n",
+        status="accepted",
+        score=100,
+        max_score=100,
+        details=[],
+        message="accepted",
+        created_at=second_time,
+        judged_at=second_time,
+    )
+    store.add_submission(first)
+    store.add_submission(second)
+
+    initial = refresh_contest_balloon_for_submission(store, first)
+    assert initial is not None
+    assert initial.submission_id == first.id
+    assert initial.first_ac is True
+
+    first.status = "wrong_answer"
+    first.score = 0
+    store.update_submission(first)
+
+    reconciled = refresh_contest_balloon_for_submission(store, first)
+    assert reconciled is not None
+    assert reconciled.submission_id == second.id
+    assert reconciled.first_ac is True
+
+    balloons = store.list_contest_balloons(contest.id)
+    assert len(balloons) == 1
+    assert balloons[0]["submission_id"] == second.id
+
+
 def test_worker_reports_wrong_answer_from_output_mismatch() -> None:
     task = CodeJudgeTask(
         submission_id="S1",
