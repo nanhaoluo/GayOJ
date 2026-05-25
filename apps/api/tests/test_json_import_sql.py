@@ -344,6 +344,59 @@ def test_submission_source_code_is_exported_as_data_only(tmp_path: Path) -> None
         assert forbidden not in source
 
 
+def test_offline_result_key_is_exported_with_submissions(tmp_path: Path) -> None:
+    snapshot = {
+        "users": [
+            {
+                "id": "u1",
+                "username": "alice",
+                "display_name": "Alice",
+                "role": "student",
+                "password_hash": "hash",
+            }
+        ],
+        "problems": [
+            {
+                "id": "P1",
+                "title": "Choice",
+                "type": "single_choice",
+                "statement": "Pick one.",
+                "author_id": "u1",
+                "created_at": "2026-05-22T00:00:00Z",
+            }
+        ],
+        "contests": [],
+        "submissions": [
+            {
+                "id": "S1",
+                "user_id": "u1",
+                "problem_id": "P1",
+                "problem_title": "Choice",
+                "problem_type": "single_choice",
+                "answers": {"choice": "B"},
+                "offline_result_key": "cli:stable-result",
+                "status": "accepted",
+                "score": 100,
+                "max_score": 100,
+                "details": [],
+                "message": "offline sync",
+                "created_at": "2026-05-22T00:00:01Z",
+                "judged_at": "2026-05-22T00:00:02Z",
+            }
+        ],
+        "system_config": {},
+    }
+    input_path = tmp_path / "dev-db.json"
+    input_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    result = run_export("--input", input_path)
+    assert result.returncode == 0, result.stderr
+    submissions_insert = insert_statement(result.stdout, "submissions")
+
+    assert "offline_result_key" in submissions_insert
+    assert "cli:stable-result" in submissions_insert
+
+
 def test_export_includes_judge_queue_jobs_as_metadata_only(tmp_path: Path) -> None:
     snapshot = {
         "users": [

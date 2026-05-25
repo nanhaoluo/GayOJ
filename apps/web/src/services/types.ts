@@ -238,6 +238,7 @@ export interface Submission {
   source_code: string | null;
   queue_job_id: string | null;
   queued_at: string | null;
+  offline_result_key: string | null;
   answers: Record<string, unknown> | null;
   status: string;
   score: number;

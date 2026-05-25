@@ -449,6 +449,7 @@ class Submission(BaseModel):
     source_code: str | None = None
     queue_job_id: str | None = None
     queued_at: datetime | None = None
+    offline_result_key: str | None = Field(default=None, max_length=128)
     answers: dict[str, Any] | None = None
     status: SubmissionStatus
     score: int
@@ -872,6 +873,15 @@ class OfflineResultItem(BaseModel):
     problem_id: str
     answers: dict[str, Any]
     practiced_at: datetime | None = None
+    client_result_key: str | None = Field(default=None, max_length=128)
+
+    @field_validator("client_result_key", mode="before")
+    @classmethod
+    def normalize_client_result_key(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class OfflineResultSyncRequest(BaseModel):
@@ -911,6 +921,7 @@ class OfflineResultRejected(BaseModel):
 
 class OfflineResultSyncResponse(BaseModel):
     synced: list[Submission]
+    merged: list[Submission] = Field(default_factory=list)
     rejected: list[OfflineResultRejected]
 
 

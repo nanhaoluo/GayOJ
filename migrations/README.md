@@ -106,3 +106,10 @@ It also seeds password-policy and lockout defaults into `system_config`. The
 runtime JSON repository migrates missing fields on read, and the SQL export
 preserves those fields when importing a development snapshot.
 
+## P5-05 offline result idempotency
+
+`0013_offline_result_idempotency.sql` adds `submissions.offline_result_key` and
+a partial unique index on `(user_id, offline_result_key)`. JSON snapshots remain
+compatible because the runtime model treats the field as optional, and the SQL
+export preserves the key when importing offline practice submissions.
+

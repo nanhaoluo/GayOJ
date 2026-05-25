@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import re
 from pathlib import PurePosixPath
 import zipfile
@@ -135,6 +136,22 @@ app.add_middleware(
 
 def student_user_ids(store: Repository) -> set[str]:
     return {user.id for user in store.list_users() if user.role == "student"}
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def offline_result_key(problem_id: str, answers: dict[str, Any], practiced_at: datetime | None, client_key: str | None) -> str:
+    if client_key:
+        return client_key[:128]
+    practiced_at_text = practiced_at.isoformat() if practiced_at else ""
+    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at_text}
+    return f"legacy:{hashlib.sha256(_canonical_json(payload).encode('utf-8')).hexdigest()[:48]}"
+
+
+def same_offline_result(submission: Submission, problem_id: str, answers: dict[str, Any]) -> bool:
+    return submission.problem_id == problem_id and _canonical_json(submission.answers or {}) == _canonical_json(answers)
 
 
 def problem_summary(problem: Problem, submissions: list[Submission], participant_ids: set[str] | None = None) -> ProblemSummary:
@@ -2256,11 +2273,27 @@ def sync_offline_results(
     store: Repository = Depends(get_repository),
 ) -> OfflineResultSyncResponse:
     synced: list[Submission] = []
+    merged: list[Submission] = []
     rejected: list[dict[str, str]] = []
     for item in payload.results:
         problem = store.get_problem(item.problem_id)
         if not problem or not problem.visible or problem.type == "code":
             rejected.append({"problem_id": item.problem_id, "reason": "仅支持同步客观题结果"})
+            continue
+        result_key = offline_result_key(problem.id, item.answers, item.practiced_at, item.client_result_key)
+        duplicate = next(
+            (
+                submission
+                for submission in store.list_submissions()
+                if submission.user_id == user.id and submission.offline_result_key == result_key
+            ),
+            None,
+        )
+        if duplicate:
+            if same_offline_result(duplicate, problem.id, item.answers):
+                merged.append(duplicate)
+            else:
+                rejected.append({"problem_id": item.problem_id, "reason": "离线结果幂等键冲突"})
             continue
         score, max_score, details = judge_objective(problem, store.get_problem_judge_config(problem.id), item.answers)
         submission = Submission(
@@ -2270,6 +2303,7 @@ def sync_offline_results(
             problem_title=problem.title,
             problem_type=problem.type,
             answers=item.answers,
+            offline_result_key=result_key,
             status="accepted" if score == max_score else "wrong_answer",
             score=score,
             max_score=max_score,
@@ -2282,6 +2316,11 @@ def sync_offline_results(
         synced.append(submission)
     if synced:
         add_notification(store, user.id, "离线训练结果已同步", f"已同步 {len(synced)} 条客观题训练记录。", "judge")
-    store.add_audit(user.id, "offline_results.sync", "training:offline", {"synced": len(synced), "rejected": len(rejected)})
-    return OfflineResultSyncResponse(synced=synced, rejected=rejected)
+    store.add_audit(
+        user.id,
+        "offline_results.sync",
+        "training:offline",
+        {"synced": len(synced), "merged": len(merged), "rejected": len(rejected)},
+    )
+    return OfflineResultSyncResponse(synced=synced, merged=merged, rejected=rejected)
 

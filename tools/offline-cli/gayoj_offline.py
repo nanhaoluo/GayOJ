@@ -29,6 +29,15 @@ def sign_payload(payload: dict[str, Any]) -> str:
     return hmac.new(PACK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
 
 
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def make_result_key(problem_id: str, answers: dict[str, Any], practiced_at: str | None) -> str:
+    payload = {"problem_id": problem_id, "answers": answers, "practiced_at": practiced_at or ""}
+    return f"cli:{hashlib.sha256(canonical_json(payload).encode('utf-8')).hexdigest()}"
+
+
 def parse_pack_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -45,7 +54,7 @@ def parse_pack_datetime(value: Any) -> datetime | None:
 
 
 def load_pack(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
     payload = data.get("payload")
     signature = data.get("signature", "")
     if not isinstance(payload, dict):
@@ -233,11 +242,13 @@ def cmd_practice(args: argparse.Namespace) -> None:
             raw = input("答案，多选用逗号分隔: ").strip().upper()
             answers["choices"] = [item.strip() for item in raw.replace(" ", "").split(",") if item.strip()]
         score, max_score = judge(problem, answers)
+        practiced_at = datetime.now(timezone.utc).isoformat()
         saved_results.append(
             {
                 "problem_id": problem["id"],
                 "answers": answers,
-                "practiced_at": datetime.now(timezone.utc).isoformat(),
+                "practiced_at": practiced_at,
+                "client_result_key": make_result_key(problem["id"], answers, practiced_at),
                 "local_score": score,
                 "local_max_score": max_score,
             }
@@ -257,23 +268,33 @@ def cmd_sync_results(args: argparse.Namespace) -> None:
     token = args.token or os.getenv("GAYOJ_TOKEN")
     if not token:
         raise SystemExit("请通过 --token 或 GAYOJ_TOKEN 提供登录令牌。")
-    data = json.loads(Path(args.results).read_text(encoding="utf-8"))
-    payload = {
-        "results": [
+    data = json.loads(Path(args.results).read_text(encoding="utf-8-sig"))
+    results = []
+    for item in data.get("results", []):
+        practiced_at = item.get("practiced_at")
+        client_result_key = item.get("client_result_key") or make_result_key(
+            item["problem_id"],
+            item["answers"],
+            practiced_at,
+        )
+        results.append(
             {
                 "problem_id": item["problem_id"],
                 "answers": item["answers"],
-                "practiced_at": item.get("practiced_at"),
+                "practiced_at": practiced_at,
+                "client_result_key": client_result_key,
             }
-            for item in data.get("results", [])
-        ]
-    }
+        )
+    payload = {"results": results}
     response = request_json(
         f"{args.api.rstrip('/')}/offline-results/sync",
         method="POST",
         token=token,
         body=payload,
     )
+    merged_count = len(response.get("merged", []))
+    if merged_count:
+        print(f"Merged duplicate offline results: {merged_count}")
     print(f"同步完成：{len(response.get('synced', []))} 条，拒绝 {len(response.get('rejected', []))} 条")
 
 

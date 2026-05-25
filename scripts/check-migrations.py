@@ -191,6 +191,10 @@ def main() -> int:
         fail("schema must use JSONB for typed flexible fields")
     if "source_code text" not in normalized:
         fail("submissions table must preserve submitted code as data")
+    if "offline_result_key text" not in normalized:
+        fail("submissions table must store offline result idempotency keys")
+    if "idx_submissions_offline_result_key" not in normalized:
+        fail("offline result idempotency index is missing")
     judge_queue_block = table_block(combined, "judge_queue_jobs").lower()
     if not judge_queue_block:
         fail("judge_queue_jobs table block could not be parsed")
@@ -235,6 +239,7 @@ def main() -> int:
         "judge_queue_jobs",
         "submissions",
         "source_code",
+        "offline_result_key",
         "user_roles",
         "problem_tags",
         "compiler_configs",

@@ -303,6 +303,35 @@ Assert-True ($objectiveSubmission.problem_type -eq "single_choice") "objective s
 Assert-True ($objectiveSubmission.status -eq "accepted") "objective submission must be accepted"
 Assert-True ($objectiveSubmission.score -eq $objectiveSubmission.max_score) "objective submission must receive full score"
 
+Write-Step "checking offline result sync idempotency"
+$offlineResultKey = "smoke-p5-05-$([System.Guid]::NewGuid().ToString('N'))"
+$offlineSyncPayload = @{
+    results = @(
+        @{
+            problem_id = "P1003"
+            answers = @{
+                choice = "B"
+            }
+            practiced_at = "2026-05-25T00:00:00+00:00"
+            client_result_key = $offlineResultKey
+        }
+    )
+}
+$firstOfflineSync = Invoke-ApiJson -Method POST -Path "/offline-results/sync" -Token $token -Body $offlineSyncPayload
+$firstOfflineSynced = @(ConvertTo-ItemArray -Value $firstOfflineSync.synced)
+$firstOfflineMerged = @(ConvertTo-ItemArray -Value $firstOfflineSync.merged)
+$firstOfflineRejected = @(ConvertTo-ItemArray -Value $firstOfflineSync.rejected)
+Assert-True ($firstOfflineSynced.Count -eq 1) "first offline sync must create one submission"
+Assert-True ($firstOfflineMerged.Count -eq 0) "first offline sync must not merge"
+Assert-True ($firstOfflineRejected.Count -eq 0) "first offline sync must not reject"
+Assert-True ($firstOfflineSynced[0].offline_result_key -eq $offlineResultKey) "offline sync must persist idempotency key"
+$secondOfflineSync = Invoke-ApiJson -Method POST -Path "/offline-results/sync" -Token $token -Body $offlineSyncPayload
+$secondOfflineSynced = @(ConvertTo-ItemArray -Value $secondOfflineSync.synced)
+$secondOfflineMerged = @(ConvertTo-ItemArray -Value $secondOfflineSync.merged)
+Assert-True ($secondOfflineSynced.Count -eq 0) "duplicate offline sync must not create another submission"
+Assert-True ($secondOfflineMerged.Count -eq 1) "duplicate offline sync must be merged"
+Assert-True ($secondOfflineMerged[0].id -eq $firstOfflineSynced[0].id) "duplicate offline sync must return the original submission"
+
 Write-Step "submitting code answer through API queue path"
 $codeSource = @"
 import sys

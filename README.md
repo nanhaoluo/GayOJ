@@ -522,6 +522,15 @@ expiry metadata, so changing problem content, answers, or expiry invalidates the
 package. The offline CLI verifies the HMAC signature and rejects expired packs
 before any local objective practice starts.
 
+## P5-05 Offline result sync idempotency
+
+Offline practice results now carry a stable `client_result_key`. The API stores
+that key as `submission.offline_result_key`; resubmitting the same local result
+returns it in `merged` instead of creating another submission. If the same key is
+sent with different problem data or answers, the row is rejected as a conflict.
+Legacy result files without a key are still accepted through a deterministic
+fallback key derived from problem id, answers, and `practiced_at`.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:

@@ -1602,6 +1602,18 @@
             "title": "Answers",
             "type": "object"
           },
+          "client_result_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Result Key"
+          },
           "practiced_at": {
             "anyOf": [
               {
@@ -1662,6 +1674,13 @@
       },
       "OfflineResultSyncResponse": {
         "properties": {
+          "merged": {
+            "items": {
+              "$ref": "#/components/schemas/Submission"
+            },
+            "title": "Merged",
+            "type": "array"
+          },
           "rejected": {
             "items": {
               "$ref": "#/components/schemas/OfflineResultRejected"
@@ -3418,6 +3437,18 @@
             "default": "",
             "title": "Message",
             "type": "string"
+          },
+          "offline_result_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offline Result Key"
           },
           "problem_id": {
             "title": "Problem Id",
