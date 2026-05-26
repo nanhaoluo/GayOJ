@@ -7,7 +7,7 @@ from typing import Any
 
 from app.auth import verify_password
 from app.db import Repository, SnapshotRepository, seed_data
-from app.models import DEFAULT_STUDENT_SCHOOL, Problem, ProblemTestData
+from app.models import DEFAULT_STUDENT_SCHOOL, Clarification, JudgeQueueJob, Problem, ProblemTestData, Submission
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -266,4 +266,82 @@ def test_snapshot_repository_reuses_parsed_snapshot_until_payload_changes() -> N
     database.payload = json.dumps(changed, ensure_ascii=False)
 
     assert repository.get_system_config()["site_name"] == "Changed by database"
+
+
+def test_snapshot_repository_reads_hot_collections_without_reloading_payload(tmp_path: Path) -> None:
+    repository = sqlite_repository(tmp_path)
+    created_at = datetime.now(timezone.utc)
+    submission = Submission(
+        id="S-HOT-1",
+        user_id="u-student",
+        problem_id="P1001",
+        problem_title="A+B Problem",
+        problem_type="code",
+        contest_id="C1001",
+        language="python",
+        source_code="print(1)",
+        status="queued",
+        score=0,
+        max_score=100,
+        details=[],
+        message="queued",
+        created_at=created_at,
+    )
+    repository.add_submission(submission)
+    repository.add_judge_queue_job(
+        JudgeQueueJob(
+            id="JQ-HOT-1",
+            submission_id=submission.id,
+            problem_id=submission.problem_id,
+            user_id=submission.user_id,
+            contest_id=submission.contest_id,
+            language="python",
+            source_ref="submission:S-HOT-1:source_code",
+            source_sha256="hash",
+            limits={"time_limit_ms": 1000, "memory_limit_mb": 128},
+            testdata_ref="problem:P1001:testdata",
+            priority=10,
+            status="pending",
+            backend="json",
+            created_at=created_at,
+        )
+    )
+    repository.add_clarification(
+        Clarification(
+            id="CL-HOT-1",
+            contest_id="C1001",
+            problem_id="P1001",
+            user_id="u-student",
+            user_display_name="Alice Chen",
+            question="Hot table question",
+            created_at=created_at,
+        )
+    )
+    repository.database._cached_payload = None  # type: ignore[attr-defined]
+    repository.database._cached_version = None  # type: ignore[attr-defined]
+
+    contest_ids = [contest.id for contest in repository.list_contests()]
+    submission_ids = [submission.id for submission in repository.list_submissions()]
+    queue_job_ids = [job.id for job in repository.list_judge_queue_jobs()]
+    clarification_ids = [item.id for item in repository.list_clarifications()]
+
+    assert "C1001" in contest_ids
+    assert "S-HOT-1" in submission_ids
+    assert "JQ-HOT-1" in queue_job_ids
+    assert "CL-HOT-1" in clarification_ids
+    assert repository.database._cached_payload is None  # type: ignore[attr-defined]
+
+
+def test_snapshot_repository_syncs_hot_tables_after_writes(tmp_path: Path) -> None:
+    repository = sqlite_repository(tmp_path)
+    contest = repository.get_contest("C1001")
+    assert contest is not None
+    contest.title = "Hot table contest"
+
+    repository.update_contest(contest)
+
+    hot_contest = repository.database.get_hot_item("contests", "C1001")
+    assert hot_contest is not None
+    assert hot_contest["title"] == "Hot table contest"
+    assert repository.get_contest("C1001").title == "Hot table contest"  # type: ignore[union-attr]
 

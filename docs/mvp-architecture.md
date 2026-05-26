@@ -7,9 +7,11 @@
 - 运行时存储使用 `apps/api/storage` 中央数据库层：MySQL 为主存储，SQLite 为 MySQL 不可用时的兜底存储。
 - `apps/api/storage/database_config.py` 集中读取 MySQL、SQLite、种子文件路径、连接超时和缓存配置。
 - `apps/api/storage/database.py` 集中所有运行时 SQL，使用固定表名、参数化查询、状态键校验、SQLite WAL/busy timeout/cache，以及 MySQL 失败后的 SQLite 兜底。
-- `apps/api/app/db/snapshot_repository.py` 是业务仓储适配层；API、worker、测试都通过仓储函数读写，不在业务代码中散落 SQL 查询。仓储会缓存已解析和规范化的快照，数据库层用版本号判断 payload 是否变化，聚合页面不会在一次请求中反复解析整份状态。
-- `apps/api/storage/dev-db.json` 仅作为兼容种子快照导入数据库，不再作为运行时写入存储。旧种子中的 `problem_judge_config`、标签、测试数据、版本、队列任务等兼容迁移逻辑仍在读取时执行，写回目标是数据库快照。
+- 比赛、提交、评测队列、Clarification、比赛公告、代码打印、气球和评测节点写入独立热点表；列表与按比赛/状态过滤只查询目标表的 `payload` 列和索引字段，避免为页面聚合反复读取整份状态。
+- `apps/api/app/db/snapshot_repository.py` 是业务仓储适配层；API、worker、测试都通过仓储函数读写，不在业务代码中散落 SQL 查询。仓储会缓存已解析和规范化的冷状态，数据库层用版本号判断 payload 是否变化，热点集合优先走独立表。
+- `apps/api/storage/dev-db.json` 仅作为兼容种子快照导入数据库，不再作为运行时写入存储。旧种子中的 `problem_judge_config`、标签、测试数据、版本、队列任务等兼容迁移逻辑仍在读取时执行，写回目标是 MySQL/SQLite 数据库；中间层只负责兼容和查询优化，不作为最终存储来源。
 - MySQL 可用时作为主库；MySQL 初始化、读写失败时写入 SQLite。MySQL 空但 SQLite 已有数据时，会把 SQLite 快照回灌主库。
+- 前端 API GET 默认使用短 TTL + stale-while-revalidate 缓存，写操作成功后按比赛、提交、裁判、Clarification 等路径失效，避免刷新或返回页面时立即重新等待同一批热点数据。
 - 历史阶段段落保留演进记录；当前运行时存储边界以本节为准。
 
 ## 分层

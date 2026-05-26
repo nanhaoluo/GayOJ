@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from storage.database import FallbackStateDatabase, SqliteStateDatabase, create_state_database
+from storage.database import HOT_COLLECTIONS, FallbackStateDatabase, SqliteStateDatabase, create_state_database
 from storage.database_config import DEFAULT_STORAGE_BACKEND, DatabaseSettings, get_database_settings
 
 
@@ -142,8 +142,49 @@ def test_fallback_state_database_skips_redundant_sqlite_syncs() -> None:
     assert fallback.writes == ['{"from": "mysql"}']
 
 
+def test_sqlite_hot_tables_use_indexed_collection_queries(tmp_path: Path) -> None:
+    db_path = tmp_path / "hot.sqlite3"
+    database = SqliteStateDatabase(db_path)
+    contest_submission = {
+        "id": "S1",
+        "user_id": "u-student",
+        "problem_id": "P1001",
+        "problem_title": "A+B",
+        "problem_type": "code",
+        "contest_id": "C1001",
+        "language": "python",
+        "source_code": "print(1)",
+        "status": "queued",
+        "score": 0,
+        "max_score": 100,
+        "details": [],
+        "message": "",
+        "created_at": "2026-05-27T00:00:00+00:00",
+        "judged_at": None,
+    }
+    other_submission = {**contest_submission, "id": "S2", "contest_id": "C2001", "status": "accepted"}
+
+    database.replace_hot_collection("submissions", [contest_submission, other_submission])
+
+    assert database.get_hot_item("submissions", "S1") == contest_submission
+    assert database.list_hot_items("submissions", contest_id="C1001") == [contest_submission]
+    assert database.list_hot_items("submissions", status="accepted") == [other_submission]
+    with sqlite3.connect(db_path) as connection:
+        for table in HOT_COLLECTIONS.values():
+            assert connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = ? AND name = ?",
+                ("table", table),
+            ).fetchone() == (table,)
+        indexes = {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(hot_submissions)").fetchall()
+        }
+    assert "idx_hot_submissions_contest_created" in indexes
+    assert "idx_hot_submissions_status_priority" in indexes
+
+
 def test_storage_database_module_keeps_sql_queries_centralized() -> None:
     import storage.database as database_module
 
     public_names = set(database_module.__all__)
-    assert {"SqliteStateDatabase", "MySqlStateDatabase", "FallbackStateDatabase", "create_state_database"} <= public_names
+    assert {"SqliteStateDatabase", "MySqlStateDatabase", "FallbackStateDatabase", "create_state_database", "HOT_COLLECTIONS"} <= public_names
