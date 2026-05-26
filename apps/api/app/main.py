@@ -1289,7 +1289,7 @@ def build_contest_from_payload(
 
 
 def _submission_effective_time(submission: Submission) -> datetime:
-    return auth_datetime(submission.judged_at) or auth_datetime(submission.created_at) or now()
+    return auth_datetime(submission.created_at) or auth_datetime(submission.judged_at) or now()
 
 
 def _contest_submission_before_freeze(submission: Submission, contest: Contest) -> bool:
@@ -1440,10 +1440,13 @@ def _build_score_standings(
 def build_contest_standings(contest: Contest, store: Repository, *, full_board: bool = False) -> list[StandingRow]:
     users = {u.id: u for u in store.list_users()}
     participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
+    contest_problem_ids = set(contest.problem_ids)
     relevant_submissions = [
         submission
         for submission in store.list_submissions()
-        if submission.contest_id == contest.id and submission.user_id in participant_ids
+        if submission.contest_id == contest.id
+        and submission.user_id in participant_ids
+        and submission.problem_id in contest_problem_ids
     ]
     relevant_submissions.sort(key=lambda item: (_submission_effective_time(item), item.created_at, item.id))
 
