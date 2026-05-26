@@ -2607,91 +2607,6 @@
         "title": "ContestUnfreezeRequest",
         "type": "object"
       },
-      "Discussion": {
-        "properties": {
-          "author_id": {
-            "title": "Author Id",
-            "type": "string"
-          },
-          "author_name": {
-            "title": "Author Name",
-            "type": "string"
-          },
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "likes": {
-            "default": 0,
-            "title": "Likes",
-            "type": "integer"
-          },
-          "pinned": {
-            "default": false,
-            "title": "Pinned",
-            "type": "boolean"
-          },
-          "replies": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Replies",
-            "type": "array"
-          },
-          "target_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "type": {
-            "default": "general",
-            "enum": [
-              "general",
-              "problem",
-              "contest",
-              "solution"
-            ],
-            "title": "Type",
-            "type": "string"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "content",
-          "author_id",
-          "author_name",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "Discussion",
-        "type": "object"
-      },
       "DiscussionCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2700,6 +2615,24 @@
             "minLength": 1,
             "title": "Content",
             "type": "string"
+          },
+          "solution_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "general",
+                  "tutorial",
+                  "analysis",
+                  "official",
+                  "trick"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solution Category"
           },
           "target_id": {
             "anyOf": [
@@ -2742,7 +2675,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/Discussion"
+              "$ref": "#/components/schemas/DiscussionView"
             },
             "title": "Items",
             "type": "array"
@@ -2772,6 +2705,34 @@
         "title": "DiscussionListResponse",
         "type": "object"
       },
+      "DiscussionReactionResponse": {
+        "properties": {
+          "action": {
+            "enum": [
+              "liked",
+              "unliked",
+              "bookmarked",
+              "unbookmarked"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "discussion": {
+            "$ref": "#/components/schemas/DiscussionView"
+          }
+        },
+        "required": [
+          "discussion",
+          "action",
+          "changed"
+        ],
+        "title": "DiscussionReactionResponse",
+        "type": "object"
+      },
       "DiscussionReplyCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2786,6 +2747,119 @@
           "content"
         ],
         "title": "DiscussionReplyCreate",
+        "type": "object"
+      },
+      "DiscussionView": {
+        "properties": {
+          "author_id": {
+            "title": "Author Id",
+            "type": "string"
+          },
+          "author_name": {
+            "title": "Author Name",
+            "type": "string"
+          },
+          "bookmarked": {
+            "default": false,
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "liked": {
+            "default": false,
+            "title": "Liked",
+            "type": "boolean"
+          },
+          "likes": {
+            "default": 0,
+            "title": "Likes",
+            "type": "integer"
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "replies": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Replies",
+            "type": "array"
+          },
+          "solution_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "general",
+                  "tutorial",
+                  "analysis",
+                  "official",
+                  "trick"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solution Category"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "default": "general",
+            "enum": [
+              "general",
+              "problem",
+              "contest",
+              "solution"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content",
+          "author_id",
+          "author_name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DiscussionView",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -10402,6 +10476,16 @@
           },
           {
             "in": "query",
+            "name": "solution_category",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Solution Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -10510,7 +10594,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/Discussion"
+                  "$ref": "#/components/schemas/DiscussionView"
                 }
               }
             },
@@ -10565,7 +10649,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/Discussion"
+                  "$ref": "#/components/schemas/DiscussionView"
                 }
               }
             },
@@ -10583,6 +10667,222 @@
           }
         },
         "summary": "Get Discussion"
+      }
+    },
+    "/api/v1/discussions/{discussion_id}/bookmark": {
+      "delete": {
+        "operationId": "unbookmark_solution_api_v1_discussions__discussion_id__bookmark_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "discussion_id",
+            "required": true,
+            "schema": {
+              "title": "Discussion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscussionReactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unbookmark Solution"
+      },
+      "put": {
+        "operationId": "bookmark_solution_api_v1_discussions__discussion_id__bookmark_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "discussion_id",
+            "required": true,
+            "schema": {
+              "title": "Discussion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscussionReactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bookmark Solution"
+      }
+    },
+    "/api/v1/discussions/{discussion_id}/like": {
+      "delete": {
+        "operationId": "unlike_solution_api_v1_discussions__discussion_id__like_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "discussion_id",
+            "required": true,
+            "schema": {
+              "title": "Discussion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscussionReactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlike Solution"
+      },
+      "put": {
+        "operationId": "like_solution_api_v1_discussions__discussion_id__like_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "discussion_id",
+            "required": true,
+            "schema": {
+              "title": "Discussion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscussionReactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Like Solution"
       }
     },
     "/api/v1/discussions/{discussion_id}/replies": {
@@ -10630,7 +10930,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "$ref": "#/components/schemas/Discussion"
+                  "$ref": "#/components/schemas/DiscussionView"
                 }
               }
             },

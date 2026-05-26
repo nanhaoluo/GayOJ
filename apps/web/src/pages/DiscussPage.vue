@@ -1,28 +1,54 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, MessageSquarePlus, Search, Send } from 'lucide-vue-next';
+import { Bookmark, ChevronLeft, ChevronRight, Heart, MessageSquarePlus, Search, Send } from 'lucide-vue-next';
 import { onMounted, reactive, ref } from 'vue';
 import { apiRequest, formatDate } from '@/services/api';
-import type { Discussion, DiscussionListResponse } from '@/services/types';
+import type { Discussion, DiscussionListResponse, DiscussionReactionResponse } from '@/services/types';
 
 const discussions = ref<Discussion[]>([]);
 const selected = ref<Discussion | null>(null);
 const error = ref('');
 const loading = ref(false);
+const reacting = ref('');
 const formOpen = ref(false);
 const form = reactive({
   type: 'general',
   target_id: '',
   title: '',
   content: '',
+  solution_category: 'general',
 });
 const reply = ref('');
 const filters = reactive({
   type: '',
+  solution_category: '',
   q: '',
   limit: 10,
   offset: 0,
 });
 const total = ref(0);
+
+const solutionCategories = [
+  { value: 'general', label: '通用' },
+  { value: 'tutorial', label: '教程' },
+  { value: 'analysis', label: '解析' },
+  { value: 'official', label: '官方' },
+  { value: 'trick', label: '技巧' },
+];
+
+const discussionTypes = [
+  { value: 'general', label: '综合讨论' },
+  { value: 'problem', label: '题目讨论' },
+  { value: 'contest', label: '比赛讨论' },
+  { value: 'solution', label: '题解' },
+];
+
+function typeLabel(value: string) {
+  return discussionTypes.find((item) => item.value === value)?.label ?? value;
+}
+
+function categoryLabel(value: string | null | undefined) {
+  return solutionCategories.find((item) => item.value === value)?.label ?? '通用';
+}
 
 async function load() {
   loading.value = true;
@@ -33,8 +59,11 @@ async function load() {
       offset: String(filters.offset),
     });
     if (filters.type) params.set('type', filters.type);
+    if (filters.type === 'solution' && filters.solution_category) {
+      params.set('solution_category', filters.solution_category);
+    }
     if (filters.q.trim()) params.set('q', filters.q.trim());
-    const payload = await apiRequest<DiscussionListResponse>(`/discussions?${params.toString()}`, { auth: false });
+    const payload = await apiRequest<DiscussionListResponse>(`/discussions?${params.toString()}`);
     discussions.value = payload.items;
     total.value = payload.total;
     selected.value = selected.value ? discussions.value.find((item) => item.id === selected.value?.id) ?? null : discussions.value[0] ?? null;
@@ -65,6 +94,7 @@ async function createDiscussion() {
       body: JSON.stringify({
         ...form,
         target_id: form.target_id || null,
+        solution_category: form.type === 'solution' ? form.solution_category : null,
       }),
     });
     form.title = '';
@@ -74,6 +104,40 @@ async function createDiscussion() {
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : '发布失败，请先登录。';
+  }
+}
+
+function updateDiscussion(updated: Discussion) {
+  discussions.value = discussions.value.map((item) => (item.id === updated.id ? updated : item));
+  if (selected.value?.id === updated.id) {
+    selected.value = updated;
+  }
+}
+
+async function toggleReaction(kind: 'like' | 'bookmark') {
+  if (!selected.value || selected.value.type !== 'solution') return;
+  const current = selected.value;
+  const enabled = kind === 'like' ? current.liked : current.bookmarked;
+  const method = enabled ? 'DELETE' : 'PUT';
+  const reactionKey = `${current.id}:${kind}`;
+  reacting.value = reactionKey;
+  error.value = '';
+  const optimistic = { ...current };
+  if (kind === 'like') {
+    optimistic.liked = !enabled;
+    optimistic.likes = Math.max(0, current.likes + (enabled ? -1 : 1));
+  } else {
+    optimistic.bookmarked = !enabled;
+  }
+  updateDiscussion(optimistic);
+  try {
+    const payload = await apiRequest<DiscussionReactionResponse>(`/discussions/${current.id}/${kind}`, { method });
+    updateDiscussion(payload.discussion);
+  } catch (err) {
+    updateDiscussion(current);
+    error.value = err instanceof Error ? err.message : '操作失败，请稍后重试。';
+  } finally {
+    reacting.value = '';
   }
 }
 
@@ -102,7 +166,7 @@ onMounted(load);
         <span class="eyebrow">Discuss</span>
         <h1>讨论区与题解</h1>
       </div>
-      <button class="primary-action" @click="formOpen = !formOpen"><MessageSquarePlus :size="18" />发布</button>
+      <button class="primary-action" type="button" @click="formOpen = !formOpen"><MessageSquarePlus :size="18" />发布</button>
     </section>
 
     <section class="toolbar-panel discussion-filter-panel">
@@ -111,10 +175,14 @@ onMounted(load);
           <span>类型</span>
           <select v-model="filters.type">
             <option value="">全部</option>
-            <option value="general">综合讨论</option>
-            <option value="problem">题目讨论</option>
-            <option value="contest">比赛讨论</option>
-            <option value="solution">题解</option>
+            <option v-for="item in discussionTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
+          </select>
+        </label>
+        <label v-if="filters.type === 'solution'">
+          <span>分类</span>
+          <select v-model="filters.solution_category">
+            <option value="">全部</option>
+            <option v-for="item in solutionCategories" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
@@ -140,10 +208,13 @@ onMounted(load);
         <label>
           类型
           <select v-model="form.type">
-            <option value="general">综合讨论</option>
-            <option value="problem">题目讨论</option>
-            <option value="contest">比赛讨论</option>
-            <option value="solution">题解</option>
+            <option v-for="item in discussionTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
+          </select>
+        </label>
+        <label v-if="form.type === 'solution'">
+          题解分类
+          <select v-model="form.solution_category">
+            <option v-for="item in solutionCategories" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>关联对象<input v-model="form.target_id" placeholder="例如 P1001 或 C1001，可留空" /></label>
@@ -163,10 +234,19 @@ onMounted(load);
           :key="item.id"
           class="discussion-list-item"
           :class="{ active: selected?.id === item.id }"
+          type="button"
           @click="selected = item"
         >
           <strong>{{ item.title }}</strong>
-          <span>{{ item.author_name }} · {{ item.type }} · {{ formatDate(item.updated_at) }}</span>
+          <span>
+            {{ item.author_name }} · {{ typeLabel(item.type) }}
+            <template v-if="item.type === 'solution'"> · {{ categoryLabel(item.solution_category) }}</template>
+            · {{ formatDate(item.updated_at) }}
+          </span>
+          <small v-if="item.type === 'solution'" class="solution-brief">
+            <span><Heart :size="13" />{{ item.likes }}</span>
+            <span v-if="item.bookmarked"><Bookmark :size="13" />已收藏</span>
+          </small>
         </button>
         <p v-if="!loading && discussions.length === 0" class="empty-text">暂无匹配讨论。</p>
       </aside>
@@ -175,9 +255,30 @@ onMounted(load);
         <div class="panel-head">
           <div>
             <h2>{{ selected.title }}</h2>
-            <p>{{ selected.author_name }} · {{ selected.type }} · {{ selected.target_id || '未关联' }}</p>
+            <p>{{ selected.author_name }} · {{ typeLabel(selected.type) }} · {{ selected.target_id || '未关联' }}</p>
           </div>
-          <span class="difficulty">{{ selected.likes }} likes</span>
+          <div v-if="selected.type === 'solution'" class="solution-actions">
+            <span class="difficulty">{{ categoryLabel(selected.solution_category) }}</span>
+            <button
+              class="secondary-action compact"
+              type="button"
+              :class="{ active: selected.liked }"
+              :disabled="reacting === `${selected.id}:like`"
+              @click="toggleReaction('like')"
+            >
+              <Heart :size="15" />{{ selected.likes }}
+            </button>
+            <button
+              class="secondary-action compact"
+              type="button"
+              :class="{ active: selected.bookmarked }"
+              :disabled="reacting === `${selected.id}:bookmark`"
+              @click="toggleReaction('bookmark')"
+            >
+              <Bookmark :size="15" />{{ selected.bookmarked ? '已收藏' : '收藏' }}
+            </button>
+          </div>
+          <span v-else class="difficulty">{{ selected.likes }} likes</span>
         </div>
         <p class="discussion-body">{{ selected.content }}</p>
 

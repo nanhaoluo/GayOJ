@@ -666,6 +666,8 @@ class Store:
             changed = True
         if self._migrate_contest_announcements(data):
             changed = True
+        if self._migrate_discussions(data):
+            changed = True
         return data, changed
 
     def _migrate_system_config(self, data: dict[str, Any], defaults: dict[str, Any]) -> bool:
@@ -1063,6 +1065,52 @@ class Store:
         if normalized != announcements:
             data["contest_announcements"] = normalized
             changed = True
+        return changed
+
+    def _migrate_discussions(self, data: dict[str, Any]) -> bool:
+        discussions = data.get("discussions")
+        if not isinstance(discussions, list):
+            data["discussions"] = []
+            return True
+        changed = False
+        normalized: list[dict[str, Any]] = []
+        valid_categories = {"general", "tutorial", "analysis", "official", "trick"}
+        for raw in discussions:
+            if not isinstance(raw, dict):
+                changed = True
+                continue
+            item = dict(raw)
+            discussion_type = item.get("type") if item.get("type") in {"general", "problem", "contest", "solution"} else "general"
+            item["type"] = discussion_type
+            category = str(item.get("solution_category") or "").strip().lower()
+            if discussion_type == "solution":
+                item["solution_category"] = category if category in valid_categories else "general"
+            else:
+                item["solution_category"] = None
+            for field in ["liked_by", "bookmarked_by"]:
+                raw_users = item.get(field, [])
+                if isinstance(raw_users, str):
+                    raw_users = [raw_users]
+                users: list[str] = []
+                seen: set[str] = set()
+                if isinstance(raw_users, list):
+                    for value in raw_users:
+                        user_id = str(value or "").strip()
+                        if user_id and user_id not in seen:
+                            seen.add(user_id)
+                            users.append(user_id)
+                item[field] = users
+            try:
+                legacy_likes = max(0, int(item.get("likes", 0) or 0))
+            except (TypeError, ValueError):
+                legacy_likes = 0
+            item["likes"] = max(legacy_likes, len(item["liked_by"]))
+            if not isinstance(item.get("replies"), list):
+                item["replies"] = []
+            if item != raw:
+                changed = True
+            normalized.append(item)
+        data["discussions"] = normalized
         return changed
 
     def _migrate_tags(self, data: dict[str, Any], defaults: list[dict[str, Any]]) -> bool:

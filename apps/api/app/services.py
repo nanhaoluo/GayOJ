@@ -29,6 +29,7 @@ from .models import (
     CoachReportFormat,
     Discussion,
     DiscussionListResponse,
+    DiscussionView,
     Notification,
     NotificationStreamEvent,
     NotificationStreamItem,
@@ -53,6 +54,7 @@ COACH_REPORT_MIME_TYPES: dict[CoachReportFormat, str] = {
     "csv": "text/csv; charset=utf-8",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
+SOLUTION_CATEGORY_VALUES = {"general", "tutorial", "analysis", "official", "trick"}
 
 
 def make_submission_id() -> str:
@@ -596,11 +598,43 @@ def discussion_matches_query(discussion: Discussion, query: str) -> bool:
     return needle in haystack
 
 
+def normalize_solution_category(value: str | None) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    return text if text in SOLUTION_CATEGORY_VALUES else "general"
+
+
+def discussion_view(discussion: Discussion, *, viewer_id: str | None = None) -> DiscussionView:
+    liked_by = {str(item) for item in discussion.liked_by}
+    bookmarked_by = {str(item) for item in discussion.bookmarked_by}
+    likes = max(int(discussion.likes or 0), len(liked_by))
+    category = normalize_solution_category(discussion.solution_category) if discussion.type == "solution" else None
+    return DiscussionView(
+        id=discussion.id,
+        type=discussion.type,
+        target_id=discussion.target_id,
+        title=discussion.title,
+        content=discussion.content,
+        author_id=discussion.author_id,
+        author_name=discussion.author_name,
+        pinned=discussion.pinned,
+        likes=likes,
+        solution_category=category,
+        liked=bool(viewer_id and viewer_id in liked_by),
+        bookmarked=bool(viewer_id and viewer_id in bookmarked_by),
+        replies=discussion.replies,
+        created_at=discussion.created_at,
+        updated_at=discussion.updated_at,
+    )
+
+
 def paginate_discussions(
     discussions: list[Discussion],
     *,
     limit: int,
     offset: int,
+    viewer_id: str | None = None,
 ) -> DiscussionListResponse:
     ordered = sorted(
         discussions,
@@ -609,7 +643,7 @@ def paginate_discussions(
     )
     total = len(ordered)
     return DiscussionListResponse(
-        items=ordered[offset : offset + limit],
+        items=[discussion_view(item, viewer_id=viewer_id) for item in ordered[offset : offset + limit]],
         total=total,
         limit=limit,
         offset=offset,

@@ -34,6 +34,7 @@ DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
 OfflineAnswerVisibility = Literal["full", "none"]
 OfflineSyncMode = Literal["allow", "disabled"]
+SolutionCategory = Literal["general", "tutorial", "analysis", "official", "trick"]
 
 DEFAULT_STUDENT_SCHOOL = "GayOJ University (GOJU)"
 
@@ -1281,6 +1282,9 @@ class Discussion(BaseModel):
     author_name: str
     pinned: bool = False
     likes: int = 0
+    solution_category: SolutionCategory | None = None
+    liked_by: list[str] = Field(default_factory=list)
+    bookmarked_by: list[str] = Field(default_factory=list)
     replies: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -1293,6 +1297,7 @@ class DiscussionCreate(BaseModel):
     target_id: str | None = Field(default=None, max_length=64)
     title: str = Field(min_length=1, max_length=160)
     content: str = Field(min_length=1, max_length=8000)
+    solution_category: SolutionCategory | None = None
 
     @field_validator("target_id", "title", "content", mode="before")
     @classmethod
@@ -1300,6 +1305,14 @@ class DiscussionCreate(BaseModel):
         if value is None:
             return value
         text = str(value).strip()
+        return text or None
+
+    @field_validator("solution_category", mode="before")
+    @classmethod
+    def normalize_solution_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip().lower()
         return text or None
 
 
@@ -1315,10 +1328,34 @@ class DiscussionReplyCreate(BaseModel):
 
 
 class DiscussionListResponse(BaseModel):
-    items: list[Discussion]
+    items: list["DiscussionView"]
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
+
+
+class DiscussionView(BaseModel):
+    id: str
+    type: DiscussionType = "general"
+    target_id: str | None = None
+    title: str
+    content: str
+    author_id: str
+    author_name: str
+    pinned: bool = False
+    likes: int = 0
+    solution_category: SolutionCategory | None = None
+    liked: bool = False
+    bookmarked: bool = False
+    replies: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class DiscussionReactionResponse(BaseModel):
+    discussion: DiscussionView
+    action: Literal["liked", "unliked", "bookmarked", "unbookmarked"]
+    changed: bool
 
 
 class NotificationStreamItem(BaseModel):

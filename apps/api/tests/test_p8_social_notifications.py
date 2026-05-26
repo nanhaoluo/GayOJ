@@ -142,6 +142,127 @@ def test_discussion_create_and_reply_validate_target_visibility(client: TestClie
     assert reply.status_code == 404
 
 
+def test_solution_category_like_and_bookmark_are_idempotent_and_redacted(client: TestClient, auth_headers, store) -> None:
+    created = client.post(
+        "/api/v1/discussions",
+        headers=auth_headers("alice"),
+        json={
+            "type": "solution",
+            "target_id": "P1001",
+            "title": "Readable A+B solution",
+            "content": "Read two integers and print the sum.",
+            "solution_category": "tutorial",
+        },
+    )
+    assert created.status_code == 200, created.text
+    discussion = created.json()
+    discussion_id = discussion["id"]
+    assert discussion["solution_category"] == "tutorial"
+    assert discussion["likes"] == 0
+    assert discussion["liked"] is False
+    assert discussion["bookmarked"] is False
+    assert "liked_by" not in discussion
+    assert "bookmarked_by" not in discussion
+
+    first_like = client.put(f"/api/v1/discussions/{discussion_id}/like", headers=auth_headers("coach"))
+    second_like = client.put(f"/api/v1/discussions/{discussion_id}/like", headers=auth_headers("coach"))
+    bookmark = client.put(f"/api/v1/discussions/{discussion_id}/bookmark", headers=auth_headers("coach"))
+
+    assert first_like.status_code == 200, first_like.text
+    assert first_like.json()["changed"] is True
+    assert first_like.json()["discussion"]["likes"] == 1
+    assert first_like.json()["discussion"]["liked"] is True
+    assert second_like.status_code == 200, second_like.text
+    assert second_like.json()["changed"] is False
+    assert second_like.json()["discussion"]["likes"] == 1
+    assert bookmark.status_code == 200, bookmark.text
+    assert bookmark.json()["discussion"]["bookmarked"] is True
+
+    filtered = client.get(
+        "/api/v1/discussions?type=solution&solution_category=tutorial",
+        headers=auth_headers("coach"),
+    )
+    assert filtered.status_code == 200, filtered.text
+    payload = filtered.json()
+    assert any(item["id"] == discussion_id and item["liked"] and item["bookmarked"] for item in payload["items"])
+    assert "liked_by" not in str(payload)
+    assert "bookmarked_by" not in str(payload)
+
+    unlike = client.delete(f"/api/v1/discussions/{discussion_id}/like", headers=auth_headers("coach"))
+    unbookmark = client.delete(f"/api/v1/discussions/{discussion_id}/bookmark", headers=auth_headers("coach"))
+    assert unlike.status_code == 200, unlike.text
+    assert unlike.json()["changed"] is True
+    assert unlike.json()["discussion"]["likes"] == 0
+    assert unbookmark.status_code == 200, unbookmark.text
+    assert unbookmark.json()["changed"] is True
+    assert unbookmark.json()["discussion"]["bookmarked"] is False
+
+    stored = store.get_discussion(discussion_id)
+    assert stored is not None
+    assert stored.liked_by == []
+    assert stored.bookmarked_by == []
+
+
+def test_solution_reactions_respect_visibility_and_type(client: TestClient, auth_headers, store) -> None:
+    timestamp = now()
+    hidden_problem = Problem(
+        id="P-HIDDEN-SOLUTION",
+        title="Hidden Solution Target",
+        type="blank",
+        difficulty="提高",
+        tags=[],
+        statement="Hidden",
+        blanks=[{"key": "answer", "label": "answer", "score": 100}],
+        author_id="u-coach",
+        visible=False,
+        judge_config={"answers": {"answer": ["hidden-answer"]}},
+        created_at=timestamp,
+    )
+    hidden_solution = Discussion(
+        id="D-HIDDEN-SOLUTION",
+        type="solution",
+        target_id=hidden_problem.id,
+        title="Hidden solution",
+        content="hidden-answer and judge_config should not leak",
+        author_id="u-coach",
+        author_name="Coach Lin",
+        solution_category="analysis",
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    general_discussion = Discussion(
+        id="D-NOT-SOLUTION",
+        type="general",
+        title="General discussion",
+        content="No reactions here.",
+        author_id="u-student",
+        author_name="Alice Chen",
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    data = store._read()
+    problem_item = hidden_problem.model_dump(mode="json")
+    judge_config = problem_item.pop("judge_config")
+    data["problems"].append(problem_item)
+    data.setdefault("problem_judge_config", {})[hidden_problem.id] = judge_config
+    data["discussions"].extend([hidden_solution.model_dump(mode="json"), general_discussion.model_dump(mode="json")])
+    store._write(data)
+
+    denied = client.put(f"/api/v1/discussions/{hidden_solution.id}/like", headers=auth_headers("alice"))
+    assert denied.status_code == 404
+    allowed = client.put(f"/api/v1/discussions/{hidden_solution.id}/like", headers=auth_headers("coach"))
+    assert allowed.status_code == 200, allowed.text
+    assert "hidden-answer" in allowed.json()["discussion"]["content"]
+    serialized_public = str(client.get("/api/v1/discussions?type=solution").json())
+    assert "Hidden solution" not in serialized_public
+    assert "hidden-answer" not in serialized_public
+    assert "judge_config" not in serialized_public
+
+    wrong_type = client.put(f"/api/v1/discussions/{general_discussion.id}/like", headers=auth_headers("alice"))
+    assert wrong_type.status_code == 400
+    assert wrong_type.json()["detail"] == "Only solution posts support this action"
+
+
 def test_notification_stream_is_user_scoped_and_redacted(client: TestClient, auth_headers, store) -> None:
     timestamp = now()
     data = store._read()

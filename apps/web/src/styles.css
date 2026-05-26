@@ -2796,6 +2796,36 @@ pre {
   font-size: 13px;
 }
 
+.solution-brief,
+.solution-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.solution-brief {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.solution-brief span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.solution-actions {
+  justify-content: flex-end;
+}
+
+.solution-actions .secondary-action.active {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+  background: oklch(0.95 0.045 184);
+}
+
 .discussion-body {
   white-space: pre-wrap;
   padding: 14px;
@@ -3858,6 +3888,7 @@ pre {
 
   .discussion-filter,
   .discussion-pager,
+  .solution-actions,
   .notification-status-panel {
     align-items: stretch;
     flex-direction: column;
@@ -3865,6 +3896,7 @@ pre {
 
   .discussion-filter label,
   .discussion-filter .secondary-action,
+  .solution-actions .secondary-action,
   .notification-status-panel > div {
     width: 100%;
   }

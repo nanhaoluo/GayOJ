@@ -771,7 +771,7 @@ def test_contest_unfreeze_requires_manage_permission(client: TestClient, auth_he
 def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
-    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    start_at = datetime.now(timezone.utc) - timedelta(hours=1)
     contest.start_at = start_at
     contest.end_at = start_at + timedelta(hours=5)
     contest.frozen = False
@@ -1317,7 +1317,7 @@ def test_external_and_live_board_hide_private_contest(client: TestClient, store)
 def test_rolling_board_requires_judge_or_manage_and_contest_end(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
-    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    start_at = datetime.now(timezone.utc) - timedelta(hours=1)
     contest.start_at = start_at
     contest.end_at = start_at + timedelta(hours=5)
     contest.frozen = True
