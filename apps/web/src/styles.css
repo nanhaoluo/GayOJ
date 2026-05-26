@@ -378,10 +378,118 @@ a {
   gap: 16px;
 }
 
+.workbench-actions-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.workbench-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.workbench-action {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  padding: 0 12px;
+  color: var(--text);
+  font-weight: 750;
+}
+
+.workbench-action:hover {
+  border-color: var(--primary);
+}
+
+.workbench-action:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  background: var(--surface-strong);
+}
+
+.workbench-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-action strong {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: white;
+  font-size: 12px;
+}
+
+.workbench-alerts {
+  display: grid;
+  gap: 8px;
+}
+
+.workbench-alert {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: white;
+  color: var(--text);
+}
+
+.workbench-alert span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-alert.warning {
+  border-color: #f3b33d;
+  background: #fff8eb;
+}
+
+.workbench-alert.critical {
+  border-color: #ef4444;
+  background: #fff1f2;
+}
+
+.workbench-alert.info {
+  border-color: #48a868;
+  background: #effaf2;
+}
+
 .monitor-panel {
   display: grid;
   gap: 12px;
   padding: 16px;
+}
+
+.contest-ops-form {
+  display: grid;
+  gap: 10px;
+}
+
+.contest-ops-form input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: white;
 }
 
 .announcement-form {
@@ -4185,6 +4293,21 @@ pre {
 
   .contest-submissions-layout {
     grid-template-columns: 1fr;
+  }
+
+  .contest-monitor-grid,
+  .monitor-feed-row,
+  .monitor-list-row.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .monitor-panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workbench-alert span {
+    white-space: normal;
   }
 
   .contest-manage-table,

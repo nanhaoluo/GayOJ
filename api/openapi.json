@@ -1782,6 +1782,20 @@
       },
       "ContestJudgeMonitorResponse": {
         "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ContestJudgeWorkbenchAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/ContestJudgeWorkbenchAlert"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
           "announcements": {
             "items": {
               "$ref": "#/components/schemas/ContestAnnouncement"
@@ -1833,6 +1847,9 @@
           "queue_depth": {
             "title": "Queue Depth",
             "type": "integer"
+          },
+          "workbench": {
+            "$ref": "#/components/schemas/ContestJudgeWorkbenchSummary"
           }
         },
         "required": [
@@ -1841,7 +1858,8 @@
           "queue",
           "last_submissions",
           "judge_nodes",
-          "clarifications"
+          "clarifications",
+          "workbench"
         ],
         "title": "ContestJudgeMonitorResponse",
         "type": "object"
@@ -1889,6 +1907,158 @@
           "leased"
         ],
         "title": "ContestJudgeQueueSummary",
+        "type": "object"
+      },
+      "ContestJudgeWorkbenchAction": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          },
+          "key": {
+            "enum": [
+              "submissions",
+              "clarifications",
+              "print",
+              "balloons",
+              "standings",
+              "external_board",
+              "live_board",
+              "rolling_board",
+              "rejudge",
+              "freeze"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "pending_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "href"
+        ],
+        "title": "ContestJudgeWorkbenchAction",
+        "type": "object"
+      },
+      "ContestJudgeWorkbenchAlert": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "required": [
+          "severity",
+          "category",
+          "message",
+          "created_at"
+        ],
+        "title": "ContestJudgeWorkbenchAlert",
+        "type": "object"
+      },
+      "ContestJudgeWorkbenchSummary": {
+        "properties": {
+          "failed_queue_jobs": {
+            "minimum": 0.0,
+            "title": "Failed Queue Jobs",
+            "type": "integer"
+          },
+          "frozen": {
+            "default": false,
+            "title": "Frozen",
+            "type": "boolean"
+          },
+          "leased_queue_jobs": {
+            "minimum": 0.0,
+            "title": "Leased Queue Jobs",
+            "type": "integer"
+          },
+          "offline_judge_nodes": {
+            "minimum": 0.0,
+            "title": "Offline Judge Nodes",
+            "type": "integer"
+          },
+          "pending_balloons": {
+            "minimum": 0.0,
+            "title": "Pending Balloons",
+            "type": "integer"
+          },
+          "pending_clarifications": {
+            "minimum": 0.0,
+            "title": "Pending Clarifications",
+            "type": "integer"
+          },
+          "pending_print_jobs": {
+            "minimum": 0.0,
+            "title": "Pending Print Jobs",
+            "type": "integer"
+          },
+          "pending_queue_jobs": {
+            "minimum": 0.0,
+            "title": "Pending Queue Jobs",
+            "type": "integer"
+          },
+          "recent_submissions": {
+            "minimum": 0.0,
+            "title": "Recent Submissions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending_clarifications",
+          "pending_print_jobs",
+          "pending_balloons",
+          "pending_queue_jobs",
+          "leased_queue_jobs",
+          "failed_queue_jobs",
+          "recent_submissions",
+          "offline_judge_nodes"
+        ],
+        "title": "ContestJudgeWorkbenchSummary",
         "type": "object"
       },
       "ContestPrintJobSummary": {

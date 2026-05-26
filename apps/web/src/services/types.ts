@@ -476,6 +476,49 @@ export interface ContestJudgeMonitor {
   announcements: ContestAnnouncement[];
   balloons: ContestBalloon[];
   print_jobs: ContestPrintJobSummary[];
+  workbench: ContestJudgeWorkbenchSummary;
+  actions: ContestJudgeWorkbenchAction[];
+  alerts: ContestJudgeWorkbenchAlert[];
+}
+
+export interface ContestJudgeWorkbenchSummary {
+  pending_clarifications: number;
+  pending_print_jobs: number;
+  pending_balloons: number;
+  pending_queue_jobs: number;
+  leased_queue_jobs: number;
+  failed_queue_jobs: number;
+  recent_submissions: number;
+  offline_judge_nodes: number;
+  frozen: boolean;
+}
+
+export type ContestJudgeActionKey =
+  | 'submissions'
+  | 'clarifications'
+  | 'print'
+  | 'balloons'
+  | 'standings'
+  | 'external_board'
+  | 'live_board'
+  | 'rolling_board'
+  | 'rejudge'
+  | 'freeze';
+
+export interface ContestJudgeWorkbenchAction {
+  key: ContestJudgeActionKey;
+  label: string;
+  href: string;
+  pending_count: number;
+  enabled: boolean;
+}
+
+export interface ContestJudgeWorkbenchAlert {
+  severity: 'info' | 'warning' | 'critical';
+  category: string;
+  message: string;
+  target: string | null;
+  created_at: string;
 }
 
 export interface AuditLog {

@@ -650,6 +650,12 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
         json={"title": "C2001 Announcement", "content": "Only for C2001"},
     )
     assert ann_b.status_code == 200, ann_b.text
+    print_a = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("judge"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('monitor print')\n"},
+    )
+    assert print_a.status_code == 200, print_a.text
 
     anonymous = client.get("/api/v1/judge/monitor/C1001")
     student = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("alice"))
@@ -660,6 +666,10 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert student.status_code == 403
     assert coach.status_code == 200, coach.text
     assert judge.status_code == 200, judge.text
+
+    coach_actions = {item["key"]: item for item in coach.json()["actions"]}
+    assert coach_actions["freeze"]["enabled"] is True
+    assert coach_actions["rejudge"]["enabled"] is False
 
     payload = judge.json()
     assert payload["contest"]["id"] == "C1001"
@@ -675,11 +685,95 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert ann_b.json()["id"] not in {item["id"] for item in payload["announcements"]}
     assert payload["balloons"][0]["contest_id"] == "C1001"
     assert all(item["contest_id"] == "C1001" for item in payload["balloons"])
+    assert all("judge_config" not in item for item in payload["contest"]["problems"])
+    assert all("source_code" not in item for item in payload["print_jobs"])
+
+    workbench = payload["workbench"]
+    assert workbench["pending_clarifications"] == 1
+    assert workbench["pending_print_jobs"] == 1
+    assert workbench["pending_balloons"] >= 1
+    assert workbench["pending_queue_jobs"] == 1
+    assert workbench["recent_submissions"] == 2
+    assert workbench["frozen"] is False
+
+    action_by_key = {item["key"]: item for item in payload["actions"]}
+    assert action_by_key["submissions"]["href"] == "/contests/C1001/submissions"
+    assert action_by_key["clarifications"]["href"] == "/judge/clar/C1001"
+    assert action_by_key["print"]["href"] == "/contests/C1001/print"
+    assert action_by_key["balloons"]["href"] == "/judge/balloons/C1001"
+    assert action_by_key["external_board"]["href"] == "/contests/C1001/external-board"
+    assert action_by_key["rolling_board"]["enabled"] is False
+    assert action_by_key["clarifications"]["pending_count"] == 1
+    assert action_by_key["print"]["pending_count"] == 1
+    assert action_by_key["freeze"]["enabled"] is True
+    assert action_by_key["rejudge"]["enabled"] is False
+
+    alert_categories = {item["category"] for item in payload["alerts"]}
+    assert {"clarification", "print", "balloon"}.issubset(alert_categories)
 
 
 def test_contest_judge_monitor_rejects_unknown_contest(client: TestClient, auth_headers) -> None:
     response = client.get("/api/v1/judge/monitor/C404", headers=auth_headers("judge"))
     assert response.status_code == 404
+
+
+def test_contest_judge_workbench_reports_queue_and_freeze_alerts(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.frozen = True
+    contest.frozen_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store.update_contest(contest)
+
+    queued = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('stale')\n"},
+    )
+    assert queued.status_code == 200, queued.text
+    submission = store.get_submission(queued.json()["id"])
+    assert submission is not None
+    job = store.get_judge_queue_job(submission.queue_job_id or "")
+    assert job is not None
+    job.status = "leased"
+    job.assigned_node_id = "node-1"
+    job.leased_at = datetime.now(timezone.utc) - timedelta(minutes=45)
+    store.update_judge_queue_job(job)
+
+    failed_submission_response = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('failed')\n"},
+    )
+    assert failed_submission_response.status_code == 200, failed_submission_response.text
+    failed_submission = store.get_submission(failed_submission_response.json()["id"])
+    assert failed_submission is not None
+    failed = store.get_judge_queue_job(failed_submission.queue_job_id or "")
+    assert failed is not None
+    failed.status = "failed"
+    failed.last_error = "sandbox unavailable"
+    failed.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    failed.leased_at = None
+    store.update_judge_queue_job(failed)
+
+    node = next(item for item in store.list_judge_nodes() if item.id == "node-2")
+    node.status = "offline"
+    store.update_judge_node(node)
+
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    payload = monitor.json()
+
+    assert payload["workbench"]["frozen"] is True
+    assert payload["workbench"]["leased_queue_jobs"] == 1
+    assert payload["workbench"]["failed_queue_jobs"] == 1
+    assert payload["workbench"]["offline_judge_nodes"] == 1
+
+    alert_by_category = {item["category"]: item for item in payload["alerts"]}
+    assert alert_by_category["freeze"]["severity"] == "info"
+    assert alert_by_category["judge_node"]["severity"] == "warning"
+    assert "queue" in {item["category"] for item in payload["alerts"]}
+    assert any(item["severity"] == "critical" and item["category"] == "queue" for item in payload["alerts"])
+    assert any("30 分钟" in item["message"] for item in payload["alerts"])
 
 
 def test_global_judge_monitor_skips_non_balloon_submissions(client: TestClient, auth_headers, store) -> None:

@@ -591,6 +591,26 @@ for problems present in the current signed pack. `sync-results` forwards the
 recorded source to the API; the API rejects results whose source problem set is
 not authorized for that problem and returns a machine-readable `reason_code`.
 
+## P6-13 Contest judge workbench
+
+The pure judge workbench lives at:
+
+```text
+/judge/monitor/{contest_id}
+GET /api/v1/judge/monitor/{contest_id}
+```
+
+It aggregates contest-scoped judge queue state, recent submissions,
+Clarification, announcements, print jobs, balloons, action links, and operational
+alerts. The workbench links to the existing pure target pages for submissions,
+Clarification review, print desk, balloon desk, internal/external boards, live
+board, and rolling board.
+
+The response omits submitted source and objective `judge_config`; print source
+is still only readable from the print-job detail endpoint by authorized users.
+Freeze/unfreeze and contest rejudge actions remain permission checked and audited,
+and rejudge only requeues code submissions for the online judge worker.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
@@ -686,8 +706,8 @@ The Phase 0 development summary is tracked in [`docs/p0-development-summary.md`]
 
 - 用户登录与 RBAC 演示角色：选手、教练、裁判、管理员
 - 题库浏览、题目详情、代码题提交、填空题/选择题即时判分
-- 提交记录、比赛列表、实时排行榜、全局排行榜
-- 教练端训练分析、裁判端提交流与节点监控、管理端用户/节点/审计日志
+- 提交记录、比赛列表、实时排行榜、外榜、滚榜、全局排行榜
+- 教练端训练分析、裁判端提交流、比赛工作台、Clarification、代码打印、气球和节点监控，管理端用户/节点/审计日志
 - 客观题离线训练包下载、签名校验、本地答题与判分
 - FastAPI Swagger 文档：`/api/docs`
 
@@ -808,5 +828,5 @@ docs/              架构与后续路线说明
 - 将文件存储替换为 PostgreSQL 迁移与仓储层
 - 接入 Redis 队列，把代码题提交转交真实沙箱评测节点
 - 引入 Monaco Editor、WebSocket 排行榜推送和 Prometheus 指标
-- 完成题目 CRUD 表单、比赛创建、Clarification 和重测流程
+- 继续补齐报名名单、虚拟参赛、赛后归档和现场赛运维工具
 

@@ -1,10 +1,27 @@
 <script setup lang="ts">
-import { ArrowLeft, Bell, RefreshCw, Send } from 'lucide-vue-next';
-import { computed, onMounted, ref } from 'vue';
+import {
+  ArrowLeft,
+  AlertTriangle,
+  Bell,
+  Eye,
+  Gift,
+  ListChecks,
+  Lock,
+  MessageSquare,
+  MonitorUp,
+  Printer,
+  Radio,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  Trophy,
+  Unlock,
+} from 'lucide-vue-next';
+import { type Component, computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { ContestJudgeMonitor } from '@/services/types';
+import type { ContestJudgeActionKey, ContestJudgeMonitor, ContestRejudgeResponse } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
@@ -14,14 +31,40 @@ const error = ref('');
 const announcementTitle = ref('');
 const announcementContent = ref('');
 const publishing = ref(false);
+const rejudgeReason = ref('');
+const freezeReason = ref('');
+const operating = ref('');
 
-const pendingClarifications = computed(() => data.value?.clarifications.filter((item) => !item.answer) ?? []);
 const repliedClarifications = computed(() => data.value?.clarifications.filter((item) => item.answer) ?? []);
-const pendingBalloons = computed(() => data.value?.balloons.filter((item) => !item.released) ?? []);
+const pendingPrintJobs = computed(() => data.value?.print_jobs.filter((item) => item.status === 'pending') ?? []);
 const canPublishAnnouncements = computed(() => {
   const permissions = authState.user?.permissions ?? [];
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
 });
+const canManageFreeze = computed(() => {
+  const permissions = authState.user?.permissions ?? [];
+  return permissions.includes('contest:manage');
+});
+const canTriggerRejudge = computed(() => {
+  const permissions = authState.user?.permissions ?? [];
+  return permissions.includes('submission:override');
+});
+const canManageContestOps = computed(() => {
+  return canManageFreeze.value || canTriggerRejudge.value;
+});
+
+const actionIconMap: Record<ContestJudgeActionKey, Component> = {
+  submissions: ListChecks,
+  clarifications: MessageSquare,
+  print: Printer,
+  balloons: Gift,
+  standings: Trophy,
+  external_board: MonitorUp,
+  live_board: Radio,
+  rolling_board: Eye,
+  rejudge: RotateCcw,
+  freeze: Lock,
+};
 
 function clarificationTitle(item: ContestJudgeMonitor['clarifications'][number]): string {
   if (!item.problem_id) return '全局问题';
@@ -30,6 +73,18 @@ function clarificationTitle(item: ContestJudgeMonitor['clarifications'][number])
 
 function balloonProblemTitle(item: ContestJudgeMonitor['balloons'][number]): string {
   return `${item.problem_key || item.problem_id} · ${item.problem_title}`;
+}
+
+function alertClass(severity: string): string {
+  return `workbench-alert ${severity}`;
+}
+
+function actionIcon(key: ContestJudgeActionKey): Component {
+  return actionIconMap[key] ?? ListChecks;
+}
+
+async function openAction(href: string) {
+  await router.push(href);
 }
 
 async function load() {
@@ -62,6 +117,60 @@ async function publishAnnouncement() {
   }
 }
 
+async function freezeContest() {
+  if (!canManageFreeze.value) return;
+  operating.value = 'freeze';
+  error.value = '';
+  try {
+    await apiRequest(`/contests/${route.params.id}/freeze`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: freezeReason.value || 'judge workbench freeze' }),
+    });
+    freezeReason.value = '';
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '封榜失败';
+  } finally {
+    operating.value = '';
+  }
+}
+
+async function unfreezeContest() {
+  if (!canManageFreeze.value) return;
+  operating.value = 'unfreeze';
+  error.value = '';
+  try {
+    await apiRequest(`/contests/${route.params.id}/unfreeze`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: freezeReason.value || 'judge workbench unfreeze' }),
+    });
+    freezeReason.value = '';
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '解封失败';
+  } finally {
+    operating.value = '';
+  }
+}
+
+async function rejudgeContest() {
+  if (!canTriggerRejudge.value) return;
+  operating.value = 'rejudge';
+  error.value = '';
+  try {
+    const result = await apiRequest<ContestRejudgeResponse>(`/contests/${route.params.id}/rejudge`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: rejudgeReason.value || 'judge workbench rejudge' }),
+    });
+    rejudgeReason.value = `已重测 ${result.requeued_count} 条，跳过 ${result.skipped_count} 条`;
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '重测失败';
+  } finally {
+    operating.value = '';
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -87,16 +196,16 @@ onMounted(load);
           <article class="monitor-stat-card">
             <small>队列深度</small>
             <strong>{{ data.queue_depth }}</strong>
-            <span>{{ data.queue.pending }} 待调度 / {{ data.queue.leased }} 执行中</span>
+            <span>{{ data.workbench.pending_queue_jobs }} 待调度 / {{ data.workbench.leased_queue_jobs }} 执行中</span>
           </article>
           <article class="monitor-stat-card">
             <small>比赛提交</small>
-            <strong>{{ data.last_submissions.length }}</strong>
+            <strong>{{ data.workbench.recent_submissions }}</strong>
             <span>最近 10 条比赛内提交</span>
           </article>
           <article class="monitor-stat-card">
             <small>Clarification</small>
-            <strong>{{ pendingClarifications.length }}</strong>
+            <strong>{{ data.workbench.pending_clarifications }}</strong>
             <span>{{ repliedClarifications.length }} 条已处理</span>
           </article>
           <article class="monitor-stat-card">
@@ -106,17 +215,86 @@ onMounted(load);
           </article>
           <article class="monitor-stat-card">
             <small>气球</small>
-            <strong>{{ pendingBalloons.length }}</strong>
+            <strong>{{ data.workbench.pending_balloons }}</strong>
             <span>{{ data.balloons.length }} 条比赛记录</span>
           </article>
           <article class="monitor-stat-card">
             <small>打印单</small>
-            <strong>{{ data.print_jobs.filter((item) => item.status === 'pending').length }}</strong>
+            <strong>{{ data.workbench.pending_print_jobs }}</strong>
             <span>{{ data.print_jobs.length }} 条打印请求</span>
           </article>
         </section>
 
+        <section class="workbench-actions-panel">
+          <div class="workbench-action-grid">
+            <button
+              v-for="action in data.actions"
+              :key="action.key"
+              class="workbench-action"
+              type="button"
+              :disabled="!action.enabled"
+              @click="openAction(action.href)"
+            >
+              <component :is="actionIcon(action.key)" :size="18" />
+              <span>{{ action.label }}</span>
+              <strong v-if="action.pending_count">{{ action.pending_count }}</strong>
+            </button>
+          </div>
+          <div v-if="data.alerts.length" class="workbench-alerts">
+            <button
+              v-for="alert in data.alerts"
+              :key="`${alert.category}-${alert.message}`"
+              :class="alertClass(alert.severity)"
+              type="button"
+              @click="alert.target ? openAction(alert.target) : undefined"
+            >
+              <AlertTriangle :size="16" />
+              <span>{{ alert.message }}</span>
+            </button>
+          </div>
+        </section>
+
         <section class="contest-monitor-grid">
+          <article v-if="canManageContestOps" class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>正式赛运维</h2>
+                <p>封榜、解封和赛后重测都会写入审计日志。</p>
+              </div>
+              <StatusBadge :status="data.workbench.frozen ? 'disabled' : data.contest.status" />
+            </div>
+            <div class="contest-ops-form">
+              <input v-model="freezeReason" type="text" maxlength="300" placeholder="封榜/解封原因" />
+              <div class="row-actions">
+                <button
+                  class="secondary-action"
+                  type="button"
+                  :disabled="!canManageFreeze || operating === 'freeze' || data.workbench.frozen"
+                  @click="freezeContest"
+                >
+                  <Lock :size="16" />封榜
+                </button>
+                <button
+                  class="secondary-action"
+                  type="button"
+                  :disabled="!canManageFreeze || operating === 'unfreeze' || !data.workbench.frozen"
+                  @click="unfreezeContest"
+                >
+                  <Unlock :size="16" />解封
+                </button>
+              </div>
+              <input v-model="rejudgeReason" type="text" maxlength="300" placeholder="赛后重测原因" />
+              <button
+                class="secondary-action"
+                type="button"
+                :disabled="!canTriggerRejudge || operating === 'rejudge'"
+                @click="rejudgeContest"
+              >
+                <RotateCcw :size="16" />触发比赛重测
+              </button>
+            </div>
+          </article>
+
           <article class="monitor-panel">
             <div class="monitor-panel-head">
               <div>
@@ -177,6 +355,9 @@ onMounted(load);
                 <h2>Clarification</h2>
                 <p>未处理问题优先显示。</p>
               </div>
+              <button class="secondary-action compact" type="button" @click="openAction(`/judge/clar/${route.params.id}`)">
+                <MessageSquare :size="14" />处理
+              </button>
             </div>
             <div class="monitor-list">
               <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
@@ -216,6 +397,9 @@ onMounted(load);
                 <h2>气球记录</h2>
                 <p>只统计当前比赛可发放气球的通过记录。</p>
               </div>
+              <button class="secondary-action compact" type="button" @click="openAction(`/judge/balloons/${route.params.id}`)">
+                <Gift :size="14" />气球台
+              </button>
             </div>
             <div class="monitor-list">
               <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
@@ -235,9 +419,12 @@ onMounted(load);
                 <h2>打印单</h2>
                 <p>只展示当前比赛代码打印请求。</p>
               </div>
+              <button class="secondary-action compact" type="button" @click="openAction(`/contests/${route.params.id}/print`)">
+                <Printer :size="14" />打印台
+              </button>
             </div>
             <div class="monitor-list">
-              <div v-for="job in data.print_jobs" :key="job.id" class="monitor-list-row compact">
+              <div v-for="job in pendingPrintJobs.concat(data.print_jobs.filter((item) => item.status !== 'pending'))" :key="job.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
                   <strong>{{ job.problem_key || job.problem_id }} · {{ job.user_display_name || job.user_id }}</strong>
                   <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ formatDate(job.requested_at) }}</span>
