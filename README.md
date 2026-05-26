@@ -621,9 +621,9 @@ actions write audit metadata with contest id, problem id, question owner, and
 public/broadcast state.
 
 Contest printing is stored as contest print jobs. Students can request printing
-only from their own contest submissions; authorized judges/admins may print
-source from a submission or from the current request body, then read the source
-and mark the job as printed. Print-job lists omit `source_code`, and audits store
+from their own contest submissions or from the current request body; authorized
+judges/admins may also create request-body print jobs, then read the source and
+mark the job as printed. Print-job lists omit `source_code`, and audits store
 only source hashes and metadata. Normal problem submissions reject `contest_id`,
 so contest scoring must go through `/api/v1/contests/{contest_id}/submit`.
 

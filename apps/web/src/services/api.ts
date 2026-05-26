@@ -91,8 +91,16 @@ function invalidateApiCacheForMutation(path: string): void {
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
   const text = await response.text();
+  if (!text) return null;
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('json')) {
+    if (!response.ok) {
+      throw new ApiError(response.status, text || response.statusText);
+    }
+    throw new ApiError(response.status, 'Invalid non-JSON response');
+  }
   try {
-    return text ? JSON.parse(text) : null;
+    return JSON.parse(text);
   } catch {
     if (!response.ok) {
       throw new ApiError(response.status, text || response.statusText);

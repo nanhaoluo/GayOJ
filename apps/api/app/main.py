@@ -4076,8 +4076,6 @@ def print_contest_source(
         contest_problem_lookup(contest, store, submission.problem_id, user)
     elif payload.source_code:
         ensure_contest_access(user, contest, store)
-        if not can_process_contest_print(user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
         if not payload.problem_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires problem_id")
         problem = contest_problem_lookup(contest, store, payload.problem_id, user)

@@ -1163,12 +1163,22 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
     other_student_detail = client.get(f"/api/v1/contests/C1001/print/{own_body['id']}", headers=auth_headers("coach"))
     assert other_student_detail.status_code == 403
 
-    denied_adhoc = client.post(
+    student_adhoc = client.post(
         "/api/v1/contests/C1001/print",
         headers=auth_headers("alice"),
-        json={"problem_id": "P1001", "source_code": "print('manual')\n"},
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('manual')\n"},
     )
-    assert denied_adhoc.status_code == 403
+    assert student_adhoc.status_code == 200, student_adhoc.text
+    assert student_adhoc.json()["source_kind"] == "request"
+    assert student_adhoc.json()["user_id"] == "u-student"
+    assert student_adhoc.json()["source_code"] == "print('manual')\n"
+    assert all(submission.source_code != "print('manual')\n" for submission in store.list_submissions())
+    assert all(job.submission_id != student_adhoc.json()["id"] for job in store.list_judge_queue_jobs())
+
+    student_adhoc_list = client.get("/api/v1/contests/C1001/print", headers=auth_headers("alice"))
+    assert student_adhoc_list.status_code == 200, student_adhoc_list.text
+    assert any(item["id"] == student_adhoc.json()["id"] for item in student_adhoc_list.json())
+    assert all("source_code" not in item for item in student_adhoc_list.json())
 
     judge_adhoc = client.post(
         "/api/v1/contests/C1001/print",
@@ -2750,11 +2760,18 @@ def test_contest_individual_registration_limits_problem_submit_clar_and_print(cl
         headers=auth_headers("alice"),
         json={"question": "now visible?"},
     )
+    allowed_print = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "source_code": "print('registered')\n", "language": "python"},
+    )
 
     assert allowed_problem.status_code == 200, allowed_problem.text
     assert all("judge_config" not in item for item in allowed_problem.json())
     assert allowed_submit.status_code == 200, allowed_submit.text
     assert allowed_clar.status_code == 200, allowed_clar.text
+    assert allowed_print.status_code == 200, allowed_print.text
+    assert allowed_print.json()["source_kind"] == "request"
 
 
 def test_contest_team_registration_allows_team_members_and_blocks_non_members(client: TestClient, auth_headers, store) -> None:
