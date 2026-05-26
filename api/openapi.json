@@ -921,18 +921,8 @@
         "type": "object"
       },
       "CodeSubmitRequest": {
+        "additionalProperties": false,
         "properties": {
-          "contest_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contest Id"
-          },
           "language": {
             "enum": [
               "c",
@@ -1808,6 +1798,13 @@
             "title": "Last Submissions",
             "type": "array"
           },
+          "print_jobs": {
+            "items": {
+              "$ref": "#/components/schemas/ContestPrintJobSummary"
+            },
+            "title": "Print Jobs",
+            "type": "array"
+          },
           "queue": {
             "$ref": "#/components/schemas/ContestJudgeQueueSummary"
           },
@@ -1870,6 +1867,148 @@
           "leased"
         ],
         "title": "ContestJudgeQueueSummary",
+        "type": "object"
+      },
+      "ContestPrintJobSummary": {
+        "properties": {
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "line_count": {
+            "minimum": 0.0,
+            "title": "Line Count",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "printed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed At"
+          },
+          "printed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed By"
+          },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "problem_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Key"
+          },
+          "problem_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Title"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "submission",
+              "request"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "printed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          },
+          "user_display_name": {
+            "default": "",
+            "title": "User Display Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "contest_id",
+          "user_id",
+          "source_kind",
+          "line_count",
+          "requested_at"
+        ],
+        "title": "ContestPrintJobSummary",
         "type": "object"
       },
       "ContestPrintRequest": {
@@ -1936,6 +2075,10 @@
             "title": "Contest Id",
             "type": "string"
           },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
           "language": {
             "anyOf": [
               {
@@ -1952,6 +2095,34 @@
             "title": "Line Count",
             "type": "integer"
           },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "printed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed At"
+          },
+          "printed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed By"
+          },
           "problem_id": {
             "anyOf": [
               {
@@ -1962,6 +2133,33 @@
               }
             ],
             "title": "Problem Id"
+          },
+          "problem_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Key"
+          },
+          "problem_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Title"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
           },
           "source_code": {
             "title": "Source Code",
@@ -1975,6 +2173,16 @@
             "title": "Source Kind",
             "type": "string"
           },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "printed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
           "submission_id": {
             "anyOf": [
               {
@@ -1985,15 +2193,50 @@
               }
             ],
             "title": "Submission Id"
+          },
+          "user_display_name": {
+            "default": "",
+            "title": "User Display Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
           }
         },
         "required": [
+          "id",
           "contest_id",
+          "user_id",
           "source_kind",
-          "source_code",
-          "line_count"
+          "line_count",
+          "requested_at",
+          "source_code"
         ],
         "title": "ContestPrintResponse",
+        "type": "object"
+      },
+      "ContestPrintUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "default": "printed",
+            "enum": [
+              "pending",
+              "printed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ContestPrintUpdate",
         "type": "object"
       },
       "ContestProblemDetail": {
@@ -2225,6 +2468,57 @@
           "type"
         ],
         "title": "ContestProblemView",
+        "type": "object"
+      },
+      "ContestRejudgeRequest": {
+        "properties": {
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Reason",
+            "type": "string"
+          },
+          "statuses": {
+            "items": {
+              "enum": [
+                "queued",
+                "judging",
+                "accepted",
+                "wrong_answer",
+                "time_limit_exceeded",
+                "memory_limit_exceeded",
+                "output_limit_exceeded",
+                "compile_error",
+                "runtime_error",
+                "system_error",
+                "manual_override"
+              ],
+              "type": "string"
+            },
+            "title": "Statuses",
+            "type": "array"
+          },
+          "submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Submission Ids",
+            "type": "array"
+          }
+        },
+        "title": "ContestRejudgeRequest",
         "type": "object"
       },
       "ContestRejudgeResponse": {
@@ -3742,22 +4036,12 @@
         "type": "object"
       },
       "ObjectiveSubmitRequest": {
+        "additionalProperties": false,
         "properties": {
           "answers": {
             "additionalProperties": true,
             "title": "Answers",
             "type": "object"
-          },
-          "contest_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contest Id"
           }
         },
         "required": [
@@ -10236,6 +10520,63 @@
       }
     },
     "/api/v1/contests/{contest_id}/print": {
+      "get": {
+        "operationId": "list_contest_print_jobs_api_v1_contests__contest_id__print_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContestPrintJobSummary"
+                  },
+                  "title": "Response List Contest Print Jobs Api V1 Contests  Contest Id  Print Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Contest Print Jobs"
+      },
       "post": {
         "operationId": "print_contest_source_api_v1_contests__contest_id__print_post",
         "parameters": [
@@ -10298,6 +10639,142 @@
           }
         },
         "summary": "Print Contest Source"
+      }
+    },
+    "/api/v1/contests/{contest_id}/print/{print_job_id}": {
+      "get": {
+        "operationId": "get_contest_print_job_api_v1_contests__contest_id__print__print_job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "print_job_id",
+            "required": true,
+            "schema": {
+              "title": "Print Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestPrintResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Contest Print Job"
+      },
+      "patch": {
+        "operationId": "update_contest_print_job_api_v1_contests__contest_id__print__print_job_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "print_job_id",
+            "required": true,
+            "schema": {
+              "title": "Print Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestPrintUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestPrintResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Contest Print Job"
       }
     },
     "/api/v1/contests/{contest_id}/problems": {
@@ -10393,7 +10870,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RejudgeRequest"
+                "$ref": "#/components/schemas/ContestRejudgeRequest"
               }
             }
           },
