@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Trophy } from 'lucide-vue-next';
+import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Radio, Rows3, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
@@ -48,6 +48,14 @@ async function openStandings() {
   await router.push(`/contests/${route.params.id}/standings`);
 }
 
+async function openExternalBoard() {
+  await router.push(`/contests/${route.params.id}/external-board`);
+}
+
+async function openLiveBoard() {
+  await router.push(`/contests/${route.params.id}/live-board`);
+}
+
 async function openClarifications() {
   await router.push(`/contests/${route.params.id}/clar`);
 }
@@ -81,11 +89,17 @@ onMounted(load);
         <div class="contest-home-toolbar">
           <div class="contest-home-toolbar-copy">
             <h2>比赛题目</h2>
-            <p>按比赛顺序查看题目、提交代码或作答客观题。</p>
+            <p>按比赛顺序查看题面，提交代码或作答客观题。</p>
           </div>
           <div class="row-actions">
             <button class="secondary-action" type="button" @click="openStandings">
               <Trophy :size="16" />榜单
+            </button>
+            <button class="secondary-action" type="button" @click="openExternalBoard">
+              <Rows3 :size="16" />外榜
+            </button>
+            <button class="secondary-action" type="button" @click="openLiveBoard">
+              <Radio :size="16" />实时外榜
             </button>
             <button class="secondary-action" type="button" :disabled="!canUseContestTools" @click="openClarifications">
               <MessageSquare :size="16" />Clarification
@@ -159,7 +173,7 @@ onMounted(load);
             </div>
           </div>
           <div class="contest-home-notes">
-            <p><FileCode2 :size="16" />代码题走在线评测队列。</p>
+            <p><FileCode2 :size="16" />代码题统一进入在线评测队列。</p>
             <p><FileQuestion :size="16" />客观题在比赛内即时判分。</p>
           </div>
         </section>

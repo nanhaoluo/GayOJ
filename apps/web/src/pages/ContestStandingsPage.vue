@@ -2,8 +2,9 @@
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import ContestBoardTable from '@/components/ContestBoardTable.vue';
 import { apiRequest, formatDate } from '@/services/api';
-import type { Contest, StandingProblemResult, StandingRow } from '@/services/types';
+import type { Contest, StandingRow } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
@@ -12,8 +13,6 @@ const contest = ref<Contest | null>(null);
 const standings = ref<StandingRow[]>([]);
 const error = ref('');
 
-const problemIds = computed(() => contest.value?.problems.map((problem) => problem.id) ?? []);
-const isAcmBoard = computed(() => contest.value?.rule === 'ACM');
 const canViewFullBoard = computed(() =>
   Boolean(
     authState.user?.permissions.includes('contest:manage')
@@ -21,72 +20,14 @@ const canViewFullBoard = computed(() =>
       || authState.user?.permissions.includes('clarification:read:all'),
   ),
 );
+
 const freezeNotice = computed(() => {
   if (!contest.value?.freeze_active) return '';
   if (canViewFullBoard.value) {
-    return '当前处于封榜阶段，你看到的是裁判完整榜单。';
+    return '当前比赛处于封榜阶段，你看到的是裁判完整榜单。';
   }
-  return '当前榜单已封榜，仅展示冻结前提交。';
+  return '当前榜单已封榜，仅展示冻结前的提交结果。';
 });
-
-function totalAttempts(row: StandingRow): number {
-  return Object.values(row.problems).reduce((sum, problem) => sum + problem.attempts, 0);
-}
-
-function problemCellClass(problem: StandingProblemResult | undefined): string {
-  if (!problem) return 'standing-problem-cell';
-  if (isAcmBoard.value) {
-    if (problem.accepted_at) {
-      return problem.first_blood ? 'standing-problem-cell accepted first-blood' : 'standing-problem-cell accepted';
-    }
-    if (problem.attempts > 0) {
-      return 'standing-problem-cell attempted';
-    }
-    return 'standing-problem-cell';
-  }
-  if (problem.score >= problem.max_score && problem.max_score > 0) {
-    return 'standing-problem-cell accepted';
-  }
-  if (problem.score > 0 || problem.attempts > 0) {
-    return 'standing-problem-cell attempted';
-  }
-  return 'standing-problem-cell';
-}
-
-function problemCellText(problem: StandingProblemResult | undefined): string {
-  if (!problem) return '-';
-  if (isAcmBoard.value) {
-    if (problem.accepted_at) {
-      const wrongAttempts = Math.max(problem.attempts, 0);
-      return wrongAttempts > 0 ? `+${wrongAttempts}` : '+';
-    }
-    if (problem.attempts > 0) {
-      return `-${problem.attempts}`;
-    }
-    return '-';
-  }
-  if (problem.attempts === 0 && problem.score === 0) {
-    return '-';
-  }
-  return `${problem.score}`;
-}
-
-function problemCellMeta(problem: StandingProblemResult | undefined): string {
-  if (!problem) return '';
-  if (isAcmBoard.value) {
-    if (problem.accepted_at) {
-      return `${problem.penalty_minutes} min${problem.first_blood ? ' / FB' : ''}`;
-    }
-    if (problem.attempts > 0) {
-      return `${problem.attempts} 次尝试`;
-    }
-    return '';
-  }
-  if (problem.attempts > 0) {
-    return `${problem.attempts} 次 / ${problem.max_score}`;
-  }
-  return '';
-}
 
 async function load() {
   error.value = '';
@@ -94,7 +35,7 @@ async function load() {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     standings.value = await apiRequest<StandingRow[]>(`/contests/${route.params.id}/standings`);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '加载失败';
+    error.value = err instanceof Error ? err.message : '加载排行榜失败';
   }
 }
 
@@ -116,36 +57,7 @@ onMounted(load);
       </div>
       <p v-if="freezeNotice" class="freeze-banner">{{ freezeNotice }}</p>
       <p v-if="error" class="form-error">{{ error }}</p>
-      <div class="table-panel">
-        <div class="table-row table-head standings-table standings-grid">
-          <span>#</span>
-          <span>选手</span>
-          <span>{{ isAcmBoard ? '通过' : '总分' }}</span>
-          <span>{{ isAcmBoard ? '罚时' : '满分题' }}</span>
-          <span>{{ isAcmBoard ? '首杀' : '提交' }}</span>
-          <span v-for="problemId in problemIds" :key="problemId">{{ problemId }}</span>
-        </div>
-        <div
-          v-for="(row, index) in standings"
-          :key="row.user_id"
-          class="table-row standings-table standings-grid"
-          :style="{ '--standing-problem-count': String(problemIds.length) }"
-        >
-          <strong>{{ index + 1 }}</strong>
-          <span class="standing-user">{{ row.display_name }}</span>
-          <span>{{ isAcmBoard ? row.solved : row.score }}</span>
-          <span>{{ isAcmBoard ? row.penalty : row.solved }}</span>
-          <span>{{ isAcmBoard ? row.first_blood : totalAttempts(row) }}</span>
-          <div
-            v-for="problemId in problemIds"
-            :key="`${row.user_id}-${problemId}`"
-            :class="problemCellClass(row.problems[problemId])"
-          >
-            <strong>{{ problemCellText(row.problems[problemId]) }}</strong>
-            <small>{{ problemCellMeta(row.problems[problemId]) }}</small>
-          </div>
-        </div>
-      </div>
+      <ContestBoardTable v-if="contest" :contest="contest" :standings="standings" />
     </section>
   </div>
 </template>

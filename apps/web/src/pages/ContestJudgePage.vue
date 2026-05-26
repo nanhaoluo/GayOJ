@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bell, MessageSquare, RefreshCw, ScrollText, Send, Trophy } from 'lucide-vue-next';
+import { ArrowLeft, Bell, MessageSquare, Radio, RefreshCw, Rows3, ScrollText, Send, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -44,6 +44,18 @@ async function openStandings() {
   await router.push(`/contests/${route.params.id}/standings`);
 }
 
+async function openExternalBoard() {
+  await router.push(`/contests/${route.params.id}/external-board`);
+}
+
+async function openLiveBoard() {
+  await router.push(`/contests/${route.params.id}/live-board`);
+}
+
+async function openRollingBoard() {
+  await router.push(`/contests/${route.params.id}/rolling-board`);
+}
+
 async function publishAnnouncement() {
   const title = announcementTitle.value.trim();
   const content = announcementContent.value.trim();
@@ -73,11 +85,23 @@ onMounted(load);
     <header class="pure-toolbar">
       <button class="secondary-action" type="button" @click="router.back()"><ArrowLeft :size="16" />返回</button>
       <div class="pure-toolbar-actions">
+        <button class="secondary-action" type="button" @click="openStandings">
+          <ScrollText :size="16" />榜单
+        </button>
+        <button class="secondary-action" type="button" @click="openExternalBoard">
+          <Rows3 :size="16" />外榜
+        </button>
+        <button class="secondary-action" type="button" @click="openLiveBoard">
+          <Radio :size="16" />实时外榜
+        </button>
+        <button class="secondary-action" type="button" @click="openRollingBoard">
+          <Trophy :size="16" />滚榜
+        </button>
         <button class="secondary-action" type="button" @click="openClarificationDesk">
           <MessageSquare :size="16" />Clarification
         </button>
         <button class="secondary-action" type="button" @click="openBalloonDesk">
-          <Trophy :size="16" />气球台
+          <Bell :size="16" />气球台
         </button>
         <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
       </div>
@@ -85,7 +109,7 @@ onMounted(load);
 
     <section class="pure-content contest-monitor-page">
       <div class="pure-heading">
-        <h1>{{ data?.contest.title || '比赛监控面板' }}</h1>
+        <h1>{{ data?.contest.title || '比赛裁判工作台' }}</h1>
         <p v-if="data">
           {{ data.contest.rule }} · {{ data.contest.status }} · {{ formatDate(data.contest.start_at) }} - {{ formatDate(data.contest.end_at) }}
         </p>
@@ -127,7 +151,7 @@ onMounted(load);
             <div class="monitor-panel-head">
               <div>
                 <h2>比赛公告</h2>
-                <p>公告遵守比赛可见性和资源归属边界。</p>
+                <p>公告遵守比赛可见性与资源归属边界。</p>
               </div>
             </div>
             <form v-if="canPublishAnnouncements" class="announcement-form" @submit.prevent="publishAnnouncement">
@@ -184,7 +208,7 @@ onMounted(load);
             <div class="monitor-panel-head">
               <div>
                 <h2>Clarification</h2>
-                <p>未处理问题优先展示。</p>
+                <p>未处理问题优先显示。</p>
               </div>
               <button class="secondary-action compact" type="button" @click="openClarificationDesk">
                 <MessageSquare :size="14" />审批台

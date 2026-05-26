@@ -1047,6 +1047,40 @@
         "title": "ContestBalloonUpdate",
         "type": "object"
       },
+      "ContestBoardResponse": {
+        "properties": {
+          "board_kind": {
+            "enum": [
+              "external",
+              "live"
+            ],
+            "title": "Board Kind",
+            "type": "string"
+          },
+          "contest": {
+            "$ref": "#/components/schemas/ContestDetail"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "standings": {
+            "items": {
+              "$ref": "#/components/schemas/StandingRow"
+            },
+            "title": "Standings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contest",
+          "board_kind",
+          "generated_at"
+        ],
+        "title": "ContestBoardResponse",
+        "type": "object"
+      },
       "ContestCreate": {
         "properties": {
           "end_at": {
@@ -1551,6 +1585,38 @@
           "rejudge_reason"
         ],
         "title": "ContestRejudgeResponse",
+        "type": "object"
+      },
+      "ContestRollingResponse": {
+        "properties": {
+          "contest": {
+            "$ref": "#/components/schemas/ContestDetail"
+          },
+          "final_standings": {
+            "items": {
+              "$ref": "#/components/schemas/StandingRow"
+            },
+            "title": "Final Standings",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "public_standings": {
+            "items": {
+              "$ref": "#/components/schemas/StandingRow"
+            },
+            "title": "Public Standings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contest",
+          "generated_at"
+        ],
+        "title": "ContestRollingResponse",
         "type": "object"
       },
       "ContestSubmitRequest": {
@@ -8331,6 +8397,45 @@
         "summary": "Create Clarification"
       }
     },
+    "/api/v1/contests/{contest_id}/external-board": {
+      "get": {
+        "operationId": "external_contest_board_api_v1_contests__contest_id__external_board_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestBoardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "External Contest Board"
+      }
+    },
     "/api/v1/contests/{contest_id}/freeze": {
       "post": {
         "operationId": "freeze_contest_api_v1_contests__contest_id__freeze_post",
@@ -8394,6 +8499,45 @@
           }
         },
         "summary": "Freeze Contest"
+      }
+    },
+    "/api/v1/contests/{contest_id}/live-board": {
+      "get": {
+        "operationId": "live_contest_board_api_v1_contests__contest_id__live_board_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestBoardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Live Contest Board"
       }
     },
     "/api/v1/contests/{contest_id}/print": {
@@ -8583,6 +8727,61 @@
           }
         },
         "summary": "Rejudge Contest"
+      }
+    },
+    "/api/v1/contests/{contest_id}/rolling-board": {
+      "get": {
+        "operationId": "rolling_contest_board_api_v1_contests__contest_id__rolling_board_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRollingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rolling Contest Board"
       }
     },
     "/api/v1/contests/{contest_id}/standings": {
