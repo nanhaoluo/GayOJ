@@ -23,6 +23,16 @@ const canPublishAnnouncements = computed(() => {
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
 });
 
+type ProblemLabelSource = {
+  problem_key?: string | null;
+  problem_title?: string | null;
+  problem_id?: string | null;
+};
+
+function contestProblemLabel(item: ProblemLabelSource): string {
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ') || item.problem_title || item.problem_key || '比赛题目';
+}
+
 async function load() {
   error.value = '';
   try {
@@ -152,7 +162,7 @@ onMounted(load);
             <div class="monitor-feed">
               <div v-for="item in data.last_submissions" :key="item.id" class="monitor-feed-row">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.problem_title }}</strong>
+                  <strong>{{ contestProblemLabel(item) }}</strong>
                   <span>{{ problemTypeLabel(item.problem_type) }} · {{ item.language || '客观题' }} · {{ formatDate(item.created_at) }}</span>
                 </div>
                 <StatusBadge :status="item.status" />
@@ -172,7 +182,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.problem_title || item.problem_id || '全局问题' }}</strong>
+                  <strong>{{ item.problem_key || item.problem_title ? contestProblemLabel(item) : '全局问题' }}</strong>
                   <span>{{ item.user_display_name || '匿名选手' }} · {{ formatDate(item.created_at) }}</span>
                   <p>{{ item.question }}</p>
                 </div>
@@ -192,7 +202,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="job in data.queue.last_jobs" :key="job.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ job.problem_id }} · {{ job.language }}</strong>
+                  <strong>{{ job.language }}</strong>
                   <span>{{ job.submission_id }} · {{ formatDate(job.created_at) }}</span>
                 </div>
                 <StatusBadge :status="job.status" />
@@ -211,7 +221,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.display_name }} · {{ item.problem_id }}</strong>
+                  <strong>{{ item.display_name }} · {{ item.problem_key || '题号' }}</strong>
                   <span>{{ item.problem_title }} · {{ formatDate(item.judged_at) }}</span>
                 </div>
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
@@ -230,7 +240,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="job in data.print_jobs" :key="job.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ job.problem_key || job.problem_id }} · {{ job.user_display_name || job.user_id }}</strong>
+                  <strong>{{ contestProblemLabel(job) }} · {{ job.user_display_name || job.user_id }}</strong>
                   <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ formatDate(job.requested_at) }}</span>
                 </div>
                 <StatusBadge :status="job.status" />

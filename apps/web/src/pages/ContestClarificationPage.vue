@@ -91,6 +91,11 @@ function clarificationAudience(item: Clarification): string {
   return '等待裁判处理';
 }
 
+function clarificationProblemLabel(item: Clarification): string {
+  if (!item.problem_key && !item.problem_title) return '全局问题';
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ');
+}
+
 onMounted(load);
 </script>
 
@@ -108,7 +113,7 @@ onMounted(load);
 
       <form v-if="canAsk" class="clarification-ask" @submit.prevent="submitQuestion">
         <div class="clarification-ask-row">
-          <input v-model="problemId" placeholder="题目 ID（可选）" />
+          <input v-model="problemId" placeholder="比赛题号（可选）" />
           <button class="primary-action" type="submit"><Send :size="16" />提交问题</button>
         </div>
         <textarea
@@ -124,7 +129,7 @@ onMounted(load);
         <article v-for="item in clarifications" :key="item.id" class="clarification-card">
           <div class="clarification-card-head">
             <div class="clarification-card-title">
-              <strong>{{ item.problem_title || item.problem_id || '全局问题' }}</strong>
+              <strong>{{ clarificationProblemLabel(item) }}</strong>
               <span>{{ item.user_display_name || '匿名选手' }}</span>
             </div>
             <div class="clarification-meta">

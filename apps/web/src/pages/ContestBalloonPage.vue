@@ -43,6 +43,10 @@ async function setReleased(item: ContestBalloon, releasedState: boolean) {
   }
 }
 
+function balloonProblemLabel(item: ContestBalloon): string {
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ') || '比赛题目';
+}
+
 onMounted(load);
 </script>
 
@@ -70,7 +74,7 @@ onMounted(load);
             <div class="balloon-card-main">
               <div class="balloon-card-title">
                 <strong>{{ item.display_name }}</strong>
-                <span>{{ item.problem_id }} · {{ item.problem_title }}</span>
+                <span>{{ balloonProblemLabel(item) }}</span>
               </div>
               <div class="balloon-card-meta">
                 <StatusBadge :status="item.status" />
@@ -98,7 +102,7 @@ onMounted(load);
             <div class="balloon-card-main">
               <div class="balloon-card-title">
                 <strong>{{ item.display_name }}</strong>
-                <span>{{ item.problem_id }} · {{ item.problem_title }}</span>
+                <span>{{ balloonProblemLabel(item) }}</span>
               </div>
               <div class="balloon-card-meta">
                 <StatusBadge status="completed" />

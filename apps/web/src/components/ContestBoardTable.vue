@@ -14,6 +14,8 @@ const problemColumns = computed(() => {
     : props.contest.problem_ids.map((problemId, index) => ({
       problem_id: problemId,
       problem_key: String(index + 1),
+      display_title: null,
+      score: null,
       allowed_languages: [],
     }));
   return layout
@@ -21,7 +23,8 @@ const problemColumns = computed(() => {
     .map((item) => ({
       id: item.problem_id,
       key: item.problem_key || item.problem_id,
-      title: summaries.get(item.problem_id)?.title ?? item.problem_id,
+      title: item.display_title || summaries.get(item.problem_id)?.title || item.problem_key || '比赛题目',
+      score: item.score,
     }));
 });
 const isAcmBoard = computed(() => props.contest.rule === 'ACM');
@@ -96,7 +99,7 @@ function problemCellMeta(problem: StandingProblemResult | undefined): string {
       <span>{{ isAcmBoard ? '首杀' : '提交' }}</span>
       <span v-for="problem in problemColumns" :key="problem.id" class="standing-problem-head" :title="problem.title">
         <strong>{{ problem.key }}</strong>
-        <small>{{ problem.id }}</small>
+        <small>{{ problem.score !== null ? `${problem.score} 分` : problem.title }}</small>
       </span>
     </div>
     <div

@@ -65,7 +65,8 @@ async function load() {
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
-    problem.value = problems.value.find((item) => item.id === route.params.problemId) ?? null;
+    const problemRef = String(route.params.problemId ?? '').toLowerCase();
+    problem.value = problems.value.find((item) => item.problem_key.toLowerCase() === problemRef || item.id === route.params.problemId) ?? null;
     if (!problem.value) {
       throw new Error('Problem not found');
     }
@@ -101,8 +102,8 @@ async function submit() {
       method: 'POST',
       body: JSON.stringify(
         problem.value.type === 'code'
-          ? { problem_id: problem.value.id, language: language.value, source_code: sourceCode.value }
-          : { problem_id: problem.value.id, answers },
+          ? { problem_id: problem.value.problem_key, language: language.value, source_code: sourceCode.value }
+          : { problem_id: problem.value.problem_key, answers },
       ),
     });
   } catch (err) {

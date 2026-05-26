@@ -86,6 +86,10 @@ function printSource() {
   window.print();
 }
 
+function printProblemLabel(job: ContestPrintJobSummary | ContestPrintResponse): string {
+  return [job.problem_key, job.problem_title].filter(Boolean).join(' · ') || '比赛题目';
+}
+
 onMounted(loadJobs);
 </script>
 
@@ -103,7 +107,7 @@ onMounted(loadJobs);
       </div>
       <form class="inline-form" @submit.prevent="createPrintJob">
         <input v-model="submissionId" placeholder="提交 ID" />
-        <input v-model="problemId" placeholder="题目 ID（手工源码时必填）" />
+        <input v-model="problemId" placeholder="比赛题号（手工源码时必填）" />
         <input v-model="language" placeholder="语言" />
       </form>
       <textarea v-model="sourceCode" class="pure-textarea" placeholder="或输入本次请求要打印的源码"></textarea>
@@ -113,7 +117,7 @@ onMounted(loadJobs);
         <section class="print-jobs">
           <div class="print-job-row" v-for="job in jobs" :key="job.id" :class="{ active: data?.id === job.id }">
             <button class="print-job-main" type="button" @click="openJob(job)">
-              <strong>{{ job.problem_key || job.problem_id || '题目' }} · {{ job.user_display_name || job.user_id }}</strong>
+              <strong>{{ printProblemLabel(job) }} · {{ job.user_display_name || job.user_id }}</strong>
               <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ job.line_count }} 行</span>
               <small>{{ job.status }} · {{ formatDate(job.requested_at) }}</small>
             </button>
@@ -132,7 +136,7 @@ onMounted(loadJobs);
         <section class="print-preview-panel">
           <div class="monitor-panel-head">
             <div>
-              <h2>{{ data ? `${data.problem_key || data.problem_id} · ${data.language || '源码'}` : '源码预览' }}</h2>
+              <h2>{{ data ? `${printProblemLabel(data)} · ${data.language || '源码'}` : '源码预览' }}</h2>
               <p v-if="data">{{ data.id }} · {{ data.status }} · {{ data.line_count }} 行</p>
             </div>
             <button v-if="data" class="secondary-action" type="button" @click="printSource"><Printer :size="16" />打印预览</button>

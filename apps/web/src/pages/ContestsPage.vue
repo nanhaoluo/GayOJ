@@ -75,6 +75,8 @@ function defaultLayoutItem(problemId: string, index: number): ContestProblemLayo
   return {
     problem_id: problemId,
     problem_key: String.fromCharCode('A'.charCodeAt(0) + index),
+    display_title: null,
+    score: null,
     allowed_languages: [],
   };
 }
@@ -98,6 +100,8 @@ function normalizeLayout(problemIds: string[], layout: ContestProblemLayoutItem[
     return {
       problem_id: problemId,
       problem_key: existing?.problem_key || defaultLayoutItem(problemId, index).problem_key,
+      display_title: existing?.display_title ?? null,
+      score: existing?.score ?? null,
       allowed_languages: existing?.allowed_languages ? [...existing.allowed_languages] : [],
     };
   });
@@ -176,6 +180,20 @@ function updateProblemKey(problemId: string, value: string) {
   );
 }
 
+function updateProblemDisplayTitle(problemId: string, value: string) {
+  const displayTitle = value.trim() || null;
+  contestForm.problem_layout = contestForm.problem_layout.map((item) =>
+    item.problem_id === problemId ? { ...item, display_title: displayTitle } : item,
+  );
+}
+
+function updateProblemScore(problemId: string, value: string) {
+  const score = value.trim() === '' ? null : Number(value);
+  contestForm.problem_layout = contestForm.problem_layout.map((item) =>
+    item.problem_id === problemId ? { ...item, score: Number.isFinite(score as number) ? score : null } : item,
+  );
+}
+
 function toggleAllowedLanguage(problemId: string, language: CompilerLanguage['code']) {
   contestForm.problem_layout = contestForm.problem_layout.map((item) => {
     if (item.problem_id !== problemId) return item;
@@ -197,6 +215,8 @@ function buildPayload(): ContestFormPayload {
     problem_layout: normalizeLayout(contestForm.problem_ids, contestForm.problem_layout).map((item) => ({
       problem_id: item.problem_id,
       problem_key: item.problem_key.trim().toUpperCase(),
+      display_title: item.display_title?.trim() || null,
+      score: item.score,
       allowed_languages: [...item.allowed_languages],
     })),
     visibility: contestForm.visibility,
@@ -475,6 +495,26 @@ onMounted(load);
                     :value="item.problem_key"
                     maxlength="16"
                     @input="updateProblemKey(item.problem_id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+                <label>
+                  展示标题
+                  <input
+                    :value="item.display_title || ''"
+                    maxlength="120"
+                    placeholder="默认使用原题标题"
+                    @input="updateProblemDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+                <label>
+                  分值
+                  <input
+                    :value="item.score ?? ''"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    placeholder="默认 100"
+                    @input="updateProblemScore(item.problem_id, ($event.target as HTMLInputElement).value)"
                   />
                 </label>
                 <div class="contest-layout-actions">
