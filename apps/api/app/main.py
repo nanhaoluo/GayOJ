@@ -914,13 +914,29 @@ def can_view_hidden_contest_problem(user: User | None) -> bool:
     )
 
 
-def contest_problem_lookup(contest: Contest, store: Repository, problem_id: str, user: User | None = None) -> Problem:
-    problem = store.get_problem(problem_id)
-    if not problem or problem_id not in contest.problem_ids:
+def contest_problem_lookup(contest: Contest, store: Repository, problem_ref: str, user: User | None = None) -> Problem:
+    layout = contest_problem_layout_lookup(contest, problem_ref)
+    if layout is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    problem = store.get_problem(layout.problem_id)
+    if not problem or layout.problem_id not in contest.problem_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
     if not problem.visible and not can_view_hidden_contest_problem(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
     return problem
+
+
+def contest_problem_display_title(contest: Contest, problem: Problem) -> str:
+    layout = contest_problem_layout_by_problem_id(contest).get(problem.id)
+    return layout.display_title if layout and layout.display_title else problem.title
+
+
+def contest_submission_display_copy(contest: Contest, submission: Submission) -> Submission:
+    payload = submission.model_copy(deep=True)
+    layout = contest_problem_layout_by_problem_id(contest).get(payload.problem_id)
+    if layout and layout.display_title:
+        payload.problem_title = layout.display_title
+    return payload
 
 
 def clarification_visible_to_user(clarification: Clarification, user: User) -> bool:
@@ -1225,6 +1241,30 @@ def contest_print_response(print_job: ContestPrintJob) -> ContestPrintResponse:
     return ContestPrintResponse(**print_job.model_dump())
 
 
+def contest_clarification_response(contest: Contest, clarification: Clarification) -> Clarification:
+    payload = clarification.model_copy(deep=True)
+    if not payload.problem_id:
+        return payload
+    layout = contest_problem_layout_by_problem_id(contest).get(payload.problem_id)
+    if layout:
+        payload.problem_key = layout.problem_key
+        if layout.display_title:
+            payload.problem_title = layout.display_title
+    return payload
+
+
+def contest_balloon_response(contest: Contest, balloon: ContestBalloon) -> ContestBalloon:
+    payload = balloon.model_copy(deep=True)
+    layout = contest_problem_layout_by_problem_id(contest).get(payload.problem_id)
+    if layout:
+        payload.problem_key = layout.problem_key
+        if layout.display_title:
+            payload.problem_title = layout.display_title
+        if layout.score is not None:
+            payload.max_score = layout.score
+    return payload
+
+
 def build_contest_print_job(
     *,
     contest: Contest,
@@ -1249,7 +1289,7 @@ def build_contest_print_job(
         user_display_name=submitter.display_name if submitter else user.display_name,
         problem_id=problem.id,
         problem_key=layout.problem_key if layout else problem.id,
-        problem_title=problem.title,
+        problem_title=layout.display_title if layout and layout.display_title else problem.title,
         language=submission.language if submission else payload.language,
         source_kind="submission" if submission else "request",
         source_code=source,
@@ -1699,17 +1739,21 @@ def contest_submission_to_balloon(submission: Submission, store: Repository) -> 
         ),
         None,
     )
+    problem = store.get_problem(submission.problem_id)
+    layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
     siblings = [item for item in store.list_submissions() if item.contest_id == contest.id]
     balloon = reconcile_contest_balloon(
         contest,
         submission,
         display_name=user.display_name if user else submission.user_id,
+        problem_key=str((prior or {}).get("problem_key") or "") or (layout.problem_key if layout else None),
+        problem_title=contest_problem_display_title(contest, problem) if problem else str((prior or {}).get("problem_title") or "") or None,
         prior=prior,
         siblings=siblings,
     )
     if balloon is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Balloon not available")
-    return balloon
+    return contest_balloon_response(contest, balloon)
 
 
 def contest_submission_is_objective(problem: Problem) -> bool:
@@ -2877,8 +2921,9 @@ def rejudge_contest(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if not contest_has_ended(contest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
+    requested_problem_id: str | None = None
     if payload.problem_id:
-        contest_problem_lookup(contest, store, payload.problem_id, user)
+        requested_problem_id = contest_problem_lookup(contest, store, payload.problem_id, user).id
 
     requeued: list[Submission] = []
     skipped: list[RejudgeSkipped] = []
@@ -2898,7 +2943,7 @@ def rejudge_contest(
             return "Submission does not belong to this contest"
         if submission.problem_id not in contest_problem_ids:
             return "Submission problem is not part of this contest"
-        if payload.problem_id and submission.problem_id != payload.problem_id:
+        if requested_problem_id and submission.problem_id != requested_problem_id:
             return f"Problem {submission.problem_id} is outside the requested contest problem filter"
         if statuses and submission.status not in statuses:
             return f"Status {submission.status} is outside the requested filter"
@@ -2941,7 +2986,8 @@ def rejudge_contest(
         f"contest:{contest.id}",
         {
             "reason": payload.reason,
-            "problem_id": payload.problem_id,
+            "problem_id": requested_problem_id,
+            "problem_ref": payload.problem_id,
             "submission_ids": payload.submission_ids,
             "statuses": payload.statuses,
             "requeued_count": len(requeued),
@@ -3068,7 +3114,12 @@ def create_clarification(
         user_id=user.id,
         user_display_name=user.display_name,
         problem_id=problem.id if problem else None,
-        problem_title=problem.title if problem else None,
+        problem_key=(
+            contest_problem_layout_by_problem_id(contest).get(problem.id).problem_key
+            if problem and contest_problem_layout_by_problem_id(contest).get(problem.id)
+            else None
+        ),
+        problem_title=contest_problem_display_title(contest, problem) if problem else None,
         question=payload.question,
         created_at=now(),
     )
@@ -3087,7 +3138,7 @@ def create_clarification(
     for target in store.list_users():
         if target.role in {"judge", "admin"}:
             add_notification(store, target.id, "新的 Clarification", payload.question, "contest")
-    return clarification
+    return contest_clarification_response(contest, clarification)
 
 
 @app.get("/api/v1/contests/{contest_id}/clarifications", response_model=list[Clarification])
@@ -3104,7 +3155,7 @@ def list_contest_clarifications(
     ensure_contest_access(user, contest, store)
     clarifications = [c for c in store.list_clarifications() if c.contest_id == contest_id]
     visible = [c for c in clarifications if clarification_visible_to_user(c, user)]
-    return [clarification_payload_for_user(c, user) for c in visible]
+    return [contest_clarification_response(contest, clarification_payload_for_user(c, user)) for c in visible]
 
 
 @app.get("/api/v1/contests/{contest_id}/announcements", response_model=list[ContestAnnouncement])
@@ -3165,7 +3216,11 @@ def list_judge_contest_clarifications(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    return [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest_id]
+    return [
+        contest_clarification_response(contest, clarification)
+        for clarification in store.list_clarifications()
+        if clarification.contest_id == contest_id
+    ]
 
 
 @app.patch("/api/v1/clarifications/{clarification_id}", response_model=Clarification)
@@ -3209,7 +3264,7 @@ def reply_clarification(
             "question_user_id": clarification.user_id,
         },
     )
-    return clarification_payload_for_user(clarification, user)
+    return contest_clarification_response(contest, clarification_payload_for_user(clarification, user))
 
 
 @app.get("/api/v1/contests/{contest_id}/submissions", response_model=ContestSubmissionStatusResponse)
@@ -3305,7 +3360,7 @@ def submit_contest_entry(
             f"submission:{submission.id}",
             {"contest_id": contest.id, "problem_id": problem.id, "language": compiler_config.code},
         )
-        return sanitized_submission(submission)
+        return sanitized_submission(contest_submission_display_copy(contest, submission))
     if problem.type not in {"blank", "single_choice", "multiple_choice"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported contest problem type")
     if not payload.answers:
@@ -3330,7 +3385,7 @@ def submit_contest_entry(
     store.add_submission(submission)
     store.add_audit(user.id, "contest.submit.objective", f"submission:{submission.id}", {"contest_id": contest.id, "problem_id": problem.id})
     refresh_contest_balloon_for_submission(store, submission)
-    return sanitized_submission(submission)
+    return sanitized_submission(contest_submission_display_copy(contest, submission))
 
 
 @app.post("/api/v1/contests/{contest_id}/print", response_model=ContestPrintResponse)
