@@ -492,9 +492,18 @@ export interface Discussion {
   author_name: string;
   pinned: boolean;
   likes: number;
+  solution_category: 'general' | 'tutorial' | 'analysis' | 'official' | 'trick' | null;
+  liked: boolean;
+  bookmarked: boolean;
   replies: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
+}
+
+export interface DiscussionReactionResponse {
+  discussion: Discussion;
+  action: 'liked' | 'unliked' | 'bookmarked' | 'unbookmarked';
+  changed: boolean;
 }
 
 export interface DiscussionListResponse {
