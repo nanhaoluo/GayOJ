@@ -436,6 +436,11 @@ def contest_rows(contests: list[dict[str, Any]]) -> list[dict[str, str]]:
                 "roster_locked": sql_literal(bool(contest.get("roster_locked", False))),
                 "roster_locked_at": sql_time(contest.get("roster_locked_at")),
                 "roster_locked_by": sql_literal(contest.get("roster_locked_by")),
+                "access_mode": sql_literal(contest.get("access_mode", "open")),
+                "access_code_hash": sql_literal(contest.get("access_code_hash", "")),
+                "team_ids": sql_json(contest.get("team_ids", [])),
+                "participant_user_ids": sql_json(contest.get("participant_user_ids", [])),
+                "access_unlocked_user_ids": sql_json(contest.get("access_unlocked_user_ids", [])),
             }
         )
     return rows
@@ -884,6 +889,11 @@ def generate_sql(data: dict[str, Any]) -> str:
                 "roster_locked",
                 "roster_locked_at",
                 "roster_locked_by",
+                "access_mode",
+                "access_code_hash",
+                "team_ids",
+                "participant_user_ids",
+                "access_unlocked_user_ids",
             ],
             contest_rows(contests),
             ["id"],

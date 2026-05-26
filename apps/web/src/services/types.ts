@@ -284,6 +284,8 @@ export interface ContestRejudgeResponse extends RejudgeBatchResponse {
   rejudge_reason: string;
 }
 
+export type ContestAccessMode = 'open' | 'password' | 'invite' | 'team' | 'manual';
+
 export interface Contest {
   id: string;
   title: string;
@@ -300,6 +302,10 @@ export interface Contest {
   roster_locked: boolean;
   roster_locked_at: string | null;
   roster_locked_by: string | null;
+  access_mode: ContestAccessMode;
+  team_ids: string[];
+  participant_user_ids: string[];
+  access_unlocked_user_ids: string[];
   frozen: boolean;
   freeze_disabled: boolean;
   frozen_at: string | null;
@@ -315,6 +321,8 @@ export interface Contest {
   participant_user_count: number;
   self_registered: boolean;
   self_team_ids: string[];
+  access_unlocked: boolean;
+  participant_count: number;
   problems: ProblemSummary[];
 }
 
@@ -337,6 +345,10 @@ export interface ContestFormPayload {
   participation_mode: ContestParticipationMode;
   registered_user_ids: string[];
   registered_team_ids: string[];
+  access_mode: ContestAccessMode;
+  access_code?: string;
+  team_ids: string[];
+  participant_user_ids: string[];
 }
 
 export interface ContestRosterResponse {
@@ -353,6 +365,13 @@ export interface ContestRosterResponse {
 export interface ContestRegistrationResponse {
   contest: Contest;
   roster: ContestRosterResponse;
+}
+
+export interface ContestAccessResponse {
+  contest_id: string;
+  access_mode: ContestAccessMode;
+  access_unlocked: boolean;
+  message: string;
 }
 
 export interface ContestProblemView {

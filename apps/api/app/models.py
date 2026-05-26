@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 Role = Literal["student", "coach", "judge", "admin"]
@@ -35,11 +35,10 @@ ContestPrintStatus = Literal["pending", "printed", "cancelled"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
 ContestParticipationMode = Literal["open", "individual", "team"]
+ContestAccessMode = Literal["open", "password", "invite", "team", "manual"]
 OfflineAnswerVisibility = Literal["full", "none"]
 OfflineSyncMode = Literal["allow", "disabled"]
 SolutionCategory = Literal["general", "tutorial", "analysis", "official", "trick"]
-ContestPrintSourceKind = Literal["submission", "request"]
-ContestPrintStatus = Literal["pending", "printed", "cancelled"]
 
 DEFAULT_STUDENT_SCHOOL = "GayOJ University (GOJU)"
 
@@ -560,6 +559,8 @@ class ContestProblemLayoutItem(BaseModel):
 
 
 class Contest(BaseModel):
+    model_config = ConfigDict(extra="allow", json_schema_extra={"additionalProperties": False})
+
     id: str
     title: str
     rule: Literal["ACM", "OI", "IOI", "CF"]
@@ -575,6 +576,10 @@ class Contest(BaseModel):
     roster_locked: bool = False
     roster_locked_at: datetime | None = None
     roster_locked_by: str | None = None
+    access_mode: ContestAccessMode = "open"
+    team_ids: list[str] = Field(default_factory=list)
+    participant_user_ids: list[str] = Field(default_factory=list)
+    access_unlocked_user_ids: list[str] = Field(default_factory=list)
     frozen: bool = False
     freeze_disabled: bool = False
     frozen_at: datetime | None = None
@@ -583,6 +588,13 @@ class Contest(BaseModel):
     rejudge_at: datetime | None = None
     rejudge_by: str | None = None
     rejudge_reason: str = ""
+    _access_code_hash: str = PrivateAttr(default="")
+
+    def model_post_init(self, __context: Any) -> None:
+        extra = getattr(self, "__pydantic_extra__", None)
+        if isinstance(extra, dict):
+            raw_hash = extra.pop("access_code_hash", "")
+            self._access_code_hash = str(raw_hash or "")
 
 
 class ContestCreate(BaseModel):
@@ -598,15 +610,27 @@ class ContestCreate(BaseModel):
     participation_mode: ContestParticipationMode = "open"
     registered_user_ids: list[str] = Field(default_factory=list)
     registered_team_ids: list[str] = Field(default_factory=list)
+    access_mode: ContestAccessMode = "open"
+    access_code: str | None = Field(default=None, min_length=1, max_length=128)
+    team_ids: list[str] = Field(default_factory=list)
+    participant_user_ids: list[str] = Field(default_factory=list)
 
     @field_validator("title", mode="before")
     @classmethod
     def strip_contest_title(cls, value: Any) -> str:
         return str(value or "").strip()
 
-    @field_validator("problem_ids", mode="before")
+    @field_validator("access_code", mode="before")
     @classmethod
-    def normalize_problem_ids(cls, value: Any) -> list[str]:
+    def strip_contest_access_code(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("problem_ids", "team_ids", "participant_user_ids", mode="before")
+    @classmethod
+    def normalize_id_list(cls, value: Any) -> list[str]:
         if value is None:
             return []
         if isinstance(value, str):
@@ -651,6 +675,12 @@ class ContestCreate(BaseModel):
             self.registered_team_ids = []
         if self.participation_mode == "team":
             self.registered_user_ids = []
+        if type(self) is ContestCreate and self.access_mode in {"password", "invite"} and not self.access_code:
+            raise ValueError("Contest access_code is required for password or invite access")
+        if self.access_mode == "team" and not self.team_ids:
+            raise ValueError("Contest team_ids are required for team access")
+        if self.access_mode == "manual" and not self.participant_user_ids:
+            raise ValueError("Contest participant_user_ids are required for manual access")
         if self.problem_layout:
             layout_problem_ids = [item.problem_id for item in self.problem_layout]
             if layout_problem_ids != self.problem_ids:
@@ -664,7 +694,28 @@ class ContestCreate(BaseModel):
 
 
 class ContestUpdate(ContestCreate):
-    pass
+    access_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ContestAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def strip_access_code(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class ContestAccessResponse(BaseModel):
+    contest_id: str
+    access_mode: ContestAccessMode
+    access_unlocked: bool
+    message: str
 
 
 class ContestDetail(Contest):
@@ -676,6 +727,8 @@ class ContestDetail(Contest):
     participant_user_count: int = 0
     self_registered: bool = False
     self_team_ids: list[str] = Field(default_factory=list)
+    access_unlocked: bool = False
+    participant_count: int = 0
 
 
 class ContestRosterUpdate(BaseModel):
