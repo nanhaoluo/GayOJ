@@ -420,6 +420,11 @@ def test_contest_balloon_update_requires_judge_permission_and_tracks_release_met
     assert release_payload["released"] is True
     assert release_payload["released_by"] == "u-judge"
     assert release_payload["released_at"] is not None
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    monitor_balloon = next(item for item in monitor.json()["balloons"] if item["submission_id"] == submission_id)
+    assert monitor_balloon["released"] is True
+    assert monitor_balloon["released_at"] == release_payload["released_at"]
 
     reverted = client.patch(
         f"/api/v1/contests/C1001/balloons/{submission_id}",

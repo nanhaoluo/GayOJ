@@ -65,9 +65,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers,
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    if (!response.ok) {
+      throw new ApiError(response.status, text || response.statusText);
+    }
+    throw new ApiError(response.status, 'Invalid JSON response');
+  }
   if (!response.ok) {
-    throw new ApiError(response.status, data?.detail ?? response.statusText);
+    const detail =
+      data && typeof data === 'object' && 'detail' in data
+        ? String((data as { detail?: unknown }).detail ?? response.statusText)
+        : response.statusText;
+    throw new ApiError(response.status, detail);
   }
   return data as T;
 }

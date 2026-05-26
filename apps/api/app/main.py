@@ -749,15 +749,20 @@ def require_student_permissions(*permissions: str):
     return dependency
 
 
-def query_datetime(value: datetime | None) -> datetime | None:
+def query_datetime(value: Any) -> datetime | None:
     if value is None:
         return None
+    if not isinstance(value, datetime):
+        try:
+            value = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
 
 
-def auth_datetime(value: datetime | None) -> datetime | None:
+def auth_datetime(value: Any) -> datetime | None:
     return query_datetime(value)
 
 
