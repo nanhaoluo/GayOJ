@@ -263,17 +263,17 @@ function updateProblemKey(problemId: string, value: string) {
   );
 }
 
-function updateDisplayTitle(problemId: string, value: string) {
-  const title = value.trim();
+function updateProblemDisplayTitle(problemId: string, value: string) {
+  const displayTitle = value.trim() || null;
   contestForm.problem_layout = contestForm.problem_layout.map((item) =>
-    item.problem_id === problemId ? { ...item, display_title: title || null } : item,
+    item.problem_id === problemId ? { ...item, display_title: displayTitle } : item,
   );
 }
 
 function updateProblemScore(problemId: string, value: string) {
-  const score = value === '' ? null : Number(value);
+  const score = value.trim() === '' ? null : Number(value);
   contestForm.problem_layout = contestForm.problem_layout.map((item) =>
-    item.problem_id === problemId ? { ...item, score: Number.isFinite(score) ? score : null } : item,
+    item.problem_id === problemId ? { ...item, score: score === null || Number.isFinite(score) ? score : null } : item,
   );
 }
 
@@ -298,7 +298,7 @@ function buildPayload(): ContestFormPayload {
     problem_layout: normalizeLayout(contestForm.problem_ids, contestForm.problem_layout).map((item) => ({
       problem_id: item.problem_id,
       problem_key: item.problem_key.trim().toUpperCase(),
-      display_title: item.display_title,
+      display_title: item.display_title?.trim() || null,
       score: item.score,
       allowed_languages: [...item.allowed_languages],
     })),
@@ -682,12 +682,12 @@ onMounted(load);
                   />
                 </label>
                 <label>
-                  显示标题
+                  展示标题
                   <input
-                    :value="item.display_title ?? ''"
+                    :value="item.display_title || ''"
                     maxlength="120"
                     placeholder="默认使用原题标题"
-                    @input="updateDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
+                    @input="updateProblemDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
                   />
                 </label>
                 <label>
@@ -695,7 +695,7 @@ onMounted(load);
                   <input
                     :value="item.score ?? ''"
                     type="number"
-                    min="1"
+                    min="0"
                     max="10000"
                     placeholder="默认 100"
                     @input="updateProblemScore(item.problem_id, ($event.target as HTMLInputElement).value)"

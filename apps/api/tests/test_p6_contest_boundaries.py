@@ -841,6 +841,10 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert code_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
     assert objective_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
     assert code_b.json()["id"] not in {item["id"] for item in payload["last_submissions"]}
+    code_monitor_item = next(item for item in payload["last_submissions"] if item["id"] == code_a.json()["id"])
+    objective_monitor_item = next(item for item in payload["last_submissions"] if item["id"] == objective_a.json()["id"])
+    assert code_monitor_item["problem_key"] == "1"
+    assert objective_monitor_item["problem_key"] == "3"
     assert clar_a.json()["id"] in {item["id"] for item in payload["clarifications"]}
     assert clar_b.json()["id"] not in {item["id"] for item in payload["clarifications"]}
     assert ann_a.json()["id"] in {item["id"] for item in payload["announcements"]}

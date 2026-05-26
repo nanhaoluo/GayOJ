@@ -113,7 +113,7 @@ async function registerContest() {
 }
 
 async function openProblem(problem: ContestProblemDetail) {
-  await router.push(`/contests/${route.params.id}/p/${problem.problem_key || problem.id}`);
+  await router.push(`/contests/${route.params.id}/p/${encodeURIComponent(problem.problem_key || problem.id)}`);
 }
 
 async function openStandings() {
@@ -211,7 +211,7 @@ onMounted(load);
               <div class="contest-problem-copy">
                 <div class="contest-problem-title">
                   <strong>{{ problem.title }}</strong>
-                  <span>{{ problem.id }}</span>
+                  <span>{{ problem.score }} 分</span>
                 </div>
                 <div class="contest-problem-meta">
                   <span><ProblemTypeIcon :type="problem.type" />{{ problemTypeLabel(problem.type) }}</span>
