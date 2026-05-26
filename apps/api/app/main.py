@@ -56,6 +56,7 @@ from .models import (
     ContestFreezeRequest,
     ContestBoardResponse,
     ContestProblemDetail,
+    ContestRejudgeRequest,
     ContestRejudgeResponse,
     ContestUnfreezeRequest,
     ContestUpdate,
@@ -697,6 +698,24 @@ def requeue_submission_for_rejudge(
         "judge",
     )
     return requeued
+
+
+def refresh_contest_balloons_after_rejudge(store: Repository, contest_id: str, submissions: list[Submission]) -> None:
+    touched_pairs = {
+        (submission.user_id, submission.problem_id)
+        for submission in submissions
+        if submission.contest_id == contest_id
+    }
+    for user_id, problem_id in touched_pairs:
+        siblings = [
+            item
+            for item in store.list_submissions()
+            if item.contest_id == contest_id and item.user_id == user_id and item.problem_id == problem_id
+        ]
+        if not siblings:
+            continue
+        latest = max(siblings, key=lambda item: (_submission_effective_time(item), item.id))
+        refresh_contest_balloon_for_submission(store, latest)
 
 
 def profile_user(user: User) -> UserProfile:
@@ -2725,7 +2744,7 @@ def unfreeze_contest(
 @app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestRejudgeResponse)
 def rejudge_contest(
     contest_id: str,
-    payload: RejudgeRequest,
+    payload: ContestRejudgeRequest,
     user: User = Depends(require_permissions("submission:override")),
     store: Repository = Depends(get_repository),
 ) -> ContestRejudgeResponse:
@@ -2736,27 +2755,72 @@ def rejudge_contest(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if not contest_has_ended(contest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
+    if payload.problem_id:
+        contest_problem_lookup(contest, store, payload.problem_id, user)
     contest.rejudge_at = now()
     contest.rejudge_by = user.id
     contest.rejudge_reason = payload.reason
     store.update_contest(contest)
     requeued: list[Submission] = []
     skipped: list[RejudgeSkipped] = []
-    for submission in store.list_submissions():
+    candidates: list[Submission] = []
+    seen: set[str] = set()
+    contest_problem_ids = set(contest.problem_ids)
+
+    def append_candidate(submission: Submission) -> None:
+        if submission.id in seen:
+            return
+        seen.add(submission.id)
+        candidates.append(submission)
+
+    if payload.submission_ids:
+        for submission_id in payload.submission_ids:
+            submission = store.get_submission(submission_id)
+            if not submission:
+                skipped.append(RejudgeSkipped(submission_id=submission_id, reason="Submission not found"))
+                continue
+            append_candidate(submission)
+    else:
+        for submission in store.list_submissions():
+            if submission.contest_id != contest.id:
+                continue
+            if submission.problem_id not in contest_problem_ids:
+                continue
+            if payload.problem_id and submission.problem_id != payload.problem_id:
+                continue
+            if payload.statuses and submission.status not in payload.statuses:
+                continue
+            append_candidate(submission)
+
+    for submission in candidates:
         if submission.contest_id != contest.id:
+            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission is outside this contest"))
+            continue
+        if submission.problem_id not in contest_problem_ids:
+            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission problem is not part of this contest"))
+            continue
+        if payload.problem_id and submission.problem_id != payload.problem_id:
+            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission problem is outside the requested filter"))
+            continue
+        if payload.statuses and submission.status not in payload.statuses:
+            skipped.append(RejudgeSkipped(submission_id=submission.id, reason=f"Status {submission.status} is outside the requested filter"))
             continue
         try:
-            requeued.append(requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.rejudge"))
+            requeued.append(requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.submission.rejudge"))
         except ValueError as exc:
             skipped.append(RejudgeSkipped(submission_id=submission.id, reason=str(exc)))
         except QueueBackendUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    refresh_contest_balloons_after_rejudge(store, contest.id, requeued)
     store.add_audit(
         user.id,
         "contest.rejudge",
         f"contest:{contest.id}",
         {
             "reason": payload.reason,
+            "problem_id": payload.problem_id,
+            "statuses": list(payload.statuses),
+            "submission_ids": list(payload.submission_ids),
             "requeued_count": len(requeued),
             "skipped_count": len(skipped),
         },
@@ -3531,6 +3595,7 @@ def override_submission(
     submission.message = payload.message
     submission.judged_at = now()
     store.update_submission(submission)
+    refresh_contest_balloon_for_submission(store, submission)
     store.add_audit(user.id, "submission.override", f"submission:{submission.id}", payload.model_dump())
     add_notification(store, submission.user_id, "评测结果已被裁判修正", payload.message, "judge")
     return submission

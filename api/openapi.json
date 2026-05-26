@@ -2227,6 +2227,57 @@
         "title": "ContestProblemView",
         "type": "object"
       },
+      "ContestRejudgeRequest": {
+        "properties": {
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Reason",
+            "type": "string"
+          },
+          "statuses": {
+            "items": {
+              "enum": [
+                "queued",
+                "judging",
+                "accepted",
+                "wrong_answer",
+                "time_limit_exceeded",
+                "memory_limit_exceeded",
+                "output_limit_exceeded",
+                "compile_error",
+                "runtime_error",
+                "system_error",
+                "manual_override"
+              ],
+              "type": "string"
+            },
+            "title": "Statuses",
+            "type": "array"
+          },
+          "submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Submission Ids",
+            "type": "array"
+          }
+        },
+        "title": "ContestRejudgeRequest",
+        "type": "object"
+      },
       "ContestRejudgeResponse": {
         "properties": {
           "contest_id": {
@@ -10393,7 +10444,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RejudgeRequest"
+                "$ref": "#/components/schemas/ContestRejudgeRequest"
               }
             }
           },

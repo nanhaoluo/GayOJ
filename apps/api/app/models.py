@@ -1108,6 +1108,34 @@ class RejudgeBatchRequest(RejudgeRequest):
         return self
 
 
+class ContestRejudgeRequest(RejudgeRequest):
+    submission_ids: list[str] = Field(default_factory=list, max_length=200)
+    problem_id: str | None = None
+    statuses: list[SubmissionStatus] = Field(default_factory=list)
+
+    @field_validator("submission_ids", "statuses", mode="before")
+    @classmethod
+    def normalize_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        result: list[str] = []
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in result:
+                result.append(text)
+        return result
+
+    @field_validator("problem_id", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
 class RejudgeSkipped(BaseModel):
     submission_id: str
     reason: str
