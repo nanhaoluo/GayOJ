@@ -153,6 +153,36 @@ def test_offline_result_sync_allows_same_client_key_across_distinct_packs(client
     assert second.json()["rejected"][0]["reason_code"] == "pack_not_authorized"
 
 
+def test_problem_set_offline_pack_id_authorizes_sync_for_downloader(client: TestClient, auth_headers) -> None:
+    pack_response = client.get("/api/v1/problem-sets/PS1001/offline-package", headers=auth_headers("alice"))
+    assert pack_response.status_code == 200, pack_response.text
+    payload = pack_response.json()["payload"]
+
+    response = client.post(
+        "/api/v1/offline-results/sync",
+        headers=auth_headers("alice"),
+        json={
+            "results": [
+                {
+                    "problem_id": "P1003",
+                    "answers": {"choice": "B"},
+                    "practiced_at": "2026-05-25T00:08:00+00:00",
+                    "client_result_key": "ps-pack-sync",
+                    "pack_id": payload["pack_id"],
+                    "source": payload["source"],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["synced"]) == 1
+    assert body["synced"][0]["offline_pack_id"] == payload["pack_id"]
+    assert body["merged"] == []
+    assert body["rejected"] == []
+
+
 def test_offline_result_sync_still_rejects_code_problem(client: TestClient, auth_headers) -> None:
     response = client.post(
         "/api/v1/offline-results/sync",

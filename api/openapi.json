@@ -3503,7 +3503,7 @@
           },
           "last_submissions": {
             "items": {
-              "$ref": "#/components/schemas/Submission"
+              "$ref": "#/components/schemas/SubmissionReview"
             },
             "title": "Last Submissions",
             "type": "array"
@@ -3598,7 +3598,7 @@
           "submission": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Submission"
+                "$ref": "#/components/schemas/SubmissionReview"
               },
               {
                 "type": "null"

@@ -1120,7 +1120,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         contest=contest_detail(contest, store, full_board=True),
         queue_depth=queue.depth,
         queue=queue,
-        last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
+        last_submissions=[sanitized_submission(submission, include_source=False) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=clarifications,
         announcements=announcements,
@@ -1754,6 +1754,23 @@ def contest_submission_to_balloon(submission: Submission, store: Repository) -> 
     if balloon is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Balloon not available")
     return contest_balloon_response(contest, balloon)
+
+
+def judge_monitor_balloon_summaries(submissions: list[Submission], store: Repository) -> list[ContestBalloon]:
+    balloons: list[ContestBalloon] = []
+    seen_submission_ids: set[str] = set()
+    for submission in submissions:
+        if not submission.judged_at or not submission.contest_id:
+            continue
+        try:
+            balloon = contest_submission_to_balloon(submission, store)
+        except HTTPException:
+            continue
+        if balloon.submission_id in seen_submission_ids:
+            continue
+        seen_submission_ids.add(balloon.submission_id)
+        balloons.append(balloon)
+    return balloons
 
 
 def contest_submission_is_objective(problem: Problem) -> bool:
@@ -3810,16 +3827,12 @@ def judge_monitor(
     return JudgeMonitorResponse(
         queue_depth=queue.depth,
         queue=queue,
-        last_submissions=submissions[:10],
+        last_submissions=[sanitized_submission(submission, include_source=False) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=store.list_clarifications(),
         contests=store.list_contests(),
         frozen_contests=[contest for contest in store.list_contests() if contest.frozen],
-        balloons=[
-            contest_submission_to_balloon(submission, store)
-            for submission in submissions
-            if submission.judged_at and submission.contest_id
-        ],
+        balloons=judge_monitor_balloon_summaries(submissions, store),
     )
 
 
@@ -3877,7 +3890,7 @@ def judge_node_claim(
     if not claimed:
         return JudgeNodeClaimResponse(node=refreshed)
     job, submission = claimed
-    return JudgeNodeClaimResponse(node=refreshed, job=job, submission=submission)
+    return JudgeNodeClaimResponse(node=refreshed, job=job, submission=sanitized_submission(submission, include_source=False))
 
 
 @app.post("/api/v1/judge/submissions/{submission_id}/override", response_model=Submission)
@@ -4262,6 +4275,7 @@ def problem_set_offline_package(
         store,
         ttl_hours=offline_ttl_hours(problem_set.offline_policy),
         source={"type": "problem_set", "id": problem_set.id, "title": problem_set.title},
+        created_by=user.id,
     )
 
 

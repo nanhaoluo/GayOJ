@@ -215,7 +215,7 @@
 
 - 新增 `POST /api/v1/judge/nodes/heartbeat`，由 judge worker 使用 `X-Judge-Node-Token` 上报节点 ID、语言、负载、队列深度和运行状态。
 - `judge_nodes` 仍保持 JSON 兼容结构；旧节点缺字段时会在读取时补齐，超过心跳 TTL 的 `online`/`draining` 节点会在管理端和裁判端显示为 `offline`。
-- 新增 `POST /api/v1/judge/nodes/{node_id}/claim`，只允许在线节点领取自己支持语言的 pending 代码队列任务，并将任务标记为 `leased`、提交标记为 `judging`。
+- 新增 `POST /api/v1/judge/nodes/{node_id}/claim`，只允许在线节点领取自己支持语言的 pending 代码队列任务，并将任务标记为 `leased`、提交标记为 `judging`；领取与裁判监控响应只返回脱敏提交摘要，不携带 `source_code`。
 - 新增 `PATCH /api/v1/admin/judge-nodes/{node_id}`，管理员可把节点切换为 `online`、`draining` 或 `offline`，操作写入审计日志。
 - 裁判端显示队列 backend/topic、pending/leased 任务和节点心跳；管理端显示节点语言、负载、心跳时间和状态操作。
 - P4-06 只完成调度和状态流转，不编译、不运行、不本地判题；普通题面接口继续不返回 `judge_config`，离线 CLI 仍只处理客观题。

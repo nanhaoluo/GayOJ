@@ -668,6 +668,7 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert code_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
     assert objective_a.json()["id"] in {item["id"] for item in payload["last_submissions"]}
     assert code_b.json()["id"] not in {item["id"] for item in payload["last_submissions"]}
+    assert all(item.get("source_code") is None for item in payload["last_submissions"])
     assert clar_a.json()["id"] in {item["id"] for item in payload["clarifications"]}
     assert clar_b.json()["id"] not in {item["id"] for item in payload["clarifications"]}
     assert ann_a.json()["id"] in {item["id"] for item in payload["announcements"]}
@@ -679,6 +680,33 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
 def test_contest_judge_monitor_rejects_unknown_contest(client: TestClient, auth_headers) -> None:
     response = client.get("/api/v1/judge/monitor/C404", headers=auth_headers("judge"))
     assert response.status_code == 404
+
+
+def test_global_judge_monitor_skips_non_balloon_submissions(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.rule = "ACM"
+    store.update_contest(contest)
+
+    accepted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    wrong = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1002", "answers": {"edge_formula": "wrong"}},
+    )
+    assert wrong.status_code == 200, wrong.text
+
+    monitor = client.get("/api/v1/judge/monitor", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    balloon_submission_ids = {item["submission_id"] for item in monitor.json()["balloons"]}
+    assert accepted.json()["id"] in balloon_submission_ids
+    assert wrong.json()["id"] not in balloon_submission_ids
 
 
 def test_contest_clarification_rejects_problem_outside_contest(client: TestClient, auth_headers) -> None:
@@ -867,6 +895,10 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
     assert judge_adhoc.status_code == 200
     assert judge_adhoc.json()["source_kind"] == "request"
     assert judge_adhoc.json()["status"] == "pending"
+
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    assert all("source_code" not in item for item in monitor.json()["print_jobs"])
 
 
 def test_private_contest_print_allows_existing_owner_and_blocks_non_owner(client: TestClient, auth_headers, store) -> None:

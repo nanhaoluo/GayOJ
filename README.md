@@ -480,7 +480,10 @@ and automatically report stale online/draining nodes as `offline` after the
 configured TTL. The claim endpoint leases a pending code queue job to an online
 node that supports the submission language, moves the submission to `judging`,
 and leaves `judged_at` plus test details empty until the separate worker writes
-the real result.
+the real result. Claim and judge-monitor responses return submission summaries
+with `source_code` redacted; workers use `source_ref` to resolve source through
+the repository boundary, and authorized print/detail flows remain the explicit
+source-access surface.
 
 The judge console now shows queue backend/depth/pending/leased jobs, and the
 admin console shows node heartbeat, load, language support, and status controls.

@@ -1100,7 +1100,7 @@ class JudgeQueueSummary(BaseModel):
 class JudgeNodeClaimResponse(BaseModel):
     node: JudgeNode
     job: JudgeQueueJob | None = None
-    submission: Submission | None = None
+    submission: SubmissionReview | None = None
 
 
 class AuditLog(BaseModel):
@@ -1648,7 +1648,7 @@ class OfflineResultSyncResponse(BaseModel):
 class JudgeMonitorResponse(BaseModel):
     queue_depth: int
     queue: JudgeQueueSummary
-    last_submissions: list[Submission]
+    last_submissions: list[SubmissionReview]
     judge_nodes: list[JudgeNode]
     clarifications: list[Clarification]
     contests: list[Contest] = Field(default_factory=list)
