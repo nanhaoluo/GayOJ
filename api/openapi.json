@@ -636,6 +636,290 @@
         "title": "CoachAnalyticsResponse",
         "type": "object"
       },
+      "CoachSimilarityFilterOption": {
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "count"
+        ],
+        "title": "CoachSimilarityFilterOption",
+        "type": "object"
+      },
+      "CoachSimilarityFinding": {
+        "properties": {
+          "contest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Id"
+          },
+          "contest_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Title"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "problem_id": {
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_title": {
+            "title": "Problem Title",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "shared_token_count": {
+            "minimum": 0.0,
+            "title": "Shared Token Count",
+            "type": "integer"
+          },
+          "similarity": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Similarity",
+            "type": "number"
+          },
+          "status_a": {
+            "enum": [
+              "queued",
+              "judging",
+              "accepted",
+              "wrong_answer",
+              "time_limit_exceeded",
+              "memory_limit_exceeded",
+              "output_limit_exceeded",
+              "compile_error",
+              "runtime_error",
+              "system_error",
+              "manual_override"
+            ],
+            "title": "Status A",
+            "type": "string"
+          },
+          "status_b": {
+            "enum": [
+              "queued",
+              "judging",
+              "accepted",
+              "wrong_answer",
+              "time_limit_exceeded",
+              "memory_limit_exceeded",
+              "output_limit_exceeded",
+              "compile_error",
+              "runtime_error",
+              "system_error",
+              "manual_override"
+            ],
+            "title": "Status B",
+            "type": "string"
+          },
+          "student_a": {
+            "$ref": "#/components/schemas/CoachSimilarityStudent"
+          },
+          "student_b": {
+            "$ref": "#/components/schemas/CoachSimilarityStudent"
+          },
+          "submission_a_id": {
+            "title": "Submission A Id",
+            "type": "string"
+          },
+          "submission_b_id": {
+            "title": "Submission B Id",
+            "type": "string"
+          },
+          "submitted_at_a": {
+            "format": "date-time",
+            "title": "Submitted At A",
+            "type": "string"
+          },
+          "submitted_at_b": {
+            "format": "date-time",
+            "title": "Submitted At B",
+            "type": "string"
+          },
+          "token_count_a": {
+            "minimum": 0.0,
+            "title": "Token Count A",
+            "type": "integer"
+          },
+          "token_count_b": {
+            "minimum": 0.0,
+            "title": "Token Count B",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "problem_id",
+          "problem_title",
+          "language",
+          "similarity",
+          "shared_token_count",
+          "token_count_a",
+          "token_count_b",
+          "submission_a_id",
+          "submission_b_id",
+          "submitted_at_a",
+          "submitted_at_b",
+          "status_a",
+          "status_b",
+          "student_a",
+          "student_b",
+          "reason"
+        ],
+        "title": "CoachSimilarityFinding",
+        "type": "object"
+      },
+      "CoachSimilarityResponse": {
+        "properties": {
+          "candidate_pair_count": {
+            "minimum": 0.0,
+            "title": "Candidate Pair Count",
+            "type": "integer"
+          },
+          "contest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Id"
+          },
+          "contests": {
+            "items": {
+              "$ref": "#/components/schemas/CoachSimilarityFilterOption"
+            },
+            "title": "Contests",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/CoachSimilarityFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "limit": {
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/CoachSimilarityFilterOption"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "scanned_submission_count": {
+            "minimum": 0.0,
+            "title": "Scanned Submission Count",
+            "type": "integer"
+          },
+          "threshold": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "generated_at",
+          "threshold",
+          "limit",
+          "scanned_submission_count",
+          "candidate_pair_count"
+        ],
+        "title": "CoachSimilarityResponse",
+        "type": "object"
+      },
+      "CoachSimilarityStudent": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "school": {
+            "title": "School",
+            "type": "string"
+          },
+          "team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
+          },
+          "team_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Names",
+            "type": "array"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "school"
+        ],
+        "title": "CoachSimilarityStudent",
+        "type": "object"
+      },
       "CodeSubmitRequest": {
         "properties": {
           "contest_id": {
@@ -8623,6 +8907,112 @@
           }
         },
         "summary": "Coach Analytics"
+      }
+    },
+    "/api/v1/coach/similarity": {
+      "get": {
+        "operationId": "coach_similarity_api_v1_coach_similarity_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "problem_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Problem Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "contest_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Contest Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "required": false,
+            "schema": {
+              "default": 0.82,
+              "maximum": 1.0,
+              "minimum": 0.5,
+              "title": "Threshold",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoachSimilarityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Coach Similarity"
       }
     },
     "/api/v1/contests": {
