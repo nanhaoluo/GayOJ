@@ -193,6 +193,14 @@ def main() -> int:
         fail("contest_announcements must reference contests with cascade delete")
     if "created_by text not null references users(id)" not in contest_announcements_block:
         fail("contest_announcements must track creator users")
+    for token in [
+        "participation_mode text",
+        "registered_user_ids jsonb",
+        "registered_team_ids jsonb",
+        "roster_locked boolean",
+    ]:
+        if token not in normalized:
+            fail(f"contests table must include P6-09 roster field {token}")
     problem_test_data_block = table_block(combined, "problem_test_data").lower()
     if "object_key text not null" not in problem_test_data_block:
         fail("problem_test_data must keep an object storage key")
