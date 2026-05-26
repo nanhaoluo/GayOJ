@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { ClipboardCheck, Plus, UsersRound } from 'lucide-vue-next';
-import { onMounted, reactive, ref } from 'vue';
+import { Activity, BarChart3, ClipboardCheck, Plus, UsersRound } from 'lucide-vue-next';
+import { computed, onMounted, reactive, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
-import { apiRequest } from '@/services/api';
-import type { ProblemSet, Team } from '@/services/types';
+import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
+import type {
+  ActivityHeatmapCell,
+  AssignmentAnalytics,
+  AssignmentProgressState,
+  CoachAnalyticsResponse,
+  ProblemSet,
+  StudentAbilityProfile,
+  TagMastery,
+  Team,
+} from '@/services/types';
 
-const data = ref<Record<string, any> | null>(null);
+const data = ref<CoachAnalyticsResponse | null>(null);
 const problemSets = ref<ProblemSet[]>([]);
 const error = ref('');
 const assignmentOpen = ref(false);
-const masteryOpen = ref(false);
 const teamForm = reactive({ name: '', description: '' });
 const assignmentForm = reactive({
   title: '',
@@ -19,16 +27,44 @@ const assignmentForm = reactive({
   due_at: '',
 });
 
+const stateText: Record<AssignmentProgressState, string> = {
+  not_started: '未开始',
+  in_progress: '进行中',
+  overdue: '逾期',
+  completed: '完成',
+};
+
+const visibleProfiles = computed(() => data.value?.student_profiles.slice(0, 6) ?? []);
+const topTags = computed(() => data.value?.tag_mastery.slice(0, 8) ?? []);
+const activityCells = computed(() => data.value?.activity_heatmap.slice(-21) ?? []);
+const heatmapMax = computed(() => Math.max(1, ...activityCells.value.map((item) => item.attempts)));
+
+function percent(value: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function heatmapLevel(item: ActivityHeatmapCell): number {
+  return Math.min(4, Math.ceil((item.attempts / heatmapMax.value) * 4));
+}
+
+function latestTag(profile: StudentAbilityProfile): string {
+  return profile.tag_mastery[0]?.tag ?? '暂无标签';
+}
+
+function stateCount(item: AssignmentAnalytics, state: AssignmentProgressState): number {
+  return item.state_counts[state] ?? 0;
+}
+
 async function load() {
   try {
     const [analytics, sets] = await Promise.all([
-      apiRequest('/coach/analytics'),
+      apiRequest<CoachAnalyticsResponse>('/coach/analytics'),
       apiRequest<ProblemSet[]>('/problem-sets', { auth: false }),
     ]);
-    data.value = analytics as Record<string, any>;
+    data.value = analytics;
     problemSets.value = sets;
     assignmentForm.problem_set_id ||= sets[0]?.id ?? '';
-    assignmentForm.team_id ||= data.value.teams?.[0]?.id ?? '';
+    assignmentForm.team_id ||= analytics.teams[0]?.id ?? '';
   } catch (err) {
     error.value = err instanceof Error ? err.message : '需要教练或管理员权限。';
   }
@@ -73,7 +109,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page-stack">
+  <div class="page-stack coach-workbench">
     <section class="page-heading">
       <div>
         <span class="eyebrow">Coach Console</span>
@@ -88,27 +124,40 @@ onMounted(load);
 
     <template v-if="data">
       <section class="summary-strip">
-        <span>{{ data.class_size }} 名学生</span>
-        <span>{{ data.active_students }} 名活跃</span>
-        <button class="text-link" type="button" @click="masteryOpen = true">
-          <ClipboardCheck :size="15" />知识点掌握
-        </button>
+        <span><UsersRound :size="15" />{{ data.class_size }} 名学生</span>
+        <span><Activity :size="15" />{{ data.active_students }} 名活跃</span>
+        <span><ClipboardCheck :size="15" />{{ data.assignments.length }} 个作业</span>
+        <span><BarChart3 :size="15" />{{ data.tag_mastery.length }} 个标签</span>
       </section>
 
-      <section class="dashboard-grid">
+      <section class="dashboard-grid coach-dashboard-grid">
         <div class="panel large-panel">
           <div class="panel-head">
             <div>
               <h2>训练作业</h2>
-              <p>截止时间与完成率</p>
+              <p>截止时间、完成率和单人状态</p>
             </div>
           </div>
           <div class="list-stack">
-            <div v-for="item in data.assignments" :key="item.id" class="assignment-row">
-              <strong>{{ item.title }}</strong>
-              <span>{{ item.problem_set_title }} · {{ item.due_at }}</span>
-              <div class="bar-track"><i :style="{ width: `${item.completion * 100}%` }"></i></div>
+            <div v-for="item in data.assignments" :key="item.id" class="assignment-card">
+              <div class="assignment-card-main">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ item.problem_set_title }} · 截止 {{ formatDate(item.due_at) }}</span>
+                </div>
+                <b class="status-pill" :class="`state-${item.status}`">{{ stateText[item.status] }}</b>
+              </div>
+              <div class="bar-track">
+                <i :style="{ width: percent(item.completion) }"></i>
+              </div>
+              <div class="assignment-state-grid">
+                <span>完成 {{ item.completed_count }}/{{ item.student_count }}</span>
+                <span>未开始 {{ stateCount(item, 'not_started') }}</span>
+                <span>进行中 {{ stateCount(item, 'in_progress') }}</span>
+                <span>逾期 {{ stateCount(item, 'overdue') }}</span>
+              </div>
             </div>
+            <p v-if="data.assignments.length === 0" class="empty-state">暂无作业。</p>
           </div>
         </div>
 
@@ -116,36 +165,102 @@ onMounted(load);
           <div class="panel-head">
             <div>
               <h2>队伍管理</h2>
-              <p>创建班级/队伍邀请码</p>
+              <p>当前教练负责的班级和邀请码</p>
             </div>
           </div>
           <div class="list-stack">
             <div v-for="team in data.teams" :key="team.id" class="user-row">
               <strong>{{ team.name }}</strong>
-              <span>{{ team.description }} · 邀请码 {{ team.invite_code }}</span>
+              <span>{{ team.description || '暂无描述' }} · 邀请码 {{ team.invite_code }}</span>
               <b>{{ team.member_ids.length }} 人</b>
             </div>
+            <p v-if="data.teams.length === 0" class="empty-state">暂无队伍。</p>
           </div>
-          <form class="submit-form" style="margin-top:14px" @submit.prevent="createTeam">
+          <form class="submit-form compact-form" @submit.prevent="createTeam">
             <label>队伍名<input v-model="teamForm.name" required placeholder="新训练班" /></label>
             <label>描述<input v-model="teamForm.description" placeholder="队伍说明" /></label>
             <button class="secondary-action full" type="submit"><Plus :size="17" />创建队伍</button>
           </form>
         </div>
       </section>
-    </template>
 
-    <BaseModal :open="masteryOpen" title="知识点掌握" description="由提交记录聚合" size="lg" @close="masteryOpen = false">
-      <div v-if="data" class="type-stat-list">
-        <div v-for="item in data.tag_mastery" :key="item.tag" class="type-stat-row">
-          <span>{{ item.tag }}</span>
-          <div class="bar-track">
-            <i :style="{ width: `${item.attempts ? (item.accepted / item.attempts) * 100 : 0}%` }"></i>
+      <section class="dashboard-grid coach-dashboard-grid">
+        <div class="panel large-panel">
+          <div class="panel-head">
+            <div>
+              <h2>学生能力画像</h2>
+              <p>按提交记录聚合，不展示源码或标准答案</p>
+            </div>
           </div>
-          <strong>{{ item.accepted }}/{{ item.attempts }}</strong>
+          <div class="profile-list">
+            <article v-for="profile in visibleProfiles" :key="profile.user_id" class="student-profile-card">
+              <div class="student-profile-head">
+                <div>
+                  <strong>{{ profile.display_name }}</strong>
+                  <span>{{ profile.school }} · {{ latestTag(profile) }}</span>
+                </div>
+                <b>{{ percent(profile.accuracy) }}</b>
+              </div>
+              <div class="profile-metrics">
+                <span>{{ profile.solved }} 已解</span>
+                <span>{{ profile.accepted }}/{{ profile.attempts }} 通过</span>
+                <span>{{ formatDate(profile.last_submission_at) }}</span>
+              </div>
+              <div class="mini-heatmap">
+                <i
+                  v-for="cell in profile.heatmap.slice(-14)"
+                  :key="cell.date"
+                  :class="`heat-${Math.min(4, cell.attempts)}`"
+                  :title="`${cell.date} · ${cell.attempts} 次提交`"
+                ></i>
+              </div>
+            </article>
+            <p v-if="visibleProfiles.length === 0" class="empty-state">暂无学生画像数据。</p>
+          </div>
         </div>
-      </div>
-    </BaseModal>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>活跃热力</h2>
+              <p>最近提交密度</p>
+            </div>
+          </div>
+          <div class="heatmap-grid">
+            <i
+              v-for="cell in activityCells"
+              :key="cell.date"
+              :class="`heat-${heatmapLevel(cell)}`"
+              :title="`${cell.date} · ${cell.attempts} 次提交 · ${cell.active_students} 人`"
+            ></i>
+          </div>
+          <div class="type-stat-list mastery-list">
+            <div v-for="item in data.type_mastery" :key="item.problem_type" class="type-stat-row">
+              <span>{{ problemTypeLabel(item.problem_type) }}</span>
+              <div class="bar-track"><i :style="{ width: percent(item.accuracy) }"></i></div>
+              <strong>{{ item.solved }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>标签掌握度</h2>
+            <p>按负责学生提交聚合，显示通过率和覆盖学生数</p>
+          </div>
+        </div>
+        <div class="tag-mastery-grid">
+          <article v-for="item in topTags" :key="item.tag" class="tag-mastery-card">
+            <strong>{{ item.tag }}</strong>
+            <span>{{ item.accepted }}/{{ item.attempts }} 通过 · {{ item.student_count }} 人</span>
+            <div class="bar-track"><i :style="{ width: percent(item.accuracy) }"></i></div>
+          </article>
+          <p v-if="topTags.length === 0" class="empty-state">暂无标签掌握数据。</p>
+        </div>
+      </section>
+    </template>
 
     <BaseModal :open="assignmentOpen" title="布置作业" description="基于题单发布训练任务" size="md" @close="assignmentOpen = false">
       <form class="submit-form" @submit.prevent="createAssignment">
@@ -154,7 +269,7 @@ onMounted(load);
           <option v-for="set in problemSets" :key="set.id" :value="set.id">{{ set.title }}</option>
         </select></label>
         <label>队伍<select v-model="assignmentForm.team_id">
-          <option value="">全部学生</option>
+          <option value="">全部负责学生</option>
           <option v-for="team in data?.teams" :key="team.id" :value="team.id">{{ team.name }}</option>
         </select></label>
         <label>截止时间<input v-model="assignmentForm.due_at" required type="datetime-local" /></label>

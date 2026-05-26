@@ -1024,6 +1024,10 @@ p {
   gap: 16px;
 }
 
+.coach-dashboard-grid {
+  align-items: start;
+}
+
 .single-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1099,6 +1103,153 @@ p {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--primary), var(--accent));
+}
+
+.assignment-card,
+.student-profile-card,
+.tag-mastery-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 94%, var(--surface-strong));
+}
+
+.assignment-card-main,
+.student-profile-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assignment-card-main div,
+.student-profile-head div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.assignment-card-main strong,
+.student-profile-head strong,
+.tag-mastery-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-card-main span,
+.student-profile-head span,
+.tag-mastery-card span,
+.profile-metrics span,
+.assignment-state-grid span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-state-grid,
+.profile-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.state-completed {
+  background: color-mix(in oklch, white 72%, var(--success));
+  color: color-mix(in oklch, var(--success) 72%, black);
+}
+
+.state-overdue {
+  background: color-mix(in oklch, white 76%, var(--danger));
+  color: color-mix(in oklch, var(--danger) 78%, black);
+}
+
+.state-in_progress {
+  background: color-mix(in oklch, white 74%, var(--warning));
+  color: color-mix(in oklch, var(--warning) 64%, black);
+}
+
+.profile-list,
+.tag-mastery-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tag-mastery-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mini-heatmap,
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 14px);
+  gap: 5px;
+}
+
+.heatmap-grid {
+  grid-template-columns: repeat(7, 18px);
+  margin-bottom: 16px;
+}
+
+.mini-heatmap i,
+.heatmap-grid i {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--surface-strong);
+}
+
+.heat-1 {
+  background: color-mix(in oklch, white 70%, var(--primary)) !important;
+}
+
+.heat-2 {
+  background: color-mix(in oklch, white 52%, var(--primary)) !important;
+}
+
+.heat-3 {
+  background: color-mix(in oklch, white 34%, var(--primary)) !important;
+}
+
+.heat-4 {
+  background: var(--primary-strong) !important;
+}
+
+.mastery-list {
+  margin-top: 12px;
+}
+
+.compact-form {
+  margin-top: 14px;
 }
 
 .contest-row,
@@ -3361,6 +3512,11 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .profile-list,
+  .tag-mastery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .problem-editor-grid {
     grid-template-columns: 1fr;
   }
@@ -3446,6 +3602,13 @@ pre {
 
   .problem-workbench,
   .summary-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-list,
+  .tag-mastery-grid,
+  .assignment-state-grid,
+  .profile-metrics {
     grid-template-columns: 1fr;
   }
 
