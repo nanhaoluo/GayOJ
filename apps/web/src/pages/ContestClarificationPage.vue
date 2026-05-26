@@ -21,8 +21,8 @@ const canReply = computed(() => authState.user?.permissions.includes('clarificat
 const canAsk = computed(() => authState.user?.role === 'student');
 
 function clarificationTitle(item: Clarification): string {
-  if (!item.problem_id) return '全局问题';
-  return `${item.problem_key || item.problem_id} · ${item.problem_title || '比赛题目'}`;
+  if (!item.problem_key && !item.problem_title) return '全局问题';
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ');
 }
 
 async function load() {

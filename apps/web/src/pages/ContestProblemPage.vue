@@ -65,8 +65,8 @@ async function load() {
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
-    const problemRef = String(route.params.problemId || '').toUpperCase();
-    problem.value = problems.value.find((item) => item.id === route.params.problemId || item.problem_key.toUpperCase() === problemRef) ?? null;
+    const problemRef = String(route.params.problemId ?? '').toLowerCase();
+    problem.value = problems.value.find((item) => item.problem_key.toLowerCase() === problemRef || item.id === route.params.problemId) ?? null;
     if (!problem.value) {
       throw new Error('Problem not found');
     }

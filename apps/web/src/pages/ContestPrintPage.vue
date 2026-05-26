@@ -96,6 +96,10 @@ function printPreview() {
   window.print();
 }
 
+function printProblemLabel(job: ContestPrintJobSummary | ContestPrintResponse): string {
+  return [job.problem_key, job.problem_title].filter(Boolean).join(' · ') || job.problem_id || '比赛题目';
+}
+
 onMounted(() => {
   void refreshJobs();
 });
@@ -118,7 +122,7 @@ onMounted(() => {
       <form class="print-request-panel" @submit.prevent="submitPrintJob">
         <div class="inline-form">
           <input v-model="submissionId" placeholder="提交 ID" />
-          <input v-model="problemId" placeholder="题目 ID 或比赛题号" />
+          <input v-model="problemId" placeholder="比赛题号（手工源码时必填）" />
           <input v-model="language" placeholder="语言" />
         </div>
         <textarea v-model="sourceCode" class="pure-textarea" placeholder="或输入本次请求要打印的源码"></textarea>
@@ -142,7 +146,7 @@ onMounted(() => {
           <div class="monitor-list">
             <div v-for="item in pendingJobs" :key="item.id" class="monitor-list-row print-job-row">
               <div class="monitor-feed-main">
-                <strong>{{ item.problem_key || item.problem_id }} · {{ item.problem_title || item.id }}</strong>
+                <strong>{{ printProblemLabel(item) }} · {{ item.user_display_name || item.user_id }}</strong>
                 <span>{{ item.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ item.user_display_name || item.user_id }} · {{ item.line_count }} 行</span>
                 <small>{{ item.language || '未知语言' }} · {{ formatDate(item.requested_at) }}</small>
               </div>
@@ -186,7 +190,7 @@ onMounted(() => {
           <div class="monitor-list">
             <div v-for="item in completedJobs" :key="item.id" class="monitor-list-row print-job-row compact">
               <div class="monitor-feed-main">
-                <strong>{{ item.problem_key || item.problem_id }} · {{ item.status }}</strong>
+                <strong>{{ printProblemLabel(item) }} · {{ item.status }}</strong>
                 <span>{{ item.user_display_name || item.user_id }} · {{ formatDate(item.printed_at || item.requested_at) }}</span>
               </div>
               <button class="secondary-action compact" type="button" @click="openPrintJob(item)">
@@ -201,7 +205,7 @@ onMounted(() => {
       <section class="print-preview-panel">
         <div class="monitor-panel-head">
           <div>
-            <h2>{{ selectedJob ? `${selectedJob.problem_key || selectedJob.problem_id} · ${selectedJob.language || '源码'}` : '源码预览' }}</h2>
+            <h2>{{ selectedJob ? `${printProblemLabel(selectedJob)} · ${selectedJob.language || '源码'}` : '源码预览' }}</h2>
             <p v-if="selectedJob">
               {{ selectedJob.id }} · {{ selectedJob.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ selectedJob.status }} · {{ selectedJob.line_count }} 行
             </p>

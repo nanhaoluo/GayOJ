@@ -799,6 +799,10 @@ class ContestSubmissionView(SubmissionReview):
     can_view_source: bool = False
 
 
+class ContestJudgeSubmissionView(SubmissionReview):
+    problem_key: str | None = None
+
+
 class ContestTeamSubmissionSummary(BaseModel):
     team_id: str
     team_name: str
@@ -1807,7 +1811,7 @@ class ContestJudgeMonitorResponse(BaseModel):
     contest: ContestDetail
     queue_depth: int
     queue: ContestJudgeQueueSummary
-    last_submissions: list[SubmissionReview]
+    last_submissions: list[ContestJudgeSubmissionView]
     judge_nodes: list[JudgeNode]
     clarifications: list[Clarification]
     announcements: list[ContestAnnouncement] = Field(default_factory=list)

@@ -397,6 +397,10 @@ export interface ContestSubmissionView extends Submission {
   can_view_source: boolean;
 }
 
+export interface ContestJudgeSubmissionView extends Submission {
+  problem_key: string | null;
+}
+
 export interface ContestTeamSubmissionSummary {
   team_id: string;
   team_name: string;
@@ -520,7 +524,7 @@ export interface ContestJudgeMonitor {
   contest: Contest;
   queue_depth: number;
   queue: ContestJudgeQueueSummary;
-  last_submissions: Submission[];
+  last_submissions: ContestJudgeSubmissionView[];
   judge_nodes: JudgeNode[];
   clarifications: Clarification[];
   announcements: ContestAnnouncement[];

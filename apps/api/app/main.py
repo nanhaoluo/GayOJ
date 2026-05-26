@@ -82,6 +82,7 @@ from .models import (
     ContestBalloonUpdate,
     ContestJudgeMonitorResponse,
     ContestJudgeQueueSummary,
+    ContestJudgeSubmissionView,
     Discussion,
     DiscussionCreate,
     DiscussionListResponse,
@@ -1300,7 +1301,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         contest=contest_detail(contest, store, full_board=True),
         queue_depth=queue.depth,
         queue=queue,
-        last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
+        last_submissions=[contest_judge_submission_view(submission, contest) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=clarifications,
         announcements=announcements,
@@ -1501,6 +1502,17 @@ def contest_submission_view(
     payload["team_name"] = team.name if team else None
     payload["can_view_source"] = can_view_contest_submission_source(user, submission)
     return ContestSubmissionView(**payload)
+
+
+def contest_judge_submission_view(submission: Submission, contest: Contest) -> ContestJudgeSubmissionView:
+    payload = sanitized_submission(submission).model_dump()
+    layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
+    payload["problem_key"] = layout.problem_key if layout else None
+    if layout and layout.display_title:
+        payload["problem_title"] = layout.display_title
+    if layout and layout.score is not None:
+        payload["max_score"] = layout.score
+    return ContestJudgeSubmissionView(**payload)
 
 
 def contest_team_submission_summaries(

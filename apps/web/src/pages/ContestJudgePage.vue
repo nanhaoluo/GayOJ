@@ -24,13 +24,13 @@ const canPublishAnnouncements = computed(() => {
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
 });
 
-function clarificationTitle(item: ContestJudgeMonitor['clarifications'][number]): string {
-  if (!item.problem_id) return '全局问题';
-  return `${item.problem_key || item.problem_id} · ${item.problem_title || '比赛题目'}`;
-}
+type ProblemLabelSource = {
+  problem_key?: string | null;
+  problem_title?: string | null;
+};
 
-function balloonProblemTitle(item: ContestJudgeMonitor['balloons'][number]): string {
-  return `${item.problem_key || item.problem_id} · ${item.problem_title}`;
+function contestProblemLabel(item: ProblemLabelSource): string {
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ') || '比赛题目';
 }
 
 async function load() {
@@ -213,7 +213,7 @@ onMounted(load);
             <div class="monitor-feed">
               <div v-for="item in data.last_submissions" :key="item.id" class="monitor-feed-row">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.problem_title }}</strong>
+                  <strong>{{ contestProblemLabel(item) }}</strong>
                   <span>{{ problemTypeLabel(item.problem_type) }} · {{ item.language || '客观题' }} · {{ formatDate(item.created_at) }}</span>
                 </div>
                 <StatusBadge :status="item.status" />
@@ -233,7 +233,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
                 <div class="monitor-feed-main">
-                  <strong>{{ clarificationTitle(item) }}</strong>
+                  <strong>{{ item.problem_key || item.problem_title ? contestProblemLabel(item) : '全局问题' }}</strong>
                   <span>{{ item.user_display_name || '匿名选手' }} · {{ formatDate(item.created_at) }}</span>
                   <p>{{ item.question }}</p>
                 </div>
@@ -253,7 +253,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="job in data.queue.last_jobs" :key="job.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ job.problem_id }} · {{ job.language }}</strong>
+                  <strong>{{ job.language }}</strong>
                   <span>{{ job.submission_id }} · {{ formatDate(job.created_at) }}</span>
                 </div>
                 <StatusBadge :status="job.status" />
@@ -272,8 +272,8 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.display_name }} · {{ item.problem_key || item.problem_id }}</strong>
-                  <span>{{ balloonProblemTitle(item) }} · {{ formatDate(item.judged_at) }}</span>
+                  <strong>{{ item.display_name }} · {{ item.problem_key || '题号' }}</strong>
+                  <span>{{ contestProblemLabel(item) }} · {{ formatDate(item.judged_at) }}</span>
                 </div>
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
               </div>
@@ -294,8 +294,8 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.print_jobs" :key="item.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.problem_key || item.problem_id }} · {{ item.user_display_name || item.user_id }}</strong>
-                  <span>{{ item.line_count }} 行 · {{ item.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ formatDate(item.requested_at) }}</span>
+                  <strong>{{ contestProblemLabel(item) }} · {{ item.user_display_name || item.user_id }}</strong>
+                  <span>{{ item.line_count }} 行 · {{ item.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ item.language || '未知语言' }} · {{ formatDate(item.requested_at) }}</span>
                 </div>
                 <StatusBadge :status="item.status === 'pending' ? 'pending' : 'completed'" />
               </div>

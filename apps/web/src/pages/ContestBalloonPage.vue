@@ -16,7 +16,7 @@ const pending = computed(() => data.value.filter((item) => !item.released));
 const released = computed(() => data.value.filter((item) => item.released));
 
 function balloonProblemTitle(item: ContestBalloon): string {
-  return `${item.problem_key || item.problem_id} · ${item.problem_title}`;
+  return [item.problem_key, item.problem_title].filter(Boolean).join(' · ') || '比赛题目';
 }
 
 async function load() {
