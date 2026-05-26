@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bell, MessageSquare, Radio, RefreshCw, Rows3, ScrollText, Send, Trophy } from 'lucide-vue-next';
+import { ArrowLeft, Bell, RefreshCw, Send } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -32,30 +32,6 @@ async function load() {
   }
 }
 
-async function openClarificationDesk() {
-  await router.push(`/judge/clar/${route.params.id}`);
-}
-
-async function openBalloonDesk() {
-  await router.push(`/judge/balloons/${route.params.id}`);
-}
-
-async function openStandings() {
-  await router.push(`/contests/${route.params.id}/standings`);
-}
-
-async function openExternalBoard() {
-  await router.push(`/contests/${route.params.id}/external-board`);
-}
-
-async function openLiveBoard() {
-  await router.push(`/contests/${route.params.id}/live-board`);
-}
-
-async function openRollingBoard() {
-  await router.push(`/contests/${route.params.id}/rolling-board`);
-}
-
 async function publishAnnouncement() {
   const title = announcementTitle.value.trim();
   const content = announcementContent.value.trim();
@@ -84,27 +60,7 @@ onMounted(load);
   <div class="pure-page">
     <header class="pure-toolbar">
       <button class="secondary-action" type="button" @click="router.back()"><ArrowLeft :size="16" />返回</button>
-      <div class="pure-toolbar-actions">
-        <button class="secondary-action" type="button" @click="openStandings">
-          <ScrollText :size="16" />榜单
-        </button>
-        <button class="secondary-action" type="button" @click="openExternalBoard">
-          <Rows3 :size="16" />外榜
-        </button>
-        <button class="secondary-action" type="button" @click="openLiveBoard">
-          <Radio :size="16" />实时外榜
-        </button>
-        <button class="secondary-action" type="button" @click="openRollingBoard">
-          <Trophy :size="16" />滚榜
-        </button>
-        <button class="secondary-action" type="button" @click="openClarificationDesk">
-          <MessageSquare :size="16" />Clarification
-        </button>
-        <button class="secondary-action" type="button" @click="openBalloonDesk">
-          <Bell :size="16" />气球台
-        </button>
-        <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
-      </div>
+      <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
     </header>
 
     <section class="pure-content contest-monitor-page">
@@ -143,6 +99,11 @@ onMounted(load);
             <small>气球</small>
             <strong>{{ pendingBalloons.length }}</strong>
             <span>{{ data.balloons.length }} 条比赛记录</span>
+          </article>
+          <article class="monitor-stat-card">
+            <small>打印单</small>
+            <strong>{{ data.print_jobs.filter((item) => item.status === 'pending').length }}</strong>
+            <span>{{ data.print_jobs.length }} 条打印请求</span>
           </article>
         </section>
 
@@ -187,9 +148,6 @@ onMounted(load);
                 <h2>实时提交流</h2>
                 <p>只展示当前比赛的提交记录。</p>
               </div>
-              <button class="secondary-action compact" type="button" @click="openStandings">
-                <ScrollText :size="14" />榜单
-              </button>
             </div>
             <div class="monitor-feed">
               <div v-for="item in data.last_submissions" :key="item.id" class="monitor-feed-row">
@@ -210,9 +168,6 @@ onMounted(load);
                 <h2>Clarification</h2>
                 <p>未处理问题优先显示。</p>
               </div>
-              <button class="secondary-action compact" type="button" @click="openClarificationDesk">
-                <MessageSquare :size="14" />审批台
-              </button>
             </div>
             <div class="monitor-list">
               <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
@@ -252,9 +207,6 @@ onMounted(load);
                 <h2>气球记录</h2>
                 <p>只统计当前比赛可发放气球的通过记录。</p>
               </div>
-              <button class="secondary-action compact" type="button" @click="openBalloonDesk">
-                <Trophy :size="14" />打开
-              </button>
             </div>
             <div class="monitor-list">
               <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
@@ -265,6 +217,25 @@ onMounted(load);
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
               </div>
               <p v-if="data.balloons.length === 0" class="empty-text">当前比赛还没有气球记录。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>打印单</h2>
+                <p>只展示当前比赛代码打印请求。</p>
+              </div>
+            </div>
+            <div class="monitor-list">
+              <div v-for="job in data.print_jobs" :key="job.id" class="monitor-list-row compact">
+                <div class="monitor-feed-main">
+                  <strong>{{ job.problem_key || job.problem_id }} · {{ job.user_display_name || job.user_id }}</strong>
+                  <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ formatDate(job.requested_at) }}</span>
+                </div>
+                <StatusBadge :status="job.status" />
+              </div>
+              <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印单。</p>
             </div>
           </article>
         </section>

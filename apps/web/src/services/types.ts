@@ -470,6 +470,7 @@ export interface ContestJudgeMonitor {
   clarifications: Clarification[];
   announcements: ContestAnnouncement[];
   balloons: ContestBalloon[];
+  print_jobs: ContestPrintJobSummary[];
 }
 
 export interface AuditLog {
@@ -589,14 +590,30 @@ export interface ContestAnnouncement {
   created_at: string;
 }
 
-export interface ContestPrintResponse {
+export type ContestPrintSourceKind = 'submission' | 'request';
+export type ContestPrintStatus = 'pending' | 'printed' | 'cancelled';
+
+export interface ContestPrintJobSummary {
+  id: string;
   contest_id: string;
   submission_id: string | null;
+  user_id: string;
+  user_display_name: string;
   problem_id: string | null;
+  problem_key: string | null;
+  problem_title: string | null;
   language: string | null;
-  source_kind: 'submission' | 'request';
-  source_code: string;
+  source_kind: ContestPrintSourceKind;
+  status: ContestPrintStatus;
   line_count: number;
+  requested_at: string;
+  printed_at: string | null;
+  printed_by: string | null;
+  note: string;
+}
+
+export interface ContestPrintResponse extends ContestPrintJobSummary {
+  source_code: string;
 }
 
 export interface ContestBalloon {

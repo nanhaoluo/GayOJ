@@ -1105,7 +1105,7 @@ def contest_submission_is_balloon_eligible(contest: Contest, submission: Submiss
 
 
 def contest_submission_effective_time(submission: Submission) -> datetime:
-    return submission.judged_at or submission.created_at
+    return submission.created_at or submission.judged_at
 
 
 def build_contest_balloon(

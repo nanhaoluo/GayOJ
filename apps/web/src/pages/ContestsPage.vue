@@ -348,7 +348,7 @@ onMounted(load);
         <span>{{ contest.problem_ids.length }} 题</span>
         <div class="contest-status-stack">
           <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
-          <small v-if="contest.freeze_active">已封榜</small>
+          <small v-if="contest.freeze_active">{{ contest.frozen ? '手动封榜' : '自动封榜' }}</small>
           <small v-if="rejudgeMeta(contest)">{{ rejudgeMeta(contest) }}</small>
         </div>
         <div class="row-actions">
@@ -364,7 +364,7 @@ onMounted(load);
             <Lock :size="16" />封榜
           </button>
           <button
-            v-if="canManageContests && contest.frozen"
+            v-if="canManageContests && contest.freeze_active"
             class="secondary-action"
             type="button"
             @click="unfreezeContest(contest)"

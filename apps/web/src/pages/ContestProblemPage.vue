@@ -6,14 +6,14 @@ import ProblemStatementRenderer from '@/components/ProblemStatementRenderer.vue'
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { CompilerLanguage, Contest, ProblemDetail, Submission } from '@/services/types';
+import type { CompilerLanguage, Contest, ContestProblemDetail, Submission } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
 const contest = ref<Contest | null>(null);
-const problem = ref<ProblemDetail | null>(null);
-const problems = ref<ProblemDetail[]>([]);
+const problem = ref<ContestProblemDetail | null>(null);
+const problems = ref<ContestProblemDetail[]>([]);
 const compilerLanguages = ref<CompilerLanguage[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
@@ -31,9 +31,16 @@ const answers = reactive<Record<string, unknown>>({});
 
 const isObjective = computed(() => problem.value && problem.value.type !== 'code');
 const canParticipate = computed(() => authState.user?.role === 'student');
-const contestProblemIndex = computed(() => {
-  const index = problems.value.findIndex((item) => item.id === route.params.problemId);
-  return index >= 0 ? String.fromCharCode('A'.charCodeAt(0) + index) : '';
+const contestProblemKey = computed(() => problem.value?.problem_key ?? '');
+const visibleCompilerLanguages = computed(() => {
+  if (!problem.value?.allowed_languages.length) return compilerLanguages.value;
+  const allowed = new Set(problem.value.allowed_languages);
+  return compilerLanguages.value.filter((item) => allowed.has(item.code));
+});
+const allowedLanguageText = computed(() => {
+  if (!problem.value || problem.value.type !== 'code') return '';
+  if (!problem.value.allowed_languages.length) return '不限语言';
+  return problem.value.allowed_languages.join(', ');
 });
 
 function toggleChoice(key: string) {
@@ -44,7 +51,7 @@ function toggleChoice(key: string) {
   answers.choices = choices;
 }
 
-function resetAnswers(detail: ProblemDetail) {
+function resetAnswers(detail: ContestProblemDetail) {
   Object.keys(answers).forEach((key) => delete answers[key]);
   if (detail.type === 'single_choice') answers.choice = '';
   if (detail.type === 'multiple_choice') answers.choices = [];
@@ -57,7 +64,7 @@ async function load() {
   result.value = null;
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
-    problems.value = await apiRequest<ProblemDetail[]>(`/contests/${route.params.id}/problems`);
+    problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
     problem.value = problems.value.find((item) => item.id === route.params.problemId) ?? null;
     if (!problem.value) {
       throw new Error('Problem not found');
@@ -70,8 +77,8 @@ async function load() {
       } catch {
         compilerLanguages.value = [];
       }
-      if (compilerLanguages.value.length && !compilerLanguages.value.some((item) => item.code === language.value)) {
-        language.value = compilerLanguages.value[0].code;
+      if (visibleCompilerLanguages.value.length && !visibleCompilerLanguages.value.some((item) => item.code === language.value)) {
+        language.value = visibleCompilerLanguages.value[0].code;
       }
     }
   } catch (err) {
@@ -112,7 +119,7 @@ onMounted(load);
   <div class="page-stack">
     <section v-if="contest && problem" class="page-heading">
       <div>
-        <span class="eyebrow">Contest {{ contestProblemIndex }} / {{ problemTypeLabel(problem.type) }}</span>
+        <span class="eyebrow">Contest {{ contestProblemKey }} / {{ problemTypeLabel(problem.type) }}</span>
         <h1>{{ problem.title }}</h1>
         <p class="contest-subtitle">
           {{ contest.title }} · {{ formatDate(contest.start_at) }} - {{ formatDate(contest.end_at) }}
@@ -181,11 +188,13 @@ onMounted(load);
             <label>
               语言
               <select v-model="language">
-                <option v-for="item in compilerLanguages" :key="item.code" :value="item.code">
+                <option v-for="item in visibleCompilerLanguages" :key="item.code" :value="item.code">
                   {{ item.display_name }} · {{ item.version }}
                 </option>
               </select>
             </label>
+            <p class="form-hint">允许语言：{{ allowedLanguageText }}</p>
+            <p v-if="!visibleCompilerLanguages.length" class="form-error">当前没有可用语言，无法提交代码。</p>
             <label>
               源码
               <textarea v-model="sourceCode" class="code-editor" spellcheck="false"></textarea>
@@ -223,7 +232,7 @@ onMounted(load);
             </label>
           </template>
 
-          <button class="primary-action full" type="submit" :disabled="submitting || loading">
+          <button class="primary-action full" type="submit" :disabled="submitting || loading || (problem.type === 'code' && !visibleCompilerLanguages.length)">
             <Loader2 v-if="submitting" :size="18" class="spin" />
             <Send v-else :size="18" />
             提交
