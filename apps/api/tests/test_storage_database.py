@@ -130,6 +130,18 @@ def test_fallback_state_database_backfills_empty_primary_from_sqlite() -> None:
     assert primary.writes == ['{"from": "sqlite"}']
 
 
+def test_fallback_state_database_skips_redundant_sqlite_syncs() -> None:
+    primary = MemoryStateDatabase("mysql", '{"from": "mysql"}')
+    fallback = MemoryStateDatabase("sqlite", '{"from": "old"}')
+    database = FallbackStateDatabase(primary, fallback)
+
+    assert database.read_payload() == '{"from": "mysql"}'
+    assert database.read_payload() == '{"from": "mysql"}'
+    assert database.read_payload() == '{"from": "mysql"}'
+
+    assert fallback.writes == ['{"from": "mysql"}']
+
+
 def test_storage_database_module_keeps_sql_queries_centralized() -> None:
     import storage.database as database_module
 

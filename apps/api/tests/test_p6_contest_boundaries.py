@@ -593,6 +593,11 @@ def test_contest_balloon_update_requires_judge_permission_and_tracks_release_met
     assert release_payload["released"] is True
     assert release_payload["released_by"] == "u-judge"
     assert release_payload["released_at"] is not None
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    monitor_balloon = next(item for item in monitor.json()["balloons"] if item["submission_id"] == submission_id)
+    assert monitor_balloon["released"] is True
+    assert monitor_balloon["released_at"] == release_payload["released_at"]
 
     reverted = client.patch(
         f"/api/v1/contests/C1001/balloons/{submission_id}",
@@ -770,7 +775,14 @@ def test_judge_contest_clarification_route_rejects_unknown_contest(client: TestC
 def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_scope(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
-    contest.end_at = datetime(2026, 5, 26, 17, 0, tzinfo=timezone.utc)
+    current = datetime.now(timezone.utc)
+    contest.start_at = current - timedelta(hours=2)
+    contest.end_at = current + timedelta(hours=1)
+    contest.frozen = False
+    contest.freeze_disabled = True
+    contest.frozen_at = None
+    contest.frozen_by = None
+    contest.freeze_reason = ""
     store.update_contest(contest)
 
     code_a = client.post(
@@ -823,6 +835,12 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
         json={"title": "C2001 Announcement", "content": "Only for C2001"},
     )
     assert ann_b.status_code == 200, ann_b.text
+    print_a = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("judge"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('monitor print')\n"},
+    )
+    assert print_a.status_code == 200, print_a.text
 
     anonymous = client.get("/api/v1/judge/monitor/C1001")
     student = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("alice"))
@@ -833,6 +851,10 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert student.status_code == 403
     assert coach.status_code == 200, coach.text
     assert judge.status_code == 200, judge.text
+
+    coach_actions = {item["key"]: item for item in coach.json()["actions"]}
+    assert coach_actions["freeze"]["enabled"] is True
+    assert coach_actions["rejudge"]["enabled"] is False
 
     payload = judge.json()
     assert payload["contest"]["id"] == "C1001"
@@ -845,17 +867,129 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     objective_monitor_item = next(item for item in payload["last_submissions"] if item["id"] == objective_a.json()["id"])
     assert code_monitor_item["problem_key"] == "1"
     assert objective_monitor_item["problem_key"] == "3"
+    assert all(item.get("source_code") is None for item in payload["last_submissions"])
     assert clar_a.json()["id"] in {item["id"] for item in payload["clarifications"]}
     assert clar_b.json()["id"] not in {item["id"] for item in payload["clarifications"]}
     assert ann_a.json()["id"] in {item["id"] for item in payload["announcements"]}
     assert ann_b.json()["id"] not in {item["id"] for item in payload["announcements"]}
     assert payload["balloons"][0]["contest_id"] == "C1001"
     assert all(item["contest_id"] == "C1001" for item in payload["balloons"])
+    assert all("judge_config" not in item for item in payload["contest"]["problems"])
+    assert all("source_code" not in item for item in payload["print_jobs"])
+
+    workbench = payload["workbench"]
+    assert workbench["pending_clarifications"] == 1
+    assert workbench["pending_print_jobs"] == 1
+    assert workbench["pending_balloons"] >= 1
+    assert workbench["pending_queue_jobs"] == 1
+    assert workbench["recent_submissions"] == 2
+    assert workbench["frozen"] is False
+
+    action_by_key = {item["key"]: item for item in payload["actions"]}
+    assert action_by_key["submissions"]["href"] == "/contests/C1001/submissions"
+    assert action_by_key["clarifications"]["href"] == "/judge/clar/C1001"
+    assert action_by_key["print"]["href"] == "/contests/C1001/print"
+    assert action_by_key["balloons"]["href"] == "/judge/balloons/C1001"
+    assert action_by_key["external_board"]["href"] == "/contests/C1001/external-board"
+    assert action_by_key["rolling_board"]["enabled"] is False
+    assert action_by_key["clarifications"]["pending_count"] == 1
+    assert action_by_key["print"]["pending_count"] == 1
+    assert action_by_key["freeze"]["enabled"] is True
+    assert action_by_key["rejudge"]["enabled"] is False
+
+    alert_categories = {item["category"] for item in payload["alerts"]}
+    assert {"clarification", "print", "balloon"}.issubset(alert_categories)
 
 
 def test_contest_judge_monitor_rejects_unknown_contest(client: TestClient, auth_headers) -> None:
     response = client.get("/api/v1/judge/monitor/C404", headers=auth_headers("judge"))
     assert response.status_code == 404
+
+
+def test_contest_judge_workbench_reports_queue_and_freeze_alerts(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.frozen = True
+    contest.frozen_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store.update_contest(contest)
+
+    queued = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('stale')\n"},
+    )
+    assert queued.status_code == 200, queued.text
+    submission = store.get_submission(queued.json()["id"])
+    assert submission is not None
+    job = store.get_judge_queue_job(submission.queue_job_id or "")
+    assert job is not None
+    job.status = "leased"
+    job.assigned_node_id = "node-1"
+    job.leased_at = datetime.now(timezone.utc) - timedelta(minutes=45)
+    store.update_judge_queue_job(job)
+
+    failed_submission_response = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('failed')\n"},
+    )
+    assert failed_submission_response.status_code == 200, failed_submission_response.text
+    failed_submission = store.get_submission(failed_submission_response.json()["id"])
+    assert failed_submission is not None
+    failed = store.get_judge_queue_job(failed_submission.queue_job_id or "")
+    assert failed is not None
+    failed.status = "failed"
+    failed.last_error = "sandbox unavailable"
+    failed.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    failed.leased_at = None
+    store.update_judge_queue_job(failed)
+
+    node = next(item for item in store.list_judge_nodes() if item.id == "node-2")
+    node.status = "offline"
+    store.update_judge_node(node)
+
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    payload = monitor.json()
+
+    assert payload["workbench"]["frozen"] is True
+    assert payload["workbench"]["leased_queue_jobs"] == 1
+    assert payload["workbench"]["failed_queue_jobs"] == 1
+    assert payload["workbench"]["offline_judge_nodes"] == 1
+
+    alert_by_category = {item["category"]: item for item in payload["alerts"]}
+    assert alert_by_category["freeze"]["severity"] == "info"
+    assert alert_by_category["judge_node"]["severity"] == "warning"
+    assert "queue" in {item["category"] for item in payload["alerts"]}
+    assert any(item["severity"] == "critical" and item["category"] == "queue" for item in payload["alerts"])
+    assert any("30 分钟" in item["message"] for item in payload["alerts"])
+
+
+def test_global_judge_monitor_skips_non_balloon_submissions(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.rule = "ACM"
+    store.update_contest(contest)
+
+    accepted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    wrong = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1002", "answers": {"edge_formula": "wrong"}},
+    )
+    assert wrong.status_code == 200, wrong.text
+
+    monitor = client.get("/api/v1/judge/monitor", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    balloon_submission_ids = {item["submission_id"] for item in monitor.json()["balloons"]}
+    assert accepted.json()["id"] in balloon_submission_ids
+    assert wrong.json()["id"] not in balloon_submission_ids
 
 
 def test_contest_clarification_rejects_problem_outside_contest(client: TestClient, auth_headers) -> None:
@@ -1044,6 +1178,10 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
     assert judge_adhoc.status_code == 200
     assert judge_adhoc.json()["source_kind"] == "request"
     assert judge_adhoc.json()["status"] == "pending"
+
+    monitor = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
+    assert monitor.status_code == 200, monitor.text
+    assert all("source_code" not in item for item in monitor.json()["print_jobs"])
 
 
 def test_private_contest_print_allows_existing_owner_and_blocks_non_owner(client: TestClient, auth_headers, store) -> None:

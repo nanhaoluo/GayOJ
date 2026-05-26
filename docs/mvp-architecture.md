@@ -7,7 +7,7 @@
 - 运行时存储使用 `apps/api/storage` 中央数据库层：MySQL 为主存储，SQLite 为 MySQL 不可用时的兜底存储。
 - `apps/api/storage/database_config.py` 集中读取 MySQL、SQLite、种子文件路径、连接超时和缓存配置。
 - `apps/api/storage/database.py` 集中所有运行时 SQL，使用固定表名、参数化查询、状态键校验、SQLite WAL/busy timeout/cache，以及 MySQL 失败后的 SQLite 兜底。
-- `apps/api/app/db/snapshot_repository.py` 是业务仓储适配层；API、worker、测试都通过仓储函数读写，不在业务代码中散落 SQL 查询。
+- `apps/api/app/db/snapshot_repository.py` 是业务仓储适配层；API、worker、测试都通过仓储函数读写，不在业务代码中散落 SQL 查询。仓储会缓存已解析和规范化的快照，数据库层用版本号判断 payload 是否变化，聚合页面不会在一次请求中反复解析整份状态。
 - `apps/api/storage/dev-db.json` 仅作为兼容种子快照导入数据库，不再作为运行时写入存储。旧种子中的 `problem_judge_config`、标签、测试数据、版本、队列任务等兼容迁移逻辑仍在读取时执行，写回目标是数据库快照。
 - MySQL 可用时作为主库；MySQL 初始化、读写失败时写入 SQLite。MySQL 空但 SQLite 已有数据时，会把 SQLite 快照回灌主库。
 - 历史阶段段落保留演进记录；当前运行时存储边界以本节为准。
@@ -217,7 +217,7 @@
 
 - 新增 `POST /api/v1/judge/nodes/heartbeat`，由 judge worker 使用 `X-Judge-Node-Token` 上报节点 ID、语言、负载、队列深度和运行状态。
 - `judge_nodes` 仍保持 JSON 兼容结构；旧节点缺字段时会在读取时补齐，超过心跳 TTL 的 `online`/`draining` 节点会在管理端和裁判端显示为 `offline`。
-- 新增 `POST /api/v1/judge/nodes/{node_id}/claim`，只允许在线节点领取自己支持语言的 pending 代码队列任务，并将任务标记为 `leased`、提交标记为 `judging`。
+- 新增 `POST /api/v1/judge/nodes/{node_id}/claim`，只允许在线节点领取自己支持语言的 pending 代码队列任务，并将任务标记为 `leased`、提交标记为 `judging`；领取与裁判监控响应只返回脱敏提交摘要，不携带 `source_code`。
 - 新增 `PATCH /api/v1/admin/judge-nodes/{node_id}`，管理员可把节点切换为 `online`、`draining` 或 `offline`，操作写入审计日志。
 - 裁判端显示队列 backend/topic、pending/leased 任务和节点心跳；管理端显示节点语言、负载、心跳时间和状态操作。
 - P4-06 只完成调度和状态流转，不编译、不运行、不本地判题；普通题面接口继续不返回 `judge_config`，离线 CLI 仍只处理客观题。
@@ -315,6 +315,14 @@
 - 队伍赛通过 `team_ids` 校验成员，白名单赛通过 `participant_user_ids` 校验用户；比赛列表只向学生返回已可进入的比赛，管理员、裁判和比赛管理者仍可运维。
 - 比赛详情、题面、提交、Clarification、公告、打印、气球、封榜和赛后重测都复用统一访问校验与资源归属校验；外榜和实时外榜只公开 `visibility=public` 且 `access_mode=open` 的比赛。
 - 代码打印只读取已提交源码或本次请求体，不编译、不运行用户代码；普通比赛题面继续剔除 `judge_config`。
+
+## P6-13 裁判比赛工作台
+
+- `GET /api/v1/judge/monitor/{contest_id}` 扩展为比赛级裁判工作台响应，聚合比赛队列、最近提交、Clarification、公告、打印单、气球、待处理统计、操作入口和异常提醒。
+- 前端纯净页 `/judge/monitor/:id` 只显示当前比赛执法内容和返回按钮，并跳转到已有纯净单页：比赛提交、Clarification 审批、打印台、气球台、内榜、外榜、实时外榜和滚榜。
+- 工作台响应中的提交和打印列表只返回脱敏摘要，不携带 `source_code`；打印源码仍必须通过授权的打印单详情读取，并写入审计。
+- 封榜、解封和赛后重测可从工作台触发，但仍复用原有权限、比赛归属、赛后窗口、队列入队和审计逻辑；API、Web、CLI 都不执行用户代码。
+- 比赛题面继续只返回公开字段和题号映射，不返回客观题 `judge_config`；私有比赛、私有 Clarification、打印单和封榜数据仍按身份隔离。
 
 ## 迁移到完整版本
 

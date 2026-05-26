@@ -116,6 +116,7 @@ def test_worker_claims_queued_code_submission_without_api_local_judging(
     assert monitor.status_code == 200, monitor.text
     assert monitor.json()["queue"]["pending"] >= 1
     assert monitor.json()["queue"]["depth"] >= 1
+    assert all(item.get("source_code") is None for item in monitor.json()["last_submissions"])
 
     claimed = client.post("/api/v1/judge/nodes/node-claim/claim", headers=WORKER_HEADERS)
     assert claimed.status_code == 200, claimed.text
@@ -129,6 +130,7 @@ def test_worker_claims_queued_code_submission_without_api_local_judging(
     assert payload["submission"]["score"] == 0
     assert payload["submission"]["judged_at"] is None
     assert payload["submission"]["details"] == []
+    assert payload["submission"]["source_code"] is None
 
     public_problem = client.get("/api/v1/problems/P1002")
     assert public_problem.status_code == 200

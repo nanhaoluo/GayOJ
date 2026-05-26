@@ -39,6 +39,19 @@ ContestAccessMode = Literal["open", "password", "invite", "team", "manual"]
 OfflineAnswerVisibility = Literal["full", "none"]
 OfflineSyncMode = Literal["allow", "disabled"]
 SolutionCategory = Literal["general", "tutorial", "analysis", "official", "trick"]
+ContestJudgeAlertSeverity = Literal["info", "warning", "critical"]
+ContestJudgeActionKey = Literal[
+    "submissions",
+    "clarifications",
+    "print",
+    "balloons",
+    "standings",
+    "external_board",
+    "live_board",
+    "rolling_board",
+    "rejudge",
+    "freeze",
+]
 
 DEFAULT_STUDENT_SCHOOL = "GayOJ University (GOJU)"
 
@@ -1242,7 +1255,7 @@ class JudgeQueueSummary(BaseModel):
 class JudgeNodeClaimResponse(BaseModel):
     node: JudgeNode
     job: JudgeQueueJob | None = None
-    submission: Submission | None = None
+    submission: SubmissionReview | None = None
 
 
 class AuditLog(BaseModel):
@@ -1790,7 +1803,7 @@ class OfflineResultSyncResponse(BaseModel):
 class JudgeMonitorResponse(BaseModel):
     queue_depth: int
     queue: JudgeQueueSummary
-    last_submissions: list[Submission]
+    last_submissions: list[SubmissionReview]
     judge_nodes: list[JudgeNode]
     clarifications: list[Clarification]
     contests: list[Contest] = Field(default_factory=list)
@@ -1807,6 +1820,34 @@ class ContestJudgeQueueSummary(BaseModel):
     last_jobs: list[JudgeQueueJob] = Field(default_factory=list)
 
 
+class ContestJudgeWorkbenchSummary(BaseModel):
+    pending_clarifications: int = Field(ge=0)
+    pending_print_jobs: int = Field(ge=0)
+    pending_balloons: int = Field(ge=0)
+    pending_queue_jobs: int = Field(ge=0)
+    leased_queue_jobs: int = Field(ge=0)
+    failed_queue_jobs: int = Field(ge=0)
+    recent_submissions: int = Field(ge=0)
+    offline_judge_nodes: int = Field(ge=0)
+    frozen: bool = False
+
+
+class ContestJudgeWorkbenchAction(BaseModel):
+    key: ContestJudgeActionKey
+    label: str
+    href: str
+    pending_count: int = Field(default=0, ge=0)
+    enabled: bool = True
+
+
+class ContestJudgeWorkbenchAlert(BaseModel):
+    severity: ContestJudgeAlertSeverity
+    category: str
+    message: str
+    target: str | None = None
+    created_at: datetime
+
+
 class ContestJudgeMonitorResponse(BaseModel):
     contest: ContestDetail
     queue_depth: int
@@ -1817,6 +1858,9 @@ class ContestJudgeMonitorResponse(BaseModel):
     announcements: list[ContestAnnouncement] = Field(default_factory=list)
     balloons: list[ContestBalloon] = Field(default_factory=list)
     print_jobs: list[ContestPrintJobSummary] = Field(default_factory=list)
+    workbench: ContestJudgeWorkbenchSummary
+    actions: list[ContestJudgeWorkbenchAction] = Field(default_factory=list)
+    alerts: list[ContestJudgeWorkbenchAlert] = Field(default_factory=list)
 
 
 class SystemConfig(BaseModel):

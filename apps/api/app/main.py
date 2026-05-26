@@ -58,6 +58,9 @@ from .models import (
     ContestBalloon,
     ContestFreezeRequest,
     ContestBoardResponse,
+    ContestJudgeWorkbenchAction,
+    ContestJudgeWorkbenchAlert,
+    ContestJudgeWorkbenchSummary,
     ContestProblemDetail,
     ContestRejudgeRequest,
     ContestRejudgeResponse,
@@ -776,15 +779,20 @@ def require_student_permissions(*permissions: str):
     return dependency
 
 
-def query_datetime(value: datetime | None) -> datetime | None:
+def query_datetime(value: Any) -> datetime | None:
     if value is None:
         return None
+    if not isinstance(value, datetime):
+        try:
+            value = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
 
 
-def auth_datetime(value: datetime | None) -> datetime | None:
+def auth_datetime(value: Any) -> datetime | None:
     return query_datetime(value)
 
 
@@ -1274,10 +1282,177 @@ def contest_judge_queue_summary(contest: Contest, store: Repository, *, limit: i
     )
 
 
-def contest_judge_monitor_payload(contest: Contest, store: Repository) -> ContestJudgeMonitorResponse:
+def contest_judge_workbench_actions(
+    contest: Contest,
+    workbench: ContestJudgeWorkbenchSummary,
+    user: User,
+) -> list[ContestJudgeWorkbenchAction]:
+    contest_href = f"/contests/{contest.id}"
+    can_manage_contest = role_has_permission(user.role, "contest:manage")
+    can_rejudge = role_has_permission(user.role, "submission:override") and (
+        role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")
+    )
+    can_process_contest_ops = role_has_permission(user.role, "judge:monitor") or can_manage_contest
+    return [
+        ContestJudgeWorkbenchAction(
+            key="submissions",
+            label="比赛提交",
+            href=f"{contest_href}/submissions",
+            pending_count=workbench.recent_submissions,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="clarifications",
+            label="Clarification 审批",
+            href=f"/judge/clar/{contest.id}",
+            pending_count=workbench.pending_clarifications,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="print",
+            label="打印台",
+            href=f"{contest_href}/print",
+            pending_count=workbench.pending_print_jobs,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="balloons",
+            label="气球台",
+            href=f"/judge/balloons/{contest.id}",
+            pending_count=workbench.pending_balloons,
+            enabled=contest.rule == "ACM" and can_process_contest_ops,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="standings",
+            label="内榜",
+            href=f"{contest_href}/standings",
+        ),
+        ContestJudgeWorkbenchAction(
+            key="external_board",
+            label="外榜",
+            href=f"{contest_href}/external-board",
+            enabled=contest.visibility == "public",
+        ),
+        ContestJudgeWorkbenchAction(
+            key="live_board",
+            label="实时外榜",
+            href=f"{contest_href}/live-board",
+            enabled=contest.visibility == "public",
+        ),
+        ContestJudgeWorkbenchAction(
+            key="rolling_board",
+            label="滚榜",
+            href=f"{contest_href}/rolling-board",
+            enabled=contest_has_ended(contest) and can_process_contest_ops,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="rejudge",
+            label="赛后重测",
+            href=f"/judge/monitor/{contest.id}",
+            enabled=contest_has_ended(contest) and can_rejudge,
+        ),
+        ContestJudgeWorkbenchAction(
+            key="freeze",
+            label="封榜运维",
+            href=f"/judge/monitor/{contest.id}",
+            enabled=can_manage_contest,
+        ),
+    ]
+
+
+def contest_judge_workbench_alerts(
+    contest: Contest,
+    *,
+    queue_jobs: list[Any],
+    workbench: ContestJudgeWorkbenchSummary,
+    generated_at: datetime,
+) -> list[ContestJudgeWorkbenchAlert]:
+    alerts: list[ContestJudgeWorkbenchAlert] = []
+    if workbench.pending_clarifications:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="warning",
+                category="clarification",
+                message=f"{workbench.pending_clarifications} 条 Clarification 待回复",
+                target=f"/judge/clar/{contest.id}",
+                created_at=generated_at,
+            )
+        )
+    if workbench.pending_print_jobs:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="warning",
+                category="print",
+                message=f"{workbench.pending_print_jobs} 条打印单待处理",
+                target=f"/contests/{contest.id}/print",
+                created_at=generated_at,
+            )
+        )
+    if workbench.pending_balloons:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="info",
+                category="balloon",
+                message=f"{workbench.pending_balloons} 个气球待发放",
+                target=f"/judge/balloons/{contest.id}",
+                created_at=generated_at,
+            )
+        )
+    if workbench.failed_queue_jobs:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="critical",
+                category="queue",
+                message=f"{workbench.failed_queue_jobs} 个比赛评测队列任务失败",
+                target=f"/judge/monitor/{contest.id}",
+                created_at=generated_at,
+            )
+        )
+    stale_leases = [
+        job
+        for job in queue_jobs
+        if job.status == "leased"
+        and job.leased_at
+        and (generated_at - auth_datetime(job.leased_at)).total_seconds() > 30 * 60
+    ]
+    if stale_leases:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="warning",
+                category="queue",
+                message=f"{len(stale_leases)} 个比赛评测任务租约超过 30 分钟",
+                target=f"/judge/monitor/{contest.id}",
+                created_at=generated_at,
+            )
+        )
+    if workbench.offline_judge_nodes:
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="warning",
+                category="judge_node",
+                message=f"{workbench.offline_judge_nodes} 个评测节点离线",
+                target=f"/judge/monitor/{contest.id}",
+                created_at=generated_at,
+            )
+        )
+    if contest_public_is_frozen(contest):
+        alerts.append(
+            ContestJudgeWorkbenchAlert(
+                severity="info",
+                category="freeze",
+                message="当前榜单处于封榜视图，外榜只展示冻结前成绩",
+                target=f"/contests/{contest.id}/standings",
+                created_at=generated_at,
+            )
+        )
+    return alerts
+
+
+def contest_judge_monitor_payload(contest: Contest, store: Repository, user: User) -> ContestJudgeMonitorResponse:
+    generated_at = now()
     submissions = [submission for submission in store.list_submissions() if submission.contest_id == contest.id]
+    submissions.sort(key=lambda item: (auth_datetime(item.created_at) or generated_at, item.id), reverse=True)
     queue = contest_judge_queue_summary(contest, store)
+    queue_jobs = [job for job in store.list_judge_queue_jobs() if job.contest_id == contest.id]
     clarifications = [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest.id]
+    clarifications.sort(key=lambda item: (bool(item.answer), auth_datetime(item.created_at) or generated_at))
     announcements = store.list_contest_announcements(contest.id)
     print_jobs = sorted(store.list_contest_print_jobs(contest.id), key=lambda item: item.requested_at, reverse=True)
     balloons: list[ContestBalloon] = []
@@ -1297,16 +1472,36 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         ),
         reverse=False,
     )
+    judge_nodes = store.list_judge_nodes()
+    workbench = ContestJudgeWorkbenchSummary(
+        pending_clarifications=sum(1 for item in clarifications if not item.answer),
+        pending_print_jobs=sum(1 for item in print_jobs if item.status == "pending"),
+        pending_balloons=sum(1 for item in balloons if not item.released),
+        pending_queue_jobs=queue.pending,
+        leased_queue_jobs=queue.leased,
+        failed_queue_jobs=sum(1 for item in queue_jobs if item.status == "failed"),
+        recent_submissions=len(submissions),
+        offline_judge_nodes=sum(1 for item in judge_nodes if item.status == "offline"),
+        frozen=contest_public_is_frozen(contest),
+    )
     return ContestJudgeMonitorResponse(
         contest=contest_detail(contest, store, full_board=True),
         queue_depth=queue.depth,
         queue=queue,
         last_submissions=[contest_judge_submission_view(submission, contest) for submission in submissions[:10]],
-        judge_nodes=store.list_judge_nodes(),
+        judge_nodes=judge_nodes,
         clarifications=clarifications,
         announcements=announcements,
         balloons=balloons,
         print_jobs=[contest_print_summary(job) for job in print_jobs[:10]],
+        workbench=workbench,
+        actions=contest_judge_workbench_actions(contest, workbench, user),
+        alerts=contest_judge_workbench_alerts(
+            contest,
+            queue_jobs=queue_jobs,
+            workbench=workbench,
+            generated_at=generated_at,
+        ),
     )
 
 
@@ -1505,7 +1700,7 @@ def contest_submission_view(
 
 
 def contest_judge_submission_view(submission: Submission, contest: Contest) -> ContestJudgeSubmissionView:
-    payload = sanitized_submission(submission).model_dump()
+    payload = sanitized_submission(submission, include_source=False).model_dump()
     layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
     payload["problem_key"] = layout.problem_key if layout else None
     if layout and layout.display_title:
@@ -2022,6 +2217,23 @@ def contest_submission_to_balloon(submission: Submission, store: Repository) -> 
     if balloon is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Balloon not available")
     return contest_balloon_response(contest, balloon)
+
+
+def judge_monitor_balloon_summaries(submissions: list[Submission], store: Repository) -> list[ContestBalloon]:
+    balloons: list[ContestBalloon] = []
+    seen_submission_ids: set[str] = set()
+    for submission in submissions:
+        if not submission.judged_at or not submission.contest_id:
+            continue
+        try:
+            balloon = contest_submission_to_balloon(submission, store)
+        except HTTPException:
+            continue
+        if balloon.submission_id in seen_submission_ids:
+            continue
+        seen_submission_ids.add(balloon.submission_id)
+        balloons.append(balloon)
+    return balloons
 
 
 def contest_submission_is_objective(problem: Problem) -> bool:
@@ -4272,16 +4484,12 @@ def judge_monitor(
     return JudgeMonitorResponse(
         queue_depth=queue.depth,
         queue=queue,
-        last_submissions=submissions[:10],
+        last_submissions=[sanitized_submission(submission, include_source=False) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=store.list_clarifications(),
         contests=store.list_contests(),
         frozen_contests=[contest for contest in store.list_contests() if contest.frozen],
-        balloons=[
-            contest_submission_to_balloon(submission, store)
-            for submission in submissions
-            if submission.judged_at and submission.contest_id
-        ],
+        balloons=judge_monitor_balloon_summaries(submissions, store),
     )
 
 
@@ -4296,7 +4504,7 @@ def contest_judge_monitor(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if not (role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "contest:manage")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    return contest_judge_monitor_payload(contest, store)
+    return contest_judge_monitor_payload(contest, store, user)
 
 
 @app.post("/api/v1/judge/nodes/heartbeat", response_model=JudgeNode)
@@ -4339,7 +4547,7 @@ def judge_node_claim(
     if not claimed:
         return JudgeNodeClaimResponse(node=refreshed)
     job, submission = claimed
-    return JudgeNodeClaimResponse(node=refreshed, job=job, submission=submission)
+    return JudgeNodeClaimResponse(node=refreshed, job=job, submission=sanitized_submission(submission, include_source=False))
 
 
 @app.post("/api/v1/judge/submissions/{submission_id}/override", response_model=Submission)
@@ -4724,6 +4932,7 @@ def problem_set_offline_package(
         store,
         ttl_hours=offline_ttl_hours(problem_set.offline_policy),
         source={"type": "problem_set", "id": problem_set.id, "title": problem_set.title},
+        created_by=user.id,
     )
 
 

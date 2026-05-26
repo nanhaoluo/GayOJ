@@ -153,6 +153,7 @@ class MySqlStateDatabase:
         charset: str,
         connect_timeout_seconds: int,
         state_key: str = "default",
+        cache_enabled: bool = True,
     ) -> None:
         self.host = host
         self.port = port
@@ -162,7 +163,10 @@ class MySqlStateDatabase:
         self.charset = charset
         self.connect_timeout_seconds = max(1, min(int(connect_timeout_seconds), MAX_MYSQL_CONNECT_TIMEOUT_SECONDS))
         self.state_key = _validate_state_key(state_key)
+        self.cache_enabled = cache_enabled
         self._lock = threading.RLock()
+        self._cached_payload: str | None = None
+        self._cached_version: int | None = None
         self._pymysql = self._load_pymysql()
         self._ensure_schema()
 
@@ -200,19 +204,42 @@ class MySqlStateDatabase:
                     CREATE TABLE IF NOT EXISTS app_state (
                         state_key VARCHAR(64) PRIMARY KEY,
                         payload LONGTEXT NOT NULL,
+                        version BIGINT NOT NULL DEFAULT 1,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                cursor.execute("SHOW COLUMNS FROM app_state LIKE 'version'")
+                if cursor.fetchone() is None:
+                    cursor.execute("ALTER TABLE app_state ADD COLUMN version BIGINT NOT NULL DEFAULT 1")
 
     def read_payload(self) -> str | None:
         with self._lock:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT payload FROM app_state WHERE state_key = %s", (self.state_key,))
+                    cursor.execute("SELECT version FROM app_state WHERE state_key = %s", (self.state_key,))
                     row = cursor.fetchone()
-                    return str(row[0]) if row else None
+                    if row is None:
+                        self._cached_payload = None
+                        self._cached_version = None
+                        return None
+
+                    version = int(row[0])
+                    if self.cache_enabled and self._cached_payload is not None and self._cached_version == version:
+                        return self._cached_payload
+
+                    cursor.execute("SELECT payload, version FROM app_state WHERE state_key = %s", (self.state_key,))
+                    payload_row = cursor.fetchone()
+                    if payload_row is None:
+                        self._cached_payload = None
+                        self._cached_version = None
+                        return None
+
+                    payload = str(payload_row[0])
+                    self._cached_payload = payload
+                    self._cached_version = int(payload_row[1])
+                    return payload
 
     def write_payload(self, payload: str) -> None:
         with self._lock:
@@ -220,14 +247,19 @@ class MySqlStateDatabase:
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        INSERT INTO app_state (state_key, payload, updated_at)
-                        VALUES (%s, %s, %s)
+                        INSERT INTO app_state (state_key, payload, version, updated_at)
+                        VALUES (%s, %s, 1, %s)
                         ON DUPLICATE KEY UPDATE
                             payload = VALUES(payload),
+                            version = version + 1,
                             updated_at = VALUES(updated_at)
                         """,
                         (self.state_key, payload, _utc_timestamp()),
                     )
+                    cursor.execute("SELECT version FROM app_state WHERE state_key = %s", (self.state_key,))
+                    version_row = cursor.fetchone()
+                    self._cached_payload = payload
+                    self._cached_version = int(version_row[0]) if version_row else None
 
 
 class FallbackStateDatabase:
@@ -236,6 +268,7 @@ class FallbackStateDatabase:
         self.fallback = fallback
         self._primary_available = True
         self._lock = threading.RLock()
+        self._last_synced_payload: str | None = None
 
     @property
     def label(self) -> str:
@@ -248,11 +281,12 @@ class FallbackStateDatabase:
                 try:
                     payload = self.primary.read_payload()
                     if payload is not None:
-                        self.fallback.write_payload(payload)
+                        self._sync_fallback(payload)
                         return payload
                     fallback_payload = self.fallback.read_payload()
                     if fallback_payload is not None:
                         self.primary.write_payload(fallback_payload)
+                        self._last_synced_payload = fallback_payload
                         return fallback_payload
                     return payload
                 except Exception:
@@ -267,6 +301,17 @@ class FallbackStateDatabase:
                 except Exception:
                     self._primary_available = False
             self.fallback.write_payload(payload)
+            self._last_synced_payload = payload
+
+    def _sync_fallback(self, payload: str) -> None:
+        if payload == self._last_synced_payload:
+            return
+        try:
+            if self.fallback.read_payload() != payload:
+                self.fallback.write_payload(payload)
+            self._last_synced_payload = payload
+        except Exception:
+            return
 
 
 def create_sqlite_database(settings: DatabaseSettings) -> SqliteStateDatabase:
@@ -290,6 +335,7 @@ def create_mysql_database(settings: DatabaseSettings) -> MySqlStateDatabase:
             database=unquote(parsed.path.lstrip("/") or settings.mysql_database),
             charset=query.get("charset", [settings.mysql_charset])[0],
             connect_timeout_seconds=settings.mysql_connect_timeout_seconds,
+            cache_enabled=settings.sqlite_cache_enabled,
         )
     return MySqlStateDatabase(
         host=settings.mysql_host,
@@ -299,6 +345,7 @@ def create_mysql_database(settings: DatabaseSettings) -> MySqlStateDatabase:
         database=settings.mysql_database,
         charset=settings.mysql_charset,
         connect_timeout_seconds=settings.mysql_connect_timeout_seconds,
+        cache_enabled=settings.sqlite_cache_enabled,
     )
 
 

@@ -1637,6 +1637,7 @@ class Store:
     def add_submission(self, submission: Submission) -> Submission:
         data = self._read()
         data["submissions"].insert(0, submission.model_dump(mode="json"))
+        self._migrate_judge_queue_jobs(data)
         self._write(data)
         return submission
 
@@ -1936,7 +1937,10 @@ class Store:
         self._write(data)
 
     def list_judge_nodes(self) -> list[JudgeNode]:
-        return [JudgeNode(**item) for item in self._read()["judge_nodes"]]
+        data = self._read()
+        if self._migrate_judge_nodes(data):
+            self._write(data)
+        return [JudgeNode(**item) for item in data["judge_nodes"]]
 
     def update_judge_node(self, judge_node: JudgeNode) -> JudgeNode:
         data = self._read()
