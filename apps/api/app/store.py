@@ -79,6 +79,12 @@ def _split_problem_dump(problem: Problem) -> tuple[dict[str, Any], dict[str, Any
     return item, judge_config
 
 
+def _contest_dump(contest: Contest) -> dict[str, Any]:
+    item = contest.model_dump(mode="json")
+    item["access_code_hash"] = contest._access_code_hash
+    return item
+
+
 def _default_offline_enabled(problem_type: str | None = None) -> bool:
     return problem_type != "code"
 
@@ -561,7 +567,7 @@ def seed_data() -> dict[str, Any]:
         "tags": _seed_tags(created),
         "submissions": [],
         "judge_queue_jobs": [],
-        "contests": [contest.model_dump(mode="json")],
+        "contests": [_contest_dump(contest)],
         "clarifications": [],
         "contest_announcements": [],
         "contest_balloons": [],
@@ -802,6 +808,41 @@ class Store:
             if contest.get("problem_layout") != problem_layout:
                 contest["problem_layout"] = problem_layout
                 changed = True
+            visibility = contest.get("visibility") if contest.get("visibility") in {"public", "private"} else "public"
+            if contest.get("visibility") != visibility:
+                contest["visibility"] = visibility
+                changed = True
+            access_mode = contest.get("access_mode")
+            if access_mode not in {"open", "password", "invite", "team", "manual"}:
+                access_mode = "open" if visibility == "public" else "manual"
+                changed = True
+            contest["access_mode"] = access_mode
+            for field in ("team_ids", "participant_user_ids", "access_unlocked_user_ids"):
+                raw_values = contest.get(field, [])
+                if isinstance(raw_values, str):
+                    raw_values = raw_values.replace("，", ",").split(",")
+                normalized_values: list[str] = []
+                seen_values: set[str] = set()
+                if isinstance(raw_values, list):
+                    for raw_value in raw_values:
+                        value = str(raw_value or "").strip()
+                        if value and value not in seen_values:
+                            seen_values.add(value)
+                            normalized_values.append(value)
+                if contest.get(field) != normalized_values:
+                    contest[field] = normalized_values
+                    changed = True
+            access_code_hash = str(contest.get("access_code_hash") or "").strip()
+            if access_code_hash != contest.get("access_code_hash"):
+                contest["access_code_hash"] = access_code_hash
+                changed = True
+            if access_mode == "open":
+                if contest["team_ids"] or contest["participant_user_ids"] or contest["access_unlocked_user_ids"] or contest["access_code_hash"]:
+                    contest["team_ids"] = []
+                    contest["participant_user_ids"] = []
+                    contest["access_unlocked_user_ids"] = []
+                    contest["access_code_hash"] = ""
+                    changed = True
         return changed
 
     def _migrate_judge_nodes(self, data: dict[str, Any]) -> bool:
@@ -1682,14 +1723,14 @@ class Store:
 
     def add_contest(self, contest: Contest) -> Contest:
         data = self._read()
-        data["contests"].insert(0, contest.model_dump(mode="json"))
+        data["contests"].insert(0, _contest_dump(contest))
         self._write(data)
         return contest
 
     def update_contest(self, contest: Contest) -> Contest:
         data = self._read()
         data["contests"] = [
-            contest.model_dump(mode="json") if item.get("id") == contest.id else item
+            _contest_dump(contest) if item.get("id") == contest.id else item
             for item in data["contests"]
         ]
         self._write(data)
