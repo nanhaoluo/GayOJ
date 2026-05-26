@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import re
@@ -48,6 +49,8 @@ from .models import (
     CoachReportFormat,
     CoachSimilarityResponse,
     Contest,
+    ContestAccessRequest,
+    ContestAccessResponse,
     ContestAnnouncement,
     ContestAnnouncementCreate,
     ContestCreate,
@@ -79,6 +82,7 @@ from .models import (
     ContestBalloonUpdate,
     ContestJudgeMonitorResponse,
     ContestJudgeQueueSummary,
+    ContestJudgeSubmissionView,
     Discussion,
     DiscussionCreate,
     DiscussionListResponse,
@@ -214,6 +218,11 @@ def dedupe_ids(values: list[str]) -> list[str]:
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _contest_access_digest(contest_id: str, code: str) -> str:
+    payload = f"{contest_id}:{code}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def offline_result_key(
@@ -628,13 +637,16 @@ def add_notification(store: Repository, user_id: str, title: str, content: str, 
 
 
 def contest_notification_targets(store: Repository, contest: Contest) -> list[User]:
-    if contest.visibility == "public" and contest.participation_mode == "open":
+    if contest_is_public_open(contest):
         return [user for user in store.list_users() if user.role == "student"]
-    if contest.participation_mode == "open":
-        owner_ids = contest_owners(store, contest)
-        return [user for user in store.list_users() if user.role == "student" and user.id in owner_ids]
-    participant_ids = contest_participant_user_ids(contest, store)
-    return [user for user in store.list_users() if user.role == "student" and user.id in participant_ids]
+    owner_ids = contest_owners(store, contest)
+    if contest.access_mode == "manual":
+        owner_ids.update(contest.participant_user_ids)
+    elif contest.access_mode == "team":
+        owner_ids.update(contest_team_member_ids(contest, store))
+    else:
+        owner_ids.update(contest.access_unlocked_user_ids)
+    return [user for user in store.list_users() if user.role == "student" and user.id in owner_ids]
 
 
 def enqueue_code_submission_job(
@@ -855,6 +867,18 @@ def contest_team_ids_for_user(store: Repository, user_id: str) -> list[str]:
     return [team.id for team in store.list_teams() if user_id in team.member_ids]
 
 
+def contest_team_member_ids(contest: Contest, store: Repository) -> set[str]:
+    member_ids: set[str] = set()
+    for team in store.list_teams():
+        if team.id in contest.team_ids:
+            member_ids.update(team.member_ids)
+    return member_ids
+
+
+def contest_access_participant_ids(contest: Contest, store: Repository) -> set[str]:
+    return set(contest.participant_user_ids) | contest_team_member_ids(contest, store) | set(contest.access_unlocked_user_ids)
+
+
 def contest_participant_user_ids(contest: Contest, store: Repository) -> set[str]:
     if contest.participation_mode == "open":
         return student_user_ids(store)
@@ -870,12 +894,56 @@ def contest_participant_user_ids(contest: Contest, store: Repository) -> set[str
     return {user_id for user_id in participants if user_id in students}
 
 
+def contest_user_passes_access_gate(user: User, contest: Contest, store: Repository) -> bool:
+    if role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all"):
+        return True
+    if user.role != "student":
+        return False
+    if contest.access_mode == "open":
+        return contest.visibility == "public"
+    if contest.access_mode in {"password", "invite"}:
+        return user.id in contest.access_unlocked_user_ids
+    if contest.access_mode == "team":
+        return user.id in contest_team_member_ids(contest, store)
+    if contest.access_mode == "manual":
+        return user.id in contest.participant_user_ids
+    return False
+
+
+def contest_student_has_access(user: User, contest: Contest, store: Repository) -> bool:
+    if contest_user_passes_access_gate(user, contest, store):
+        return True
+    return contest.visibility != "public" and user.id in contest_owners(store, contest)
+
+
 def contest_user_is_participant(user: User | None, contest: Contest, store: Repository) -> bool:
     if user is None or user.role != "student":
         return False
     if contest.participation_mode == "open":
         return True
     return user.id in contest_participant_user_ids(contest, store)
+
+
+def user_has_contest_access(user: User, contest: Contest, store: Repository) -> bool:
+    if role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all"):
+        return True
+    if user.role != "student":
+        return False
+    if not contest_student_has_access(user, contest, store):
+        return False
+    return contest_user_is_participant(user, contest, store)
+
+
+def user_can_enter_contest_detail(user: User, contest: Contest, store: Repository) -> bool:
+    if role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all"):
+        return True
+    if user.role != "student":
+        return False
+    return contest_user_passes_access_gate(user, contest, store)
+
+
+def contest_is_public_open(contest: Contest) -> bool:
+    return contest.visibility == "public" and contest.access_mode == "open" and contest.participation_mode == "open"
 
 
 def contest_roster_response(contest: Contest, store: Repository) -> ContestRosterResponse:
@@ -927,7 +995,8 @@ def contest_detail(
 ) -> ContestDetail:
     problems = {p.id: p for p in store.list_problems()}
     submissions = contest_problem_summary_submissions(contest, store, full_board=full_board)
-    participant_ids = contest_participant_user_ids(contest, store)
+    participant_ids = None if full_board else contest_participant_user_ids(contest, store)
+    roster_participant_ids = contest_participant_user_ids(contest, store)
     payload = contest.model_dump()
     payload["status"] = contest_now_status(contest)
     self_team_ids = contest_team_ids_for_user(store, viewer.id) if viewer else []
@@ -937,9 +1006,11 @@ def contest_detail(
         freeze_effective_at=contest_freeze_at(contest),
         registered_user_count=len(contest.registered_user_ids),
         registered_team_count=len(contest.registered_team_ids),
-        participant_user_count=len(participant_ids),
+        participant_user_count=len(roster_participant_ids),
         self_registered=contest_user_is_participant(viewer, contest, store) if viewer else False,
         self_team_ids=[team_id for team_id in self_team_ids if contest.participation_mode == "team" and team_id in contest.registered_team_ids],
+        access_unlocked=bool(viewer and contest_user_passes_access_gate(viewer, contest, store)),
+        participant_count=len(contest_access_participant_ids(contest, store)),
         problems=[
             problem_summary(problems[pid], submissions, participant_ids)
             for pid in contest.problem_ids
@@ -959,6 +1030,7 @@ def contest_owners(store: Repository, contest: Contest) -> set[str]:
     owners: set[str] = set()
     if contest.participation_mode != "open":
         owners.update(contest_participant_user_ids(contest, store))
+    owners.update(contest_access_participant_ids(contest, store))
     for clarification in store.list_clarifications():
         if clarification.contest_id == contest.id:
             owners.add(clarification.user_id)
@@ -973,11 +1045,8 @@ def ensure_contest_access(user: User, contest: Contest, store: Repository) -> No
         return
     if user.role != "student":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    if contest.participation_mode == "open":
-        if contest.visibility != "public":
-            if user.id not in contest_owners(store, contest):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-        return
+    if not contest_student_has_access(user, contest, store):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if not contest_user_is_participant(user, contest, store):
         detail = "Contest registration required" if contest.visibility == "public" else "Permission denied"
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
@@ -1088,9 +1157,9 @@ def discussion_visible_to_user(discussion: Discussion, user: User | None, store:
         contest = store.get_contest(discussion.target_id)
         if not contest:
             return False
-        if contest.visibility == "public":
+        if contest_is_public_open(contest):
             return True
-        return bool(user and (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")))
+        return bool(user and user_has_contest_access(user, contest, store))
     return False
 
 
@@ -1108,9 +1177,7 @@ def ensure_discussion_target_visible(payload: DiscussionCreate, user: User, stor
         contest = store.get_contest(target_id)
         if not contest:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-        if contest.visibility != "public" and not (
-            role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")
-        ):
+        if not user_has_contest_access(user, contest, store):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discussion target is not visible")
         return
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target is not supported for this discussion type")
@@ -1234,7 +1301,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         contest=contest_detail(contest, store, full_board=True),
         queue_depth=queue.depth,
         queue=queue,
-        last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
+        last_submissions=[contest_judge_submission_view(submission, contest) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=clarifications,
         announcements=announcements,
@@ -1437,6 +1504,17 @@ def contest_submission_view(
     return ContestSubmissionView(**payload)
 
 
+def contest_judge_submission_view(submission: Submission, contest: Contest) -> ContestJudgeSubmissionView:
+    payload = sanitized_submission(submission).model_dump()
+    layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
+    payload["problem_key"] = layout.problem_key if layout else None
+    if layout and layout.display_title:
+        payload["problem_title"] = layout.display_title
+    if layout and layout.score is not None:
+        payload["max_score"] = layout.score
+    return ContestJudgeSubmissionView(**payload)
+
+
 def contest_team_submission_summaries(
     submissions: list[Submission],
     *,
@@ -1481,6 +1559,7 @@ def contest_problem_details(contest: Contest, store: Repository, user: User | No
             continue
         display_title = layout.display_title or problem.title
         item = problem_detail(problem).model_dump()
+        item.pop("judge_config", None)
         item["problem_key"] = layout.problem_key
         item["display_title"] = display_title
         item["title"] = display_title
@@ -1553,6 +1632,17 @@ def ensure_contest_roster_mode_change_safe(existing: Contest, payload: ContestCr
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
 
 
+def ensure_contest_access_entities(payload: ContestCreate | ContestUpdate, store: Repository) -> None:
+    users = {user.id for user in store.list_users()}
+    teams = {team.id for team in store.list_teams()}
+    missing_users = [user_id for user_id in payload.participant_user_ids if user_id not in users]
+    missing_teams = [team_id for team_id in payload.team_ids if team_id not in teams]
+    if missing_users:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown contest participants: {', '.join(missing_users)}")
+    if missing_teams:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown contest teams: {', '.join(missing_teams)}")
+
+
 def contest_payload_layout(payload: ContestCreate | ContestUpdate) -> list[ContestProblemLayoutItem]:
     return payload.problem_layout or [
         ContestProblemLayoutItem(
@@ -1593,6 +1683,18 @@ def build_contest_from_payload(
     existing: Contest | None = None,
 ) -> Contest:
     registered_user_ids, registered_team_ids = contest_payload_roster(payload, store)
+    access_code_hash = existing._access_code_hash if existing else ""
+    if payload.access_mode in {"password", "invite"}:
+        if payload.access_code:
+            access_code_hash = _contest_access_digest(contest_id, payload.access_code)
+    else:
+        access_code_hash = ""
+    access_unlocked_user_ids = list(existing.access_unlocked_user_ids) if existing and payload.access_mode == existing.access_mode else []
+    if existing and access_code_hash != existing._access_code_hash:
+        access_unlocked_user_ids = []
+    if payload.access_mode not in {"password", "invite"}:
+        access_unlocked_user_ids = []
+
     return Contest(
         id=contest_id,
         title=payload.title,
@@ -1618,6 +1720,11 @@ def build_contest_from_payload(
                 roster_locked=existing.roster_locked if existing else False,
                 roster_locked_at=existing.roster_locked_at if existing else None,
                 roster_locked_by=existing.roster_locked_by if existing else None,
+                access_mode=payload.access_mode,
+                team_ids=list(payload.team_ids) if payload.access_mode == "team" else [],
+                participant_user_ids=list(payload.participant_user_ids) if payload.access_mode == "manual" else [],
+                access_unlocked_user_ids=access_unlocked_user_ids,
+                access_code_hash=access_code_hash,
                 frozen=existing.frozen if existing else False,
                 freeze_disabled=existing.freeze_disabled if existing else False,
                 frozen_at=existing.frozen_at if existing else None,
@@ -1636,6 +1743,11 @@ def build_contest_from_payload(
         roster_locked=existing.roster_locked if existing else False,
         roster_locked_at=existing.roster_locked_at if existing else None,
         roster_locked_by=existing.roster_locked_by if existing else None,
+        access_mode=payload.access_mode,
+        team_ids=list(payload.team_ids) if payload.access_mode == "team" else [],
+        participant_user_ids=list(payload.participant_user_ids) if payload.access_mode == "manual" else [],
+        access_unlocked_user_ids=access_unlocked_user_ids,
+        access_code_hash=access_code_hash,
         frozen=existing.frozen if existing else False,
         freeze_disabled=existing.freeze_disabled if existing else False,
         frozen_at=existing.frozen_at if existing else None,
@@ -2943,9 +3055,9 @@ def list_contests(
 ) -> list[ContestDetail]:
     contests = store.list_contests()
     if not user:
-        contests = [contest for contest in contests if contest.visibility == "public"]
+        contests = [contest for contest in contests if contest_is_public_open(contest)]
     elif not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all")):
-        contests = [contest for contest in contests if contest.visibility == "public"]
+        contests = [contest for contest in contests if user_can_enter_contest_detail(user, contest, store)]
     can_view_full = bool(user and can_view_full_contest_board(user))
     return [contest_detail(contest, store, full_board=can_view_full, viewer=user) for contest in contests]
 
@@ -2958,6 +3070,7 @@ def create_contest(
 ) -> ContestDetail:
     current = now()
     ensure_contest_problem_inventory(payload.problem_ids, store)
+    ensure_contest_access_entities(payload, store)
     contest = build_contest_from_payload(
         contest_id=f"C{1000 + len(store.list_contests()) + 1}",
         payload=payload,
@@ -2975,13 +3088,14 @@ def create_contest(
             "rule": contest.rule,
             "visibility": contest.visibility,
             "participation_mode": contest.participation_mode,
+            "access_mode": contest.access_mode,
             "problem_ids": contest.problem_ids,
             "problem_layout": [item.model_dump() for item in contest.problem_layout],
             "registered_user_ids": contest.registered_user_ids,
             "registered_team_ids": contest.registered_team_ids,
         },
     )
-    if contest.visibility == "public":
+    if contest_is_public_open(contest):
         for target in store.list_users():
             if target.role == "student":
                 add_notification(store, target.id, "新比赛已发布", f"{contest.title} 已加入比赛列表。", "contest")
@@ -2999,6 +3113,7 @@ def update_contest(
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     ensure_contest_problem_inventory(payload.problem_ids, store)
+    ensure_contest_access_entities(payload, store)
     ensure_contest_problem_removals_safe(existing, payload.problem_ids, store)
     ensure_contest_roster_mode_change_safe(existing, payload)
     contest = build_contest_from_payload(
@@ -3019,6 +3134,7 @@ def update_contest(
             "rule": contest.rule,
             "visibility": contest.visibility,
             "participation_mode": contest.participation_mode,
+            "access_mode": contest.access_mode,
             "problem_ids": contest.problem_ids,
             "problem_layout": [item.model_dump() for item in contest.problem_layout],
             "registered_user_ids": contest.registered_user_ids,
@@ -3026,6 +3142,51 @@ def update_contest(
         },
     )
     return contest_detail(contest, store, full_board=True, viewer=user)
+
+
+@app.post("/api/v1/contests/{contest_id}/access", response_model=ContestAccessResponse)
+def unlock_contest_access(
+    contest_id: str,
+    payload: ContestAccessRequest,
+    user: User = Depends(require_permissions("contest:join")),
+    store: Repository = Depends(get_repository),
+) -> ContestAccessResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if contest.access_mode == "open":
+        if not contest_is_public_open(contest):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        return ContestAccessResponse(
+            contest_id=contest.id,
+            access_mode=contest.access_mode,
+            access_unlocked=True,
+            message="Contest is open",
+        )
+    if contest.access_mode in {"password", "invite"}:
+        if not payload.code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contest access code is required")
+        if not contest._access_code_hash or not hmac.compare_digest(_contest_access_digest(contest.id, payload.code), contest._access_code_hash):
+            store.add_audit(user.id, "contest.access.denied", f"contest:{contest.id}", {"access_mode": contest.access_mode})
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        if user.id not in contest.access_unlocked_user_ids:
+            contest.access_unlocked_user_ids.append(user.id)
+            store.update_contest(contest)
+        store.add_audit(user.id, "contest.access.unlock", f"contest:{contest.id}", {"access_mode": contest.access_mode})
+        return ContestAccessResponse(
+            contest_id=contest.id,
+            access_mode=contest.access_mode,
+            access_unlocked=True,
+            message="Contest access unlocked",
+        )
+    if user_has_contest_access(user, contest, store):
+        return ContestAccessResponse(
+            contest_id=contest.id,
+            access_mode=contest.access_mode,
+            access_unlocked=True,
+            message="Contest access already allowed",
+        )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
 
 @app.post("/api/v1/contests/{contest_id}/freeze", response_model=ContestDetail)
@@ -3084,6 +3245,7 @@ def rejudge_contest(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
     if not contest_has_ended(contest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
     requested_problem_id: str | None = None
@@ -3188,10 +3350,11 @@ def get_contest(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not user:
-        if contest.visibility != "public":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    elif contest.visibility != "public":
+    if not user and not contest_is_public_open(contest):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user and not (
+        contest.visibility == "public" and contest_user_passes_access_gate(user, contest, store)
+    ):
         ensure_contest_access(user, contest, store)
     return contest_detail(contest, store, full_board=can_view_full_contest_board(user), viewer=user)
 
@@ -3271,6 +3434,8 @@ def register_contest(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if contest.visibility != "public":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if not contest_user_passes_access_gate(user, contest, store):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if contest.roster_locked:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
     if contest.participation_mode == "open":
@@ -3314,7 +3479,7 @@ def standings(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not user and contest.visibility != "public":
+    if not user and not contest_is_public_open(contest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if user:
         ensure_contest_access(user, contest, store)
@@ -3329,7 +3494,7 @@ def external_contest_board(
     store: Repository = Depends(get_repository),
 ) -> ContestBoardResponse:
     contest = store.get_contest(contest_id)
-    if not contest or contest.visibility != "public":
+    if not contest or not contest_is_public_open(contest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     return contest_external_board_payload(contest, store, board_kind="external", full_board=False)
 
@@ -3340,7 +3505,7 @@ def live_contest_board(
     store: Repository = Depends(get_repository),
 ) -> ContestBoardResponse:
     contest = store.get_contest(contest_id)
-    if not contest or contest.visibility != "public":
+    if not contest or not contest_is_public_open(contest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     return contest_external_board_payload(contest, store, board_kind="live", full_board=False)
 
@@ -3356,6 +3521,7 @@ def rolling_contest_board(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if not (role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "contest:manage")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
     if not contest_has_ended(contest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rolling board is only available after the contest ends")
     return contest_rolling_board_payload(contest, store)
@@ -3370,7 +3536,7 @@ def list_contest_problems(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not user and contest.visibility != "public":
+    if not user and not contest_is_public_open(contest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if user:
         ensure_contest_access(user, contest, store)
@@ -3450,7 +3616,7 @@ def list_contest_announcements(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not user and contest.visibility != "public":
+    if not user and not contest_is_public_open(contest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if user:
         ensure_contest_access(user, contest, store)
@@ -3469,6 +3635,7 @@ def create_contest_announcement(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
     announcement = ContestAnnouncement(
         id=f"CA{uuid4().hex[:8].upper()}",
         contest_id=contest_id,
@@ -3499,8 +3666,7 @@ def list_judge_contest_clarifications(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
     return [
         contest_clarification_response(contest, clarification)
         for clarification in store.list_clarifications()
@@ -3521,8 +3687,7 @@ def reply_clarification(
     contest = store.get_contest(clarification.contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
     if clarification.problem_id:
         contest_problem_lookup(contest, store, clarification.problem_id, user)
     answered_at = now()
@@ -3685,19 +3850,20 @@ def print_contest_source(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    ensure_contest_access(user, contest, store)
     if user.role != "student" and not can_process_contest_print(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     submission: Submission | None = None
     if payload.submission_id:
         submission = store.get_submission(payload.submission_id)
         if not submission:
+            ensure_contest_access(user, contest, store)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
         ensure_contest_submission_owner(user, contest, submission)
         if not submission.source_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission has no printable source")
         contest_problem_lookup(contest, store, submission.problem_id, user)
     elif payload.source_code:
+        ensure_contest_access(user, contest, store)
         if not can_process_contest_print(user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
         if not payload.problem_id:
@@ -3706,6 +3872,8 @@ def print_contest_source(
         ensure_contest_problem_language_allowed(contest, problem, payload.language)
     elif payload.problem_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires source_code")
+    else:
+        ensure_contest_access(user, contest, store)
     print_job = build_contest_print_job(
         contest=contest,
         store=store,
@@ -3818,6 +3986,7 @@ def list_contest_balloons(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
     if contest.rule != "ACM":
         return []
     balloons = []
@@ -3855,6 +4024,7 @@ def update_contest_balloon(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
     if contest.rule != "ACM":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Balloon tracking is only available for ACM contests")
     if payload.submission_id != submission_id:
@@ -3996,12 +4166,7 @@ def coach_similarity(
         contest = next((item for item in contests if item.id == contest_id), None)
         if not contest:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-        if (
-            contest.visibility != "public"
-            and not role_has_permission(user.role, "contest:manage")
-            and not role_has_permission(user.role, "judge:monitor")
-            and not role_has_permission(user.role, "clarification:read:all")
-        ):
+        if not user_has_contest_access(user, contest, store):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
         if not scoped_problem_ids.intersection(contest.problem_ids):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Contest is outside coach scope")

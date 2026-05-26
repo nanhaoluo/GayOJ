@@ -2366,6 +2366,37 @@ pre {
   align-items: start;
 }
 
+.contest-access-editor {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.contest-access-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 14px;
+  align-items: center;
+}
+
+.contest-access-copy {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.contest-access-copy h2,
+.contest-access-copy p {
+  margin: 0;
+}
+
+.contest-access-copy p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.contest-access-form {
+  justify-content: flex-end;
+}
+
 .contest-problem-picker,
 .contest-layout-list {
   display: grid;
@@ -4245,6 +4276,14 @@ pre {
   .print-job-meta {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .contest-access-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .contest-access-form {
+    justify-content: stretch;
   }
 
   .contest-manage-table,

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Radio, Rows3, Trophy, UserPlus } from 'lucide-vue-next';
+import { ArrowRight, Bell, FileCode2, FileQuestion, KeyRound, MessageSquare, Printer, Radio, RefreshCw, Rows3, Trophy, UserPlus } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
-import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { Contest, ContestAnnouncement, ContestProblemDetail, ContestRegistrationResponse } from '@/services/types';
+import { ApiError, apiRequest, formatDate, problemTypeLabel } from '@/services/api';
+import type { Contest, ContestAccessResponse, ContestAnnouncement, ContestProblemDetail, ContestRegistrationResponse } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
@@ -15,11 +15,14 @@ const announcements = ref<ContestAnnouncement[]>([]);
 const problems = ref<ContestProblemDetail[]>([]);
 const error = ref('');
 const notice = ref('');
+const accessRequired = ref(false);
+const accessCode = ref('');
+const unlocking = ref(false);
 const registering = ref(false);
 
 const canUseContestTools = computed(() => Boolean(authState.user));
 const canRegister = computed(() => {
-  return Boolean(authState.user?.role === 'student' && contest.value && contest.value.participation_mode !== 'open' && !contest.value.self_registered);
+  return Boolean(authState.user?.role === 'student' && contest.value && contest.value.access_unlocked && contest.value.participation_mode !== 'open' && !contest.value.self_registered);
 });
 const canOpenPrintDesk = computed(() => {
   const permissions = authState.user?.permissions ?? [];
@@ -48,6 +51,7 @@ function participationLabel(value: Contest['participation_mode']): string {
 async function load() {
   error.value = '';
   notice.value = '';
+  accessRequired.value = false;
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     announcements.value = await apiRequest<ContestAnnouncement[]>(`/contests/${route.params.id}/announcements`);
@@ -60,7 +64,33 @@ async function load() {
       }
     }
   } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      accessRequired.value = true;
+      contest.value = null;
+      announcements.value = [];
+      problems.value = [];
+      error.value = '';
+      return;
+    }
     error.value = err instanceof Error ? err.message : '比赛加载失败';
+  }
+}
+
+async function unlockContest() {
+  unlocking.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    await apiRequest<ContestAccessResponse>(`/contests/${route.params.id}/access`, {
+      method: 'POST',
+      body: JSON.stringify({ code: accessCode.value.trim() || undefined }),
+    });
+    accessCode.value = '';
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '访问验证失败';
+  } finally {
+    unlocking.value = false;
   }
 }
 
@@ -83,7 +113,7 @@ async function registerContest() {
 }
 
 async function openProblem(problem: ContestProblemDetail) {
-  await router.push(`/contests/${route.params.id}/p/${problem.problem_key || problem.id}`);
+  await router.push(`/contests/${route.params.id}/p/${encodeURIComponent(problem.problem_key || problem.id)}`);
 }
 
 async function openStandings() {
@@ -127,6 +157,24 @@ onMounted(load);
     <p v-if="error" class="form-error">{{ error }}</p>
     <p v-if="notice" class="form-success">{{ notice }}</p>
 
+    <section v-if="accessRequired" class="panel contest-access-panel">
+      <div class="contest-access-copy">
+        <KeyRound :size="20" />
+        <div>
+          <h2>需要访问权限</h2>
+          <p>请输入比赛口令或邀请码。</p>
+        </div>
+      </div>
+      <form class="inline-form contest-access-form" @submit.prevent="unlockContest">
+        <input v-model="accessCode" type="password" autocomplete="current-password" placeholder="访问凭据" />
+        <button class="primary-action" type="submit" :disabled="unlocking">
+          <RefreshCw v-if="unlocking" :size="16" class="spin" />
+          <KeyRound v-else :size="16" />
+          解锁
+        </button>
+      </form>
+    </section>
+
     <section v-if="contest" class="contest-home-layout">
       <article class="panel contest-home-main">
         <div class="contest-home-toolbar">
@@ -163,7 +211,7 @@ onMounted(load);
               <div class="contest-problem-copy">
                 <div class="contest-problem-title">
                   <strong>{{ problem.title }}</strong>
-                  <span>{{ problem.id }}</span>
+                  <span>{{ problem.score }} 分</span>
                 </div>
                 <div class="contest-problem-meta">
                   <span><ProblemTypeIcon :type="problem.type" />{{ problemTypeLabel(problem.type) }}</span>

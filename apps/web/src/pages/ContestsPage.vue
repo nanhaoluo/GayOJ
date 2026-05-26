@@ -58,6 +58,10 @@ const contestForm = reactive<ContestFormPayload>({
   participation_mode: 'open',
   registered_user_ids: [],
   registered_team_ids: [],
+  access_mode: 'open',
+  access_code: '',
+  team_ids: [],
+  participant_user_ids: [],
 });
 
 const canManageContests = computed(() => Boolean(authState.user?.permissions.includes('contest:manage')));
@@ -96,6 +100,17 @@ function participationLabel(value: ContestFormPayload['participation_mode']): st
   };
   return labels[value];
 }
+const accessModeOptions: Array<{ value: ContestFormPayload['access_mode']; label: string }> = [
+  { value: 'open', label: '开放' },
+  { value: 'password', label: '口令' },
+  { value: 'invite', label: '邀请码' },
+  { value: 'team', label: '队伍/班级' },
+  { value: 'manual', label: '白名单' },
+];
+
+const needsAccessCode = computed(() => contestForm.access_mode === 'password' || contestForm.access_mode === 'invite');
+const needsTeamIds = computed(() => contestForm.access_mode === 'team');
+const needsParticipantIds = computed(() => contestForm.access_mode === 'manual');
 
 function defaultLayoutItem(problemId: string, index: number): ContestProblemLayoutItem {
   return {
@@ -133,6 +148,28 @@ function normalizeLayout(problemIds: string[], layout: ContestProblemLayoutItem[
   });
 }
 
+function splitIdText(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .replace(/，/g, ',')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function joinIdList(value: string[]): string {
+  return value.join(', ');
+}
+
+function accessModeLabel(contest: Contest): string {
+  const option = accessModeOptions.find((item) => item.value === contest.access_mode);
+  return option?.label ?? contest.access_mode;
+}
+
 function resetForm() {
   editingContestId.value = '';
   contestForm.title = '';
@@ -145,6 +182,10 @@ function resetForm() {
   contestForm.participation_mode = 'open';
   contestForm.registered_user_ids = [];
   contestForm.registered_team_ids = [];
+  contestForm.access_mode = 'open';
+  contestForm.access_code = '';
+  contestForm.team_ids = [];
+  contestForm.participant_user_ids = [];
   problemFilter.value = '';
 }
 
@@ -165,6 +206,10 @@ function openEditContest(contest: Contest) {
   contestForm.participation_mode = contest.participation_mode;
   contestForm.registered_user_ids = [...contest.registered_user_ids];
   contestForm.registered_team_ids = [...contest.registered_team_ids];
+  contestForm.access_mode = contest.access_mode;
+  contestForm.access_code = '';
+  contestForm.team_ids = [...contest.team_ids];
+  contestForm.participant_user_ids = [...contest.participant_user_ids];
   problemFilter.value = '';
   editorOpen.value = true;
 }
@@ -218,17 +263,17 @@ function updateProblemKey(problemId: string, value: string) {
   );
 }
 
-function updateDisplayTitle(problemId: string, value: string) {
-  const title = value.trim();
+function updateProblemDisplayTitle(problemId: string, value: string) {
+  const displayTitle = value.trim() || null;
   contestForm.problem_layout = contestForm.problem_layout.map((item) =>
-    item.problem_id === problemId ? { ...item, display_title: title || null } : item,
+    item.problem_id === problemId ? { ...item, display_title: displayTitle } : item,
   );
 }
 
 function updateProblemScore(problemId: string, value: string) {
-  const score = value === '' ? null : Number(value);
+  const score = value.trim() === '' ? null : Number(value);
   contestForm.problem_layout = contestForm.problem_layout.map((item) =>
-    item.problem_id === problemId ? { ...item, score: Number.isFinite(score) ? score : null } : item,
+    item.problem_id === problemId ? { ...item, score: score === null || Number.isFinite(score) ? score : null } : item,
   );
 }
 
@@ -244,7 +289,7 @@ function toggleAllowedLanguage(problemId: string, language: CompilerLanguage['co
 }
 
 function buildPayload(): ContestFormPayload {
-  return {
+  const payload: ContestFormPayload = {
     title: contestForm.title.trim(),
     rule: contestForm.rule,
     start_at: new Date(contestForm.start_at).toISOString(),
@@ -253,7 +298,7 @@ function buildPayload(): ContestFormPayload {
     problem_layout: normalizeLayout(contestForm.problem_ids, contestForm.problem_layout).map((item) => ({
       problem_id: item.problem_id,
       problem_key: item.problem_key.trim().toUpperCase(),
-      display_title: item.display_title,
+      display_title: item.display_title?.trim() || null,
       score: item.score,
       allowed_languages: [...item.allowed_languages],
     })),
@@ -261,7 +306,15 @@ function buildPayload(): ContestFormPayload {
     participation_mode: contestForm.participation_mode,
     registered_user_ids: contestForm.participation_mode === 'individual' ? [...contestForm.registered_user_ids] : [],
     registered_team_ids: contestForm.participation_mode === 'team' ? [...contestForm.registered_team_ids] : [],
+    access_mode: contestForm.access_mode,
+    team_ids: needsTeamIds.value ? [...contestForm.team_ids] : [],
+    participant_user_ids: needsParticipantIds.value ? [...contestForm.participant_user_ids] : [],
   };
+  const accessCode = contestForm.access_code?.trim();
+  if (needsAccessCode.value && accessCode) {
+    payload.access_code = accessCode;
+  }
+  return payload;
 }
 
 async function load() {
@@ -427,6 +480,8 @@ onMounted(load);
         <div class="contest-status-stack">
           <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
           <small v-if="contest.freeze_active">{{ contest.frozen ? '手动封榜' : '自动封榜' }}</small>
+          <small>{{ contest.visibility === 'public' ? '公开' : '私有' }} · {{ accessModeLabel(contest) }}</small>
+          <small v-if="contest.participant_count">{{ contest.participant_count }} 人可进入</small>
           <small v-if="rejudgeMeta(contest)">{{ rejudgeMeta(contest) }}</small>
         </div>
         <div class="row-actions">
@@ -525,6 +580,46 @@ onMounted(load);
         </div>
 
         <div class="form-grid two">
+          <label>
+            访问模式
+            <select v-model="contestForm.access_mode">
+              <option v-for="mode in accessModeOptions" :key="mode.value" :value="mode.value">{{ mode.label }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div v-if="contestForm.access_mode !== 'open'" class="field-block contest-access-editor">
+          <label v-if="needsAccessCode">
+            {{ contestForm.access_mode === 'password' ? '访问口令' : '邀请码' }}
+            <input
+              v-model="contestForm.access_code"
+              :required="!isEditing"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="isEditing ? '留空则沿用当前口令' : '输入访问凭据'"
+            />
+          </label>
+          <label v-if="needsTeamIds">
+            队伍/班级 ID
+            <input
+              :value="joinIdList(contestForm.team_ids)"
+              required
+              placeholder="T1001, T2001"
+              @input="contestForm.team_ids = splitIdText(($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label v-if="needsParticipantIds">
+            参赛用户 ID
+            <input
+              :value="joinIdList(contestForm.participant_user_ids)"
+              required
+              placeholder="u-student, u-coach"
+              @input="contestForm.participant_user_ids = splitIdText(($event.target as HTMLInputElement).value)"
+            />
+          </label>
+        </div>
+
+        <div class="form-grid two">
           <label>题目搜索<input v-model="problemFilter" placeholder="P1001 / 标签 / 标题" /></label>
           <label v-if="contestForm.participation_mode === 'individual'">
             个人名单
@@ -587,12 +682,12 @@ onMounted(load);
                   />
                 </label>
                 <label>
-                  显示标题
+                  展示标题
                   <input
-                    :value="item.display_title ?? ''"
+                    :value="item.display_title || ''"
                     maxlength="120"
                     placeholder="默认使用原题标题"
-                    @input="updateDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
+                    @input="updateProblemDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
                   />
                 </label>
                 <label>
@@ -600,7 +695,7 @@ onMounted(load);
                   <input
                     :value="item.score ?? ''"
                     type="number"
-                    min="1"
+                    min="0"
                     max="10000"
                     placeholder="默认 100"
                     @input="updateProblemScore(item.problem_id, ($event.target as HTMLInputElement).value)"
