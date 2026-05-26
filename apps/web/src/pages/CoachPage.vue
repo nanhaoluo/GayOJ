@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { Activity, BarChart3, ClipboardCheck, Filter, Plus, ShieldCheck, UsersRound } from 'lucide-vue-next';
+import { Activity, BarChart3, ClipboardCheck, Download, FileSpreadsheet, Filter, Plus, ShieldCheck, UsersRound } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
-import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
+import { apiDownload, apiRequest, formatDate, problemTypeLabel } from '@/services/api';
 import type {
   ActivityHeatmapCell,
   AssignmentAnalytics,
   AssignmentProgressState,
+  CoachReportFormat,
   CoachAnalyticsResponse,
   CoachSimilarityFinding,
   CoachSimilarityResponse,
@@ -21,6 +22,8 @@ const similarity = ref<CoachSimilarityResponse | null>(null);
 const problemSets = ref<ProblemSet[]>([]);
 const error = ref('');
 const similarityError = ref('');
+const reportError = ref('');
+const reportDownloading = ref<CoachReportFormat | ''>('');
 const assignmentOpen = ref(false);
 const teamForm = reactive({ name: '', description: '' });
 const assignmentForm = reactive({
@@ -146,6 +149,26 @@ async function createAssignment() {
   }
 }
 
+async function downloadReport(format: CoachReportFormat) {
+  reportError.value = '';
+  reportDownloading.value = format;
+  try {
+    const response = await apiDownload(`/coach/reports/export?format=${format}`);
+    const href = URL.createObjectURL(response.blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = response.filename || `coach-report.${format}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(href);
+  } catch (err) {
+    reportError.value = err instanceof Error ? err.message : '导出报表失败。';
+  } finally {
+    reportDownloading.value = '';
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -171,6 +194,23 @@ onMounted(load);
         <span><BarChart3 :size="15" />{{ data.tag_mastery.length }} 个标签</span>
         <span><ShieldCheck :size="15" />{{ similarity?.findings.length ?? 0 }} 组相似</span>
       </section>
+
+      <section class="report-export-panel">
+        <div>
+          <FileSpreadsheet :size="18" />
+          <span>报表导出</span>
+          <b>{{ data.student_profiles.length }} 人 · {{ data.assignments.length }} 个作业</b>
+        </div>
+        <div class="report-actions">
+          <button class="secondary-action" type="button" :disabled="reportDownloading !== ''" @click="downloadReport('csv')">
+            <Download :size="16" />{{ reportDownloading === 'csv' ? '导出中' : 'CSV' }}
+          </button>
+          <button class="secondary-action" type="button" :disabled="reportDownloading !== ''" @click="downloadReport('xlsx')">
+            <Download :size="16" />{{ reportDownloading === 'xlsx' ? '导出中' : 'XLSX' }}
+          </button>
+        </div>
+      </section>
+      <p v-if="reportError" class="form-error">{{ reportError }}</p>
 
       <section class="dashboard-grid coach-dashboard-grid">
         <div class="panel large-panel">
