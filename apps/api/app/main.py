@@ -44,6 +44,7 @@ from .models import (
     CompilerConfigUpdate,
     CompilerLanguage,
     CoachAnalyticsResponse,
+    CoachReportFormat,
     CoachSimilarityResponse,
     Contest,
     ContestAnnouncement,
@@ -137,6 +138,8 @@ from .rbac import role_has_permission, role_permission_matrix
 from .services import (
     build_offline_pack,
     build_coach_analytics,
+    build_coach_report_export,
+    coach_report_filename,
     build_coach_similarity,
     build_contest_balloon,
     coach_scope,
@@ -2992,6 +2995,55 @@ def coach_analytics(
         problems=store.list_problems(),
         submissions=store.list_submissions(),
         now_value=now(),
+    )
+
+
+@app.get(
+    "/api/v1/coach/reports/export",
+    responses={
+        200: {
+            "description": "Coach report export file",
+            "content": {
+                "text/csv": {"schema": {"type": "string", "format": "binary"}},
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                    "schema": {"type": "string", "format": "binary"}
+                },
+            },
+        }
+    },
+)
+def coach_report_export(
+    format: CoachReportFormat = Query(default="csv"),
+    user: User = Depends(require_permissions("analytics:read")),
+    store: Repository = Depends(get_repository),
+) -> Response:
+    generated_at = now()
+    analytics = build_coach_analytics(
+        coach=user,
+        users=store.list_users(),
+        teams=store.list_teams(),
+        assignments=store.list_assignments(),
+        problem_sets=store.list_problem_sets(),
+        problems=store.list_problems(),
+        submissions=store.list_submissions(),
+        now_value=generated_at,
+    )
+    content, media_type = build_coach_report_export(analytics, format)
+    filename = coach_report_filename(format, generated_at)
+    store.add_audit(
+        user.id,
+        "coach.report.export",
+        "coach:report",
+        {
+            "format": format,
+            "assignment_count": len(analytics.assignments),
+            "student_count": len(analytics.student_profiles),
+        },
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

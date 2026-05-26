@@ -12,6 +12,7 @@ ProblemType = Literal["code", "blank", "single_choice", "multiple_choice"]
 LanguageCode = Literal["c", "cpp", "java", "python"]
 ProblemPackageFormat = Literal["fps", "qdu", "hydro"]
 ProblemImportConflictStrategy = Literal["create_new", "overwrite", "skip"]
+CoachReportFormat = Literal["csv", "xlsx"]
 AssignmentProgressState = Literal["not_started", "in_progress", "overdue", "completed"]
 SubmissionStatus = Literal[
     "queued",

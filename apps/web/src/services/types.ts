@@ -2,6 +2,7 @@ export type Role = 'student' | 'coach' | 'judge' | 'admin';
 export type ProblemType = 'code' | 'blank' | 'single_choice' | 'multiple_choice';
 export type ProblemPackageFormat = 'fps' | 'qdu' | 'hydro';
 export type ProblemImportConflictStrategy = 'create_new' | 'overwrite' | 'skip';
+export type CoachReportFormat = 'csv' | 'xlsx';
 export type JudgeNodeStatus = 'online' | 'offline' | 'draining';
 export type JudgeQueueJobStatus = 'pending' | 'leased' | 'completed' | 'failed';
 export type JudgeQueueBackend = 'json' | 'redis' | 'kafka';

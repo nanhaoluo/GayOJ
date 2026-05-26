@@ -984,6 +984,51 @@ p {
   background: white;
 }
 
+.report-export-panel {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.report-export-panel > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.report-export-panel svg {
+  flex: 0 0 auto;
+  color: var(--primary-strong);
+}
+
+.report-export-panel span {
+  font-weight: 850;
+}
+
+.report-export-panel b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .metric-panel,
 .panel,
 .toolbar-panel {
@@ -3699,9 +3744,19 @@ pre {
   }
 
   .page-heading,
-  .toolbar-panel {
+  .toolbar-panel,
+  .report-export-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .report-export-panel > div:first-child,
+  .report-actions {
+    width: 100%;
+  }
+
+  .report-actions .secondary-action {
+    flex: 1 1 120px;
   }
 
   .audit-filter {

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 import json
 import re
+import zipfile
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
+from xml.sax.saxutils import escape as xml_escape
 
 from .config import OFFLINE_PACK_SECRET, OFFLINE_PACK_TTL_HOURS
 from .models import (
@@ -22,6 +26,7 @@ from .models import (
     CoachSimilarityStudent,
     ContestBalloon,
     Contest,
+    CoachReportFormat,
     ObjectiveItemResult,
     Problem,
     ProblemTypeMastery,
@@ -39,6 +44,10 @@ CODE_SIMILARITY_TOKEN_PATTERN = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|==|!=|<=|>=|&&|\|\||[{}()\[\];,.:+\-*/%<>=\"']"
 )
 CODE_SIMILARITY_COMMENT_PATTERN = re.compile(r"//.*?$|/\*.*?\*/|#.*?$", re.MULTILINE | re.DOTALL)
+COACH_REPORT_MIME_TYPES: dict[CoachReportFormat, str] = {
+    "csv": "text/csv; charset=utf-8",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 def make_submission_id() -> str:
@@ -318,6 +327,252 @@ def build_coach_analytics(
             for student in sorted(student_scope, key=lambda item: (item.display_name, item.id))
         ],
     )
+
+
+def _dt(value: datetime | None) -> str:
+    normalized = ensure_utc_datetime(value)
+    return normalized.isoformat() if normalized else ""
+
+
+def _percent_value(value: float) -> str:
+    return f"{round(max(0.0, min(1.0, value)) * 100, 2):.2f}"
+
+
+def _report_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return _dt(value)
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def build_coach_report_sheets(analytics: CoachAnalyticsResponse) -> dict[str, list[list[Any]]]:
+    sheets: dict[str, list[list[Any]]] = {
+        "Assignments": [
+            [
+                "assignment_id",
+                "title",
+                "problem_set_title",
+                "team_id",
+                "status",
+                "student_count",
+                "completed_count",
+                "completion_percent",
+                "problem_count",
+                "not_started",
+                "in_progress",
+                "overdue",
+                "due_at",
+            ]
+        ],
+        "Students": [
+            [
+                "user_id",
+                "display_name",
+                "school",
+                "attempts",
+                "accepted",
+                "solved",
+                "accuracy_percent",
+                "last_submission_at",
+            ]
+        ],
+        "Tag Mastery": [
+            [
+                "tag",
+                "attempts",
+                "accepted",
+                "solved",
+                "student_count",
+                "accuracy_percent",
+            ]
+        ],
+        "Type Mastery": [
+            [
+                "problem_type",
+                "attempts",
+                "accepted",
+                "solved",
+                "accuracy_percent",
+            ]
+        ],
+        "Activity": [
+            [
+                "date",
+                "attempts",
+                "accepted",
+                "active_students",
+            ]
+        ],
+    }
+
+    for item in analytics.assignments:
+        sheets["Assignments"].append(
+            [
+                item.id,
+                item.title,
+                item.problem_set_title,
+                item.team_id or "",
+                item.status,
+                item.student_count,
+                item.completed_count,
+                _percent_value(item.completion),
+                item.problem_count,
+                item.state_counts.get("not_started", 0),
+                item.state_counts.get("in_progress", 0),
+                item.state_counts.get("overdue", 0),
+                _dt(item.due_at),
+            ]
+        )
+
+    for profile in analytics.student_profiles:
+        sheets["Students"].append(
+            [
+                profile.user_id,
+                profile.display_name,
+                profile.school,
+                profile.attempts,
+                profile.accepted,
+                profile.solved,
+                _percent_value(profile.accuracy),
+                _dt(profile.last_submission_at),
+            ]
+        )
+
+    for item in analytics.tag_mastery:
+        sheets["Tag Mastery"].append(
+            [
+                item.tag,
+                item.attempts,
+                item.accepted,
+                item.solved,
+                item.student_count,
+                _percent_value(item.accuracy),
+            ]
+        )
+
+    for item in analytics.type_mastery:
+        sheets["Type Mastery"].append(
+            [
+                item.problem_type,
+                item.attempts,
+                item.accepted,
+                item.solved,
+                _percent_value(item.accuracy),
+            ]
+        )
+
+    for item in analytics.activity_heatmap:
+        sheets["Activity"].append([item.date, item.attempts, item.accepted, item.active_students])
+
+    return sheets
+
+
+def build_coach_report_csv(analytics: CoachAnalyticsResponse) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(["section", "field_1", "field_2", "field_3", "field_4", "field_5", "field_6", "field_7", "field_8"])
+    for sheet_name, rows in build_coach_report_sheets(analytics).items():
+        header, *records = rows
+        writer.writerow([sheet_name, *header])
+        for row in records:
+            writer.writerow([sheet_name, *[_report_cell(value) for value in row]])
+    return "\ufeff" + output.getvalue()
+
+
+def _xlsx_col(index: int) -> str:
+    letters = ""
+    value = index
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def _xlsx_sheet_xml(rows: list[list[Any]]) -> str:
+    xml_rows: list[str] = []
+    for row_index, row in enumerate(rows, start=1):
+        cells: list[str] = []
+        for col_index, value in enumerate(row, start=1):
+            ref = f"{_xlsx_col(col_index)}{row_index}"
+            text = xml_escape(_report_cell(value))
+            cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>')
+        xml_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(xml_rows)}</sheetData>'
+        "</worksheet>"
+    )
+
+
+def build_coach_report_xlsx(analytics: CoachAnalyticsResponse) -> bytes:
+    sheets = build_coach_report_sheets(analytics)
+    workbook_sheets = "".join(
+        f'<sheet name="{xml_escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, name in enumerate(sheets, start=1)
+    )
+    workbook_rels = "".join(
+        f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
+        for index, _name in enumerate(sheets, start=1)
+    )
+    content_overrides = "".join(
+        f'<Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for index, _name in enumerate(sheets, start=1)
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            f"{content_overrides}"
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            "</Relationships>",
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f"<sheets>{workbook_sheets}</sheets>"
+            "</workbook>",
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{workbook_rels}"
+            "</Relationships>",
+        )
+        for index, rows in enumerate(sheets.values(), start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", _xlsx_sheet_xml(rows))
+    return buffer.getvalue()
+
+
+def build_coach_report_export(
+    analytics: CoachAnalyticsResponse,
+    report_format: CoachReportFormat,
+) -> tuple[bytes, str]:
+    if report_format == "csv":
+        return build_coach_report_csv(analytics).encode("utf-8"), COACH_REPORT_MIME_TYPES[report_format]
+    return build_coach_report_xlsx(analytics), COACH_REPORT_MIME_TYPES[report_format]
+
+
+def coach_report_filename(report_format: CoachReportFormat, generated_at: datetime | None = None) -> str:
+    stamp = (ensure_utc_datetime(generated_at) or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
+    return f"coach-report-{stamp}.{report_format}"
 
 
 def coach_scope(

@@ -15,6 +15,12 @@ type RequestOptions = RequestInit & {
   auth?: boolean;
 };
 
+export interface DownloadResponse {
+  blob: Blob;
+  filename: string;
+  contentType: string;
+}
+
 export function getStoredAuthToken(): string | null {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (token) return token;
@@ -64,6 +70,44 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw new ApiError(response.status, data?.detail ?? response.statusText);
   }
   return data as T;
+}
+
+function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) return decodeURIComponent(encoded.replace(/"/g, ''));
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return plain || fallback;
+}
+
+export async function apiDownload(path: string, options: RequestOptions = {}): Promise<DownloadResponse> {
+  const headers = new Headers(options.headers);
+  const token = getStoredAuthToken();
+  if (options.auth !== false && token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let detail = response.statusText;
+    try {
+      const data = text ? JSON.parse(text) : null;
+      detail = data?.detail ?? detail;
+    } catch {
+      detail = text || detail;
+    }
+    throw new ApiError(response.status, detail);
+  }
+  const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition'), 'download'),
+    contentType,
+  };
 }
 
 export function formatDate(value: string | null | undefined): string {
