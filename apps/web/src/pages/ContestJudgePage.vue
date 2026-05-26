@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bell, MessageSquare, Radio, RefreshCw, Rows3, ScrollText, Send, Trophy } from 'lucide-vue-next';
+import { ArrowLeft, Bell, MessageSquare, Printer, Radio, RefreshCw, Rows3, ScrollText, Send, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -18,6 +18,7 @@ const publishing = ref(false);
 const pendingClarifications = computed(() => data.value?.clarifications.filter((item) => !item.answer) ?? []);
 const repliedClarifications = computed(() => data.value?.clarifications.filter((item) => item.answer) ?? []);
 const pendingBalloons = computed(() => data.value?.balloons.filter((item) => !item.released) ?? []);
+const pendingPrintJobs = computed(() => data.value?.print_jobs.filter((item) => item.status === 'pending') ?? []);
 const canPublishAnnouncements = computed(() => {
   const permissions = authState.user?.permissions ?? [];
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
@@ -38,6 +39,10 @@ async function openClarificationDesk() {
 
 async function openBalloonDesk() {
   await router.push(`/judge/balloons/${route.params.id}`);
+}
+
+async function openPrintDesk() {
+  await router.push(`/contests/${route.params.id}/print`);
 }
 
 async function openStandings() {
@@ -103,6 +108,9 @@ onMounted(load);
         <button class="secondary-action" type="button" @click="openBalloonDesk">
           <Bell :size="16" />气球台
         </button>
+        <button class="secondary-action" type="button" @click="openPrintDesk">
+          <Printer :size="16" />打印台
+        </button>
         <button class="secondary-action" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
       </div>
     </header>
@@ -143,6 +151,11 @@ onMounted(load);
             <small>气球</small>
             <strong>{{ pendingBalloons.length }}</strong>
             <span>{{ data.balloons.length }} 条比赛记录</span>
+          </article>
+          <article class="monitor-stat-card">
+            <small>打印</small>
+            <strong>{{ pendingPrintJobs.length }}</strong>
+            <span>{{ data.print_jobs.length }} 条打印申请</span>
           </article>
         </section>
 
@@ -265,6 +278,28 @@ onMounted(load);
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
               </div>
               <p v-if="data.balloons.length === 0" class="empty-text">当前比赛还没有气球记录。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>打印申请</h2>
+                <p>只展示当前比赛的打印工单。</p>
+              </div>
+              <button class="secondary-action compact" type="button" @click="openPrintDesk">
+                <Printer :size="14" />打开
+              </button>
+            </div>
+            <div class="monitor-list">
+              <div v-for="item in data.print_jobs" :key="item.id" class="monitor-list-row compact">
+                <div class="monitor-feed-main">
+                  <strong>{{ item.problem_key || item.problem_id }} · {{ item.user_display_name || item.user_id }}</strong>
+                  <span>{{ item.source_kind }} · {{ item.line_count }} 行 · {{ formatDate(item.requested_at) }}</span>
+                </div>
+                <StatusBadge :status="item.status" />
+              </div>
+              <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印申请。</p>
             </div>
           </article>
         </section>

@@ -126,6 +126,40 @@ a {
   white-space: pre-wrap;
 }
 
+.print-desk {
+  max-width: 1180px;
+}
+
+.print-request-panel,
+.print-preview-panel,
+.print-job-meta {
+  display: grid;
+  gap: 12px;
+}
+
+.print-desk-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.print-job-row {
+  align-items: start;
+}
+
+.print-job-meta {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.print-job-meta span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .pure-textarea {
   min-height: 220px;
   width: 100%;
@@ -3915,6 +3949,10 @@ pre {
   }
 
   .contest-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .print-desk-layout {
     grid-template-columns: 1fr;
   }
 
