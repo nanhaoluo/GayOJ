@@ -1665,3 +1665,117 @@ def test_contest_submission_respects_problem_language_restrictions(client: TestC
         json={"problem_id": "P1001", "language": "cpp", "source_code": "#include <bits/stdc++.h>\nint main(){return 0;}\n"},
     )
     assert allowed.status_code == 200, allowed.text
+
+
+def test_contest_individual_registration_limits_problem_submit_clar_and_print(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.participation_mode = "individual"
+    contest.registered_user_ids = []
+    contest.start_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    contest.end_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    store.update_contest(contest)
+
+    blocked_problem = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("alice"))
+    blocked_submit = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    blocked_clar = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "registration required?"},
+    )
+    blocked_print = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "source_code": "print('x')\n", "language": "python"},
+    )
+
+    assert blocked_problem.status_code == 403
+    assert blocked_submit.status_code == 403
+    assert blocked_clar.status_code == 403
+    assert blocked_print.status_code == 403
+
+    registered = client.post("/api/v1/contests/C1001/register", headers=auth_headers("alice"))
+    assert registered.status_code == 200, registered.text
+    assert registered.json()["contest"]["self_registered"] is True
+    assert registered.json()["roster"]["registered_users"][0]["id"] == "u-student"
+
+    allowed_problem = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("alice"))
+    allowed_submit = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    allowed_clar = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "now visible?"},
+    )
+
+    assert allowed_problem.status_code == 200, allowed_problem.text
+    assert all("judge_config" not in item for item in allowed_problem.json())
+    assert allowed_submit.status_code == 200, allowed_submit.text
+    assert allowed_clar.status_code == 200, allowed_clar.text
+
+
+def test_contest_team_registration_allows_team_members_and_blocks_non_members(client: TestClient, auth_headers, store) -> None:
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.participation_mode = "team"
+    contest.registered_team_ids = ["T1001"]
+    contest.start_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    contest.end_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    store.update_contest(contest)
+
+    team_member = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("alice"))
+    non_member = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("coach"))
+    roster = client.get("/api/v1/contests/C1001/roster", headers=auth_headers("judge"))
+
+    assert team_member.status_code == 200, team_member.text
+    assert non_member.status_code == 403
+    assert roster.status_code == 200, roster.text
+    assert roster.json()["registered_teams"][0]["id"] == "T1001"
+    assert roster.json()["participant_user_ids"] == ["u-student"]
+
+
+def test_contest_roster_lock_blocks_self_registration_and_manager_roster_edits(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.participation_mode = "individual"
+    contest.registered_user_ids = []
+    contest.roster_locked = True
+    contest.roster_locked_at = datetime.now(timezone.utc)
+    contest.roster_locked_by = "u-admin"
+    store.update_contest(contest)
+
+    self_register = client.post("/api/v1/contests/C1001/register", headers=auth_headers("alice"))
+    manager_update = client.put(
+        "/api/v1/contests/C1001/roster",
+        headers=auth_headers("admin"),
+        json={"registered_user_ids": ["u-student"], "registered_team_ids": []},
+    )
+    unlock = client.post(
+        "/api/v1/contests/C1001/roster/lock",
+        headers=auth_headers("admin"),
+        json={"locked": False},
+    )
+    manager_update_after_unlock = client.put(
+        "/api/v1/contests/C1001/roster",
+        headers=auth_headers("admin"),
+        json={"registered_user_ids": ["u-student"], "registered_team_ids": []},
+    )
+
+    assert self_register.status_code == 409
+    assert manager_update.status_code == 409
+    assert unlock.status_code == 200, unlock.text
+    assert unlock.json()["roster_locked"] is False
+    assert manager_update_after_unlock.status_code == 200, manager_update_after_unlock.text
+    assert manager_update_after_unlock.json()["registered_users"][0]["id"] == "u-student"

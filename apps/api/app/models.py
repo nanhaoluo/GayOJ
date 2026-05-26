@@ -32,6 +32,7 @@ JudgeQueueBackend = Literal["json", "redis", "kafka"]
 JudgeQueueJobStatus = Literal["pending", "leased", "completed", "failed"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
+ContestParticipationMode = Literal["open", "individual", "team"]
 OfflineAnswerVisibility = Literal["full", "none"]
 OfflineSyncMode = Literal["allow", "disabled"]
 SolutionCategory = Literal["general", "tutorial", "analysis", "official", "trick"]
@@ -557,6 +558,12 @@ class Contest(BaseModel):
     problem_layout: list[ContestProblemLayoutItem] = Field(default_factory=list)
     status: Literal["scheduled", "running", "ended"]
     visibility: Literal["public", "private"] = "public"
+    participation_mode: ContestParticipationMode = "open"
+    registered_user_ids: list[str] = Field(default_factory=list)
+    registered_team_ids: list[str] = Field(default_factory=list)
+    roster_locked: bool = False
+    roster_locked_at: datetime | None = None
+    roster_locked_by: str | None = None
     frozen: bool = False
     freeze_disabled: bool = False
     frozen_at: datetime | None = None
@@ -577,6 +584,9 @@ class ContestCreate(BaseModel):
     problem_ids: list[str]
     problem_layout: list[ContestProblemLayoutItem] = Field(default_factory=list)
     visibility: Visibility = "public"
+    participation_mode: ContestParticipationMode = "open"
+    registered_user_ids: list[str] = Field(default_factory=list)
+    registered_team_ids: list[str] = Field(default_factory=list)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -599,6 +609,22 @@ class ContestCreate(BaseModel):
                 result.append(text)
         return result
 
+    @field_validator("registered_user_ids", "registered_team_ids", mode="before")
+    @classmethod
+    def normalize_roster_ids(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
+
     @model_validator(mode="after")
     def validate_contest_payload(self) -> "ContestCreate":
         if not self.title:
@@ -607,6 +633,13 @@ class ContestCreate(BaseModel):
             raise ValueError("Contest must include at least one problem")
         if self.end_at <= self.start_at:
             raise ValueError("Contest end_at must be later than start_at")
+        if self.participation_mode == "open":
+            self.registered_user_ids = []
+            self.registered_team_ids = []
+        if self.participation_mode == "individual":
+            self.registered_team_ids = []
+        if self.participation_mode == "team":
+            self.registered_user_ids = []
         if self.problem_layout:
             layout_problem_ids = [item.problem_id for item in self.problem_layout]
             if layout_problem_ids != self.problem_ids:
@@ -627,6 +660,56 @@ class ContestDetail(Contest):
     problems: list[ProblemSummary] = Field(default_factory=list)
     freeze_active: bool = False
     freeze_effective_at: datetime | None = None
+    registered_user_count: int = 0
+    registered_team_count: int = 0
+    participant_user_count: int = 0
+    self_registered: bool = False
+    self_team_ids: list[str] = Field(default_factory=list)
+
+
+class ContestRosterUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    registered_user_ids: list[str] = Field(default_factory=list)
+    registered_team_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("registered_user_ids", "registered_team_ids", mode="before")
+    @classmethod
+    def normalize_roster_ids(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
+
+
+class ContestRosterResponse(BaseModel):
+    contest_id: str
+    participation_mode: ContestParticipationMode
+    roster_locked: bool = False
+    roster_locked_at: datetime | None = None
+    roster_locked_by: str | None = None
+    registered_users: list[PublicUser] = Field(default_factory=list)
+    registered_teams: list[Team] = Field(default_factory=list)
+    participant_user_ids: list[str] = Field(default_factory=list)
+
+
+class ContestRegistrationResponse(BaseModel):
+    contest: ContestDetail
+    roster: ContestRosterResponse
+
+
+class ContestRosterLockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    locked: bool = True
 
 
 class ContestProblemDetail(ProblemDetail):
