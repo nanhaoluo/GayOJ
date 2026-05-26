@@ -2237,6 +2237,98 @@ pre {
   align-items: start;
 }
 
+.contest-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(0, 1.28fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.contest-problem-picker,
+.contest-layout-list {
+  display: grid;
+  gap: 10px;
+}
+
+.contest-problem-picker {
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.contest-problem-picker-row {
+  width: 100%;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.contest-problem-picker-row.active {
+  border-color: var(--primary);
+  background: oklch(0.95 0.045 184);
+}
+
+.contest-problem-picker-row strong,
+.contest-problem-picker-row em {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.contest-problem-picker-row em {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.contest-layout-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.contest-layout-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contest-layout-row-main span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.contest-layout-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.contest-layout-language-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contest-form input[type="datetime-local"] {
+  width: 100%;
+}
+
 .contest-home-main,
 .contest-home-side {
   display: grid;
@@ -2675,6 +2767,10 @@ pre {
   margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.contest-manage-table {
+  grid-template-columns: minmax(240px, 1.45fr) 86px 70px minmax(120px, 0.76fr) minmax(440px, 1.9fr);
 }
 
 .set-detail-view {
@@ -3818,6 +3914,10 @@ pre {
     grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   }
 
+  .contest-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
   .tag-manager-layout {
     grid-template-columns: 1fr;
   }
@@ -3997,6 +4097,11 @@ pre {
   }
 
   .contest-submissions-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .contest-manage-table,
+  .contest-layout-row {
     grid-template-columns: 1fr;
   }
 

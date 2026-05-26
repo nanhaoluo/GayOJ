@@ -1531,6 +1531,7 @@
         "type": "object"
       },
       "ContestCreate": {
+        "additionalProperties": false,
         "properties": {
           "end_at": {
             "format": "date-time",
@@ -1993,6 +1994,154 @@
           "line_count"
         ],
         "title": "ContestPrintResponse",
+        "type": "object"
+      },
+      "ContestProblemDetail": {
+        "properties": {
+          "allowed_languages": {
+            "items": {
+              "enum": [
+                "c",
+                "cpp",
+                "java",
+                "python"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Languages",
+            "type": "array"
+          },
+          "author_id": {
+            "title": "Author Id",
+            "type": "string"
+          },
+          "blanks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Blanks",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "difficulty": {
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_format": {
+            "default": "",
+            "title": "Input Format",
+            "type": "string"
+          },
+          "judge_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Config"
+          },
+          "memory_limit_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Limit Mb"
+          },
+          "options": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "output_format": {
+            "default": "",
+            "title": "Output Format",
+            "type": "string"
+          },
+          "problem_key": {
+            "title": "Problem Key",
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "time_limit_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Limit Ms"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "type",
+          "difficulty",
+          "tags",
+          "statement",
+          "author_id",
+          "created_at",
+          "problem_key"
+        ],
+        "title": "ContestProblemDetail",
         "type": "object"
       },
       "ContestProblemLayoutItem": {
@@ -2605,6 +2754,67 @@
           }
         },
         "title": "ContestUnfreezeRequest",
+        "type": "object"
+      },
+      "ContestUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "problem_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Problem Ids",
+            "type": "array"
+          },
+          "problem_layout": {
+            "items": {
+              "$ref": "#/components/schemas/ContestProblemLayoutItem"
+            },
+            "title": "Problem Layout",
+            "type": "array"
+          },
+          "rule": {
+            "default": "ACM",
+            "enum": [
+              "ACM",
+              "OI",
+              "IOI",
+              "CF"
+            ],
+            "title": "Rule",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "public",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "start_at",
+          "end_at",
+          "problem_ids"
+        ],
+        "title": "ContestUpdate",
         "type": "object"
       },
       "DiscussionCreate": {
@@ -9440,6 +9650,69 @@
           }
         },
         "summary": "Get Contest"
+      },
+      "put": {
+        "operationId": "update_contest_api_v1_contests__contest_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Contest"
       }
     },
     "/api/v1/contests/{contest_id}/announcements": {
@@ -10063,7 +10336,7 @@
               "application/json; charset=utf-8": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ProblemDetail"
+                    "$ref": "#/components/schemas/ContestProblemDetail"
                   },
                   "title": "Response List Contest Problems Api V1 Contests  Contest Id  Problems Get",
                   "type": "array"

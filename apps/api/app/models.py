@@ -568,6 +568,8 @@ class Contest(BaseModel):
 
 
 class ContestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str
     rule: Literal["ACM", "OI", "IOI", "CF"] = "ACM"
     start_at: datetime
@@ -576,11 +578,60 @@ class ContestCreate(BaseModel):
     problem_layout: list[ContestProblemLayoutItem] = Field(default_factory=list)
     visibility: Visibility = "public"
 
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_contest_title(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @field_validator("problem_ids", mode="before")
+    @classmethod
+    def normalize_problem_ids(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
+
+    @model_validator(mode="after")
+    def validate_contest_payload(self) -> "ContestCreate":
+        if not self.title:
+            raise ValueError("Contest title is required")
+        if not self.problem_ids:
+            raise ValueError("Contest must include at least one problem")
+        if self.end_at <= self.start_at:
+            raise ValueError("Contest end_at must be later than start_at")
+        if self.problem_layout:
+            layout_problem_ids = [item.problem_id for item in self.problem_layout]
+            if layout_problem_ids != self.problem_ids:
+                raise ValueError("problem_layout must match problem_ids in order")
+            seen_keys: set[str] = set()
+            for item in self.problem_layout:
+                if item.problem_key in seen_keys:
+                    raise ValueError("Contest problem_key must be unique")
+                seen_keys.add(item.problem_key)
+        return self
+
+
+class ContestUpdate(ContestCreate):
+    pass
+
 
 class ContestDetail(Contest):
     problems: list[ProblemSummary] = Field(default_factory=list)
     freeze_active: bool = False
     freeze_effective_at: datetime | None = None
+
+
+class ContestProblemDetail(ProblemDetail):
+    problem_key: str
+    allowed_languages: list[LanguageCode] = Field(default_factory=list)
 
 
 class ContestProblemView(BaseModel):

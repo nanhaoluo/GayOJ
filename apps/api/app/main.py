@@ -55,8 +55,10 @@ from .models import (
     ContestBalloon,
     ContestFreezeRequest,
     ContestBoardResponse,
+    ContestProblemDetail,
     ContestRejudgeResponse,
     ContestUnfreezeRequest,
+    ContestUpdate,
     ContestProblemLayoutItem,
     ContestProblemView,
     ContestSubmissionView,
@@ -789,11 +791,13 @@ def is_login_locked(user: User, current: datetime) -> bool:
 
 
 def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
-    problems = {p.id: p for p in store.list_problems() if p.visible}
+    problems = {p.id: p for p in store.list_problems()}
     submissions = store.list_submissions()
     participant_ids = student_user_ids(store)
+    payload = contest.model_dump()
+    payload["status"] = contest_now_status(contest)
     return ContestDetail(
-        **contest.model_dump(),
+        **payload,
         freeze_active=contest_public_is_frozen(contest),
         freeze_effective_at=contest_freeze_at(contest),
         problems=[
@@ -849,9 +853,21 @@ def ensure_contest_submission_owner(user: User, contest: Contest, submission: Su
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
 
-def contest_problem_lookup(contest: Contest, store: Repository, problem_id: str) -> Problem:
+def can_view_hidden_contest_problem(user: User | None) -> bool:
+    if user is None:
+        return False
+    return bool(
+        role_has_permission(user.role, "contest:manage")
+        or role_has_permission(user.role, "judge:monitor")
+        or role_has_permission(user.role, "clarification:read:all")
+    )
+
+
+def contest_problem_lookup(contest: Contest, store: Repository, problem_id: str, user: User | None = None) -> Problem:
     problem = store.get_problem(problem_id)
-    if not problem or not problem.visible or problem_id not in contest.problem_ids:
+    if not problem or problem_id not in contest.problem_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    if not problem.visible and not can_view_hidden_contest_problem(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
     return problem
 
@@ -1173,13 +1189,103 @@ def contest_team_submission_summaries(
 
 
 def contest_problem_details(contest: Contest, store: Repository, user: User | None = None) -> list[ProblemDetail]:
-    problems = []
+    problems: list[ContestProblemDetail] = []
     for layout in contest_problem_layout(contest):
         problem = store.get_problem(layout.problem_id)
-        if not problem or not problem.visible:
+        if not problem:
             continue
-        problems.append(problem_detail(problem))
+        if not problem.visible and not can_view_hidden_contest_problem(user):
+            continue
+        item = problem_detail(problem).model_dump()
+        item["problem_key"] = layout.problem_key
+        item["allowed_languages"] = list(layout.allowed_languages)
+        problems.append(ContestProblemDetail(**item))
     return problems
+
+
+def ensure_contest_problem_inventory(problem_ids: list[str], store: Repository) -> None:
+    existing = {problem.id for problem in store.list_problems()}
+    missing = [problem_id for problem_id in problem_ids if problem_id not in existing]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problems: {', '.join(missing)}")
+
+
+def ensure_contest_problem_removals_safe(existing: Contest, next_problem_ids: list[str], store: Repository) -> None:
+    removed = [problem_id for problem_id in existing.problem_ids if problem_id not in next_problem_ids]
+    if not removed:
+        return
+    referenced: set[str] = set()
+    for submission in store.list_submissions():
+        if submission.contest_id == existing.id and submission.problem_id in removed:
+            referenced.add(submission.problem_id)
+    for clarification in store.list_clarifications():
+        if clarification.contest_id == existing.id and clarification.problem_id in removed:
+            referenced.add(str(clarification.problem_id))
+    for balloon in store.list_contest_balloons(existing.id):
+        problem_id = str(balloon.get("problem_id") or "")
+        if problem_id in removed:
+            referenced.add(problem_id)
+    if referenced:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot remove contest problems with existing contest data: {', '.join(sorted(referenced))}",
+        )
+
+
+def contest_payload_layout(payload: ContestCreate | ContestUpdate) -> list[ContestProblemLayoutItem]:
+    return payload.problem_layout or [
+        ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index + 1), allowed_languages=[])
+        for index, problem_id in enumerate(payload.problem_ids)
+    ]
+
+
+def build_contest_from_payload(
+    *,
+    contest_id: str,
+    payload: ContestCreate | ContestUpdate,
+    current: datetime,
+    existing: Contest | None = None,
+) -> Contest:
+    return Contest(
+        id=contest_id,
+        title=payload.title,
+        rule=payload.rule,
+        start_at=payload.start_at,
+        end_at=payload.end_at,
+        problem_ids=list(payload.problem_ids),
+        problem_layout=contest_payload_layout(payload),
+        status=contest_now_status(
+            Contest(
+                id=contest_id,
+                title=payload.title,
+                rule=payload.rule,
+                start_at=payload.start_at,
+                end_at=payload.end_at,
+                problem_ids=list(payload.problem_ids),
+                problem_layout=contest_payload_layout(payload),
+                status=existing.status if existing else "scheduled",
+                visibility=payload.visibility,
+                frozen=existing.frozen if existing else False,
+                freeze_disabled=existing.freeze_disabled if existing else False,
+                frozen_at=existing.frozen_at if existing else None,
+                frozen_by=existing.frozen_by if existing else None,
+                freeze_reason=existing.freeze_reason if existing else "",
+                rejudge_at=existing.rejudge_at if existing else None,
+                rejudge_by=existing.rejudge_by if existing else None,
+                rejudge_reason=existing.rejudge_reason if existing else "",
+            ),
+            current=current,
+        ),  # type: ignore[arg-type]
+        visibility=payload.visibility,
+        frozen=existing.frozen if existing else False,
+        freeze_disabled=existing.freeze_disabled if existing else False,
+        frozen_at=existing.frozen_at if existing else None,
+        frozen_by=existing.frozen_by if existing else None,
+        freeze_reason=existing.freeze_reason if existing else "",
+        rejudge_at=existing.rejudge_at if existing else None,
+        rejudge_by=existing.rejudge_by if existing else None,
+        rejudge_reason=existing.rejudge_reason if existing else "",
+    )
 
 
 def _submission_effective_time(submission: Submission) -> datetime:
@@ -2510,34 +2616,62 @@ def create_contest(
     user: User = Depends(require_permissions("contest:manage")),
     store: Repository = Depends(get_repository),
 ) -> ContestDetail:
-    existing = {p.id for p in store.list_problems() if p.visible}
-    missing = [pid for pid in payload.problem_ids if pid not in existing]
-    if missing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problems: {', '.join(missing)}")
-    layout_problem_ids = [item.problem_id for item in payload.problem_layout]
-    if layout_problem_ids and layout_problem_ids != payload.problem_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="problem_layout must match problem_ids in order")
     current = now()
-    contest = Contest(
-        id=f"C{1000 + len(store.list_contests()) + 1}",
-        title=payload.title,
-        rule=payload.rule,
-        start_at=payload.start_at,
-        end_at=payload.end_at,
-        problem_ids=payload.problem_ids,
-        problem_layout=payload.problem_layout
-        or [
-            ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index + 1), allowed_languages=[])
-            for index, problem_id in enumerate(payload.problem_ids)
-        ],
-        status="running" if payload.start_at <= current <= payload.end_at else "scheduled",
-        visibility=payload.visibility,
+    ensure_contest_problem_inventory(payload.problem_ids, store)
+    contest = build_contest_from_payload(
+        contest_id=f"C{1000 + len(store.list_contests()) + 1}",
+        payload=payload,
+        current=current,
     )
     store.add_contest(contest)
-    store.add_audit(user.id, "contest.create", f"contest:{contest.id}", {"title": contest.title})
-    for target in store.list_users():
-        if target.role == "student":
-            add_notification(store, target.id, "新比赛已发布", f"{contest.title} 已加入比赛列表。", "contest")
+    store.add_audit(
+        user.id,
+        "contest.create",
+        f"contest:{contest.id}",
+        {
+            "title": contest.title,
+            "rule": contest.rule,
+            "visibility": contest.visibility,
+            "problem_ids": contest.problem_ids,
+        },
+    )
+    if contest.visibility == "public":
+        for target in store.list_users():
+            if target.role == "student":
+                add_notification(store, target.id, "新比赛已发布", f"{contest.title} 已加入比赛列表。", "contest")
+    return contest_detail(contest, store)
+
+
+@app.put("/api/v1/contests/{contest_id}", response_model=ContestDetail)
+def update_contest(
+    contest_id: str,
+    payload: ContestUpdate,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestDetail:
+    existing = store.get_contest(contest_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_problem_inventory(payload.problem_ids, store)
+    ensure_contest_problem_removals_safe(existing, payload.problem_ids, store)
+    contest = build_contest_from_payload(
+        contest_id=existing.id,
+        payload=payload,
+        current=now(),
+        existing=existing,
+    )
+    store.update_contest(contest)
+    store.add_audit(
+        user.id,
+        "contest.update",
+        f"contest:{contest.id}",
+        {
+            "title": contest.title,
+            "rule": contest.rule,
+            "visibility": contest.visibility,
+            "problem_ids": contest.problem_ids,
+        },
+    )
     return contest_detail(contest, store)
 
 
@@ -2708,7 +2842,7 @@ def rolling_contest_board(
     return contest_rolling_board_payload(contest, store)
 
 
-@app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ProblemDetail], response_model_exclude_none=True)
+@app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ContestProblemDetail], response_model_exclude_none=True)
 def list_contest_problems(
     contest_id: str,
     user: User | None = Depends(get_optional_user),
@@ -2737,7 +2871,7 @@ def create_clarification(
     ensure_contest_access(user, contest, store)
     problem = None
     if payload.problem_id:
-        problem = contest_problem_lookup(contest, store, payload.problem_id)
+        problem = contest_problem_lookup(contest, store, payload.problem_id, user)
     clarification = Clarification(
         id=f"CL{uuid4().hex[:8].upper()}",
         contest_id=contest_id,
@@ -2853,7 +2987,7 @@ def reply_clarification(
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     if clarification.problem_id:
-        contest_problem_lookup(contest, store, clarification.problem_id)
+        contest_problem_lookup(contest, store, clarification.problem_id, user)
     answered_at = now()
     first_broadcast = payload.broadcast and not clarification.broadcast
     clarification.answer = payload.answer
@@ -2896,7 +3030,7 @@ def list_contest_submissions(
     contest_problems = []
     for layout in contest_problem_layout(contest):
         problem = store.get_problem(layout.problem_id)
-        if not problem or not problem.visible:
+        if not problem:
             continue
         contest_problems.append(contest_problem_view(layout, problem))
     return ContestSubmissionStatusResponse(
@@ -2934,7 +3068,7 @@ def submit_contest_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     ensure_contest_access(user, contest, store)
     ensure_contest_submission_window(contest)
-    problem = contest_problem_lookup(contest, store, payload.problem_id)
+    problem = contest_problem_lookup(contest, store, payload.problem_id, user)
     if problem.type == "code":
         if not payload.language or not payload.source_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code contest submissions require language and source_code")

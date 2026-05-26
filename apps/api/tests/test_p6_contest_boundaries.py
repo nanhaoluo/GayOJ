@@ -61,6 +61,120 @@ def test_contest_problem_list_hides_judge_config_and_respects_visibility(client:
     assert judge.status_code == 200
 
 
+def test_contest_create_returns_layout_and_allows_non_public_problem_reference(client: TestClient, auth_headers, store) -> None:
+    hidden_problem = store.get_problem("P1004")
+    assert hidden_problem is not None
+    hidden_problem.visible = False
+    store.update_problem(hidden_problem)
+
+    response = client.post(
+        "/api/v1/contests",
+        headers=auth_headers("coach"),
+        json={
+            "title": "Private Final",
+            "rule": "ACM",
+            "start_at": "2026-05-26T10:00:00Z",
+            "end_at": "2026-05-26T15:00:00Z",
+            "visibility": "private",
+            "problem_ids": ["P1001", "P1004"],
+            "problem_layout": [
+                {"problem_id": "P1001", "problem_key": "A", "allowed_languages": ["cpp", "python"]},
+                {"problem_id": "P1004", "problem_key": "B", "allowed_languages": []},
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["title"] == "Private Final"
+    assert payload["visibility"] == "private"
+    assert payload["problem_ids"] == ["P1001", "P1004"]
+    assert payload["problem_layout"][0]["problem_key"] == "A"
+    assert payload["problem_layout"][0]["allowed_languages"] == ["cpp", "python"]
+    assert payload["problem_layout"][1]["problem_id"] == "P1004"
+
+    problems = client.get(f"/api/v1/contests/{payload['id']}/problems", headers=auth_headers("judge"))
+    assert problems.status_code == 200, problems.text
+    problem_payload = problems.json()
+    assert [item["id"] for item in problem_payload] == ["P1001", "P1004"]
+    assert problem_payload[1]["problem_key"] == "B"
+    assert problem_payload[1]["allowed_languages"] == []
+    assert "judge_config" not in problem_payload[1]
+
+
+def test_contest_update_preserves_freeze_state_and_reorders_layout(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.frozen = True
+    contest.frozen_at = datetime(2026, 5, 26, 11, 0, tzinfo=timezone.utc)
+    contest.frozen_by = "u-judge"
+    store.update_contest(contest)
+
+    response = client.put(
+        "/api/v1/contests/C1001",
+        headers=auth_headers("judge"),
+        json={
+            "title": "Updated Round",
+            "rule": "OI",
+            "start_at": "2026-05-26T09:00:00Z",
+            "end_at": "2026-05-26T13:00:00Z",
+            "visibility": "public",
+            "problem_ids": ["P1003", "P1001"],
+            "problem_layout": [
+                {"problem_id": "P1003", "problem_key": "A", "allowed_languages": []},
+                {"problem_id": "P1001", "problem_key": "B", "allowed_languages": ["cpp"]},
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["title"] == "Updated Round"
+    assert payload["rule"] == "OI"
+    assert payload["problem_ids"] == ["P1003", "P1001"]
+    assert payload["problem_layout"][1]["problem_key"] == "B"
+    assert payload["problem_layout"][1]["allowed_languages"] == ["cpp"]
+    assert payload["frozen"] is True
+    assert payload["frozen_by"] == "u-judge"
+    assert payload["freeze_active"] is True
+
+
+def test_contest_update_rejects_removing_problem_with_existing_contest_data(client: TestClient, auth_headers, store) -> None:
+    created = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "keep problem scope", "problem_id": "P1001"},
+    )
+    assert created.status_code == 200, created.text
+
+    submission = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('keep')\n"},
+    )
+    assert submission.status_code == 200, submission.text
+
+    response = client.put(
+        "/api/v1/contests/C1001",
+        headers=auth_headers("judge"),
+        json={
+            "title": "Broken Update",
+            "rule": "ACM",
+            "start_at": "2026-05-26T09:00:00Z",
+            "end_at": "2026-05-26T13:00:00Z",
+            "visibility": "public",
+            "problem_ids": ["P1002", "P1003"],
+            "problem_layout": [
+                {"problem_id": "P1002", "problem_key": "A", "allowed_languages": []},
+                {"problem_id": "P1003", "problem_key": "B", "allowed_languages": []},
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "P1001" in response.json()["detail"]
+
+
 def test_contest_detail_respects_visibility_and_problem_scope(client: TestClient, auth_headers, store) -> None:
     public_detail = client.get("/api/v1/contests/C1001")
     assert public_detail.status_code == 200, public_detail.text

@@ -286,10 +286,12 @@ export interface ContestRejudgeResponse extends RejudgeBatchResponse {
 export interface Contest {
   id: string;
   title: string;
-  rule: string;
+  rule: 'ACM' | 'OI' | 'IOI' | 'CF';
   start_at: string;
   end_at: string;
-  status: string;
+  problem_ids: string[];
+  problem_layout: ContestProblemLayoutItem[];
+  status: 'scheduled' | 'running' | 'ended';
   visibility: 'public' | 'private';
   frozen: boolean;
   freeze_disabled: boolean;
@@ -304,11 +306,32 @@ export interface Contest {
   problems: ProblemSummary[];
 }
 
+export interface ContestProblemLayoutItem {
+  problem_id: string;
+  problem_key: string;
+  allowed_languages: CompilerLanguageCode[];
+}
+
+export interface ContestFormPayload {
+  title: string;
+  rule: 'ACM' | 'OI' | 'IOI' | 'CF';
+  start_at: string;
+  end_at: string;
+  problem_ids: string[];
+  problem_layout: ContestProblemLayoutItem[];
+  visibility: 'public' | 'private';
+}
+
 export interface ContestProblemView {
   problem_id: string;
   problem_key: string;
   title: string;
   type: ProblemType;
+  allowed_languages: CompilerLanguageCode[];
+}
+
+export interface ContestProblemDetail extends ProblemDetail {
+  problem_key: string;
   allowed_languages: CompilerLanguageCode[];
 }
 
