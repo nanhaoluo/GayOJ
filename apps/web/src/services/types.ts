@@ -309,6 +309,8 @@ export interface Contest {
 export interface ContestProblemLayoutItem {
   problem_id: string;
   problem_key: string;
+  display_title: string | null;
+  score: number | null;
   allowed_languages: CompilerLanguageCode[];
 }
 
@@ -327,11 +329,14 @@ export interface ContestProblemView {
   problem_key: string;
   title: string;
   type: ProblemType;
+  score: number;
   allowed_languages: CompilerLanguageCode[];
 }
 
 export interface ContestProblemDetail extends ProblemDetail {
   problem_key: string;
+  display_title: string;
+  score: number;
   allowed_languages: CompilerLanguageCode[];
 }
 
@@ -568,6 +573,7 @@ export interface Clarification {
   user_id: string;
   user_display_name: string;
   problem_id: string | null;
+  problem_key: string | null;
   problem_title: string | null;
   question: string;
   answer: string | null;
@@ -622,6 +628,7 @@ export interface ContestBalloon {
   user_id: string;
   display_name: string;
   problem_id: string;
+  problem_key: string | null;
   problem_title: string;
   eligible: boolean;
   first_ac: boolean;

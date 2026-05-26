@@ -75,6 +75,8 @@ function defaultLayoutItem(problemId: string, index: number): ContestProblemLayo
   return {
     problem_id: problemId,
     problem_key: String.fromCharCode('A'.charCodeAt(0) + index),
+    display_title: null,
+    score: null,
     allowed_languages: [],
   };
 }
@@ -98,6 +100,8 @@ function normalizeLayout(problemIds: string[], layout: ContestProblemLayoutItem[
     return {
       problem_id: problemId,
       problem_key: existing?.problem_key || defaultLayoutItem(problemId, index).problem_key,
+      display_title: existing?.display_title ?? null,
+      score: existing?.score ?? null,
       allowed_languages: existing?.allowed_languages ? [...existing.allowed_languages] : [],
     };
   });
@@ -197,6 +201,8 @@ function buildPayload(): ContestFormPayload {
     problem_layout: normalizeLayout(contestForm.problem_ids, contestForm.problem_layout).map((item) => ({
       problem_id: item.problem_id,
       problem_key: item.problem_key.trim().toUpperCase(),
+      display_title: item.display_title,
+      score: item.score,
       allowed_languages: [...item.allowed_languages],
     })),
     visibility: contestForm.visibility,
