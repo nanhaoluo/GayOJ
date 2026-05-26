@@ -9,6 +9,7 @@ from ..models import (
     Clarification,
     CompilerConfig,
     Contest,
+    ContestAnnouncement,
     Discussion,
     JudgeQueueJob,
     JudgeNode,
@@ -134,6 +135,10 @@ class Repository(Protocol):
     def add_clarification(self, clarification: Clarification) -> Clarification: ...
 
     def update_clarification(self, clarification: Clarification) -> Clarification: ...
+
+    def list_contest_announcements(self, contest_id: str | None = None) -> list[ContestAnnouncement]: ...
+
+    def add_contest_announcement(self, announcement: ContestAnnouncement) -> ContestAnnouncement: ...
 
     def list_judge_nodes(self) -> list[JudgeNode]: ...
 

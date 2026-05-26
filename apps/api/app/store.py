@@ -16,6 +16,7 @@ from .models import (
     Clarification,
     CompilerConfig,
     Contest,
+    ContestAnnouncement,
     DEFAULT_STUDENT_SCHOOL,
     Discussion,
     JudgeQueueJob,
@@ -523,6 +524,7 @@ def seed_data() -> dict[str, Any]:
         "judge_queue_jobs": [],
         "contests": [contest.model_dump(mode="json")],
         "clarifications": [],
+        "contest_announcements": [],
         "contest_balloons": [],
         "judge_nodes": [n.model_dump(mode="json") for n in nodes],
         "compiler_configs": _seed_compiler_configs(created),
@@ -620,6 +622,8 @@ class Store:
         if self._migrate_judge_queue_jobs(data):
             changed = True
         if self._migrate_offline_packs(data):
+            changed = True
+        if self._migrate_contest_announcements(data):
             changed = True
         return data, changed
 
@@ -962,6 +966,41 @@ class Store:
             normalized.append(record)
         if normalized != packs:
             data["offline_packs"] = normalized
+            changed = True
+        return changed
+
+    def _migrate_contest_announcements(self, data: dict[str, Any]) -> bool:
+        announcements = data.get("contest_announcements")
+        if not isinstance(announcements, list):
+            data["contest_announcements"] = []
+            return True
+        changed = False
+        normalized: list[dict[str, Any]] = []
+        for item in announcements:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            contest_id = str(item.get("contest_id") or "").strip()
+            title = str(item.get("title") or "").strip()
+            content = str(item.get("content") or "").strip()
+            announcement_id = str(item.get("id") or "").strip()
+            if not contest_id or not title or not content or not announcement_id:
+                changed = True
+                continue
+            normalized_item = {
+                "id": announcement_id,
+                "contest_id": contest_id,
+                "title": title,
+                "content": content,
+                "created_by": str(item.get("created_by") or "").strip(),
+                "created_by_name": str(item.get("created_by_name") or "").strip(),
+                "created_at": item.get("created_at") or now().isoformat(),
+            }
+            if normalized_item != item:
+                changed = True
+            normalized.append(normalized_item)
+        if normalized != announcements:
+            data["contest_announcements"] = normalized
             changed = True
         return changed
 
@@ -1567,6 +1606,18 @@ class Store:
         ]
         self._write(data)
         return clarification
+
+    def list_contest_announcements(self, contest_id: str | None = None) -> list[ContestAnnouncement]:
+        items = [ContestAnnouncement(**item) for item in self._read().get("contest_announcements", [])]
+        if contest_id:
+            items = [item for item in items if item.contest_id == contest_id]
+        return items
+
+    def add_contest_announcement(self, announcement: ContestAnnouncement) -> ContestAnnouncement:
+        data = self._read()
+        data.setdefault("contest_announcements", []).insert(0, announcement.model_dump(mode="json"))
+        self._write(data)
+        return announcement
 
     def list_contest_balloons(self, contest_id: str | None = None) -> list[dict[str, Any]]:
         balloons = [dict(item) for item in self._read().get("contest_balloons", [])]

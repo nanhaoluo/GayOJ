@@ -426,13 +426,27 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
         json={"question": "monitor question B", "problem_id": "P1002"},
     )
     assert clar_b.status_code == 200, clar_b.text
+    ann_a = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("judge"),
+        json={"title": "C1001 Announcement", "content": "Only for C1001"},
+    )
+    assert ann_a.status_code == 200, ann_a.text
+    ann_b = client.post(
+        "/api/v1/contests/C2001/announcements",
+        headers=auth_headers("judge"),
+        json={"title": "C2001 Announcement", "content": "Only for C2001"},
+    )
+    assert ann_b.status_code == 200, ann_b.text
 
     anonymous = client.get("/api/v1/judge/monitor/C1001")
     student = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("alice"))
+    coach = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("coach"))
     judge = client.get("/api/v1/judge/monitor/C1001", headers=auth_headers("judge"))
 
     assert anonymous.status_code == 401
     assert student.status_code == 403
+    assert coach.status_code == 200, coach.text
     assert judge.status_code == 200, judge.text
 
     payload = judge.json()
@@ -444,6 +458,8 @@ def test_contest_judge_monitor_requires_judge_permission_and_filters_contest_sco
     assert code_b.json()["id"] not in {item["id"] for item in payload["last_submissions"]}
     assert clar_a.json()["id"] in {item["id"] for item in payload["clarifications"]}
     assert clar_b.json()["id"] not in {item["id"] for item in payload["clarifications"]}
+    assert ann_a.json()["id"] in {item["id"] for item in payload["announcements"]}
+    assert ann_b.json()["id"] not in {item["id"] for item in payload["announcements"]}
     assert payload["balloons"][0]["contest_id"] == "C1001"
     assert all(item["contest_id"] == "C1001" for item in payload["balloons"])
 
@@ -486,6 +502,87 @@ def test_contest_clarification_private_reply_stays_hidden_from_other_students(cl
     other_student = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("coach"))
     assert other_student.status_code == 200, other_student.text
     assert all(item["id"] != clarification_id for item in other_student.json())
+
+
+def test_contest_announcements_follow_contest_visibility_and_permission(client: TestClient, auth_headers, store) -> None:
+    created = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("judge"),
+        json={"title": "Warmup", "content": "10 minutes left."},
+    )
+    assert created.status_code == 200, created.text
+
+    public_list = client.get("/api/v1/contests/C1001/announcements")
+    assert public_list.status_code == 200, public_list.text
+    assert public_list.json()[0]["id"] == created.json()["id"]
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.visibility = "private"
+    store.update_contest(contest)
+
+    anonymous = client.get("/api/v1/contests/C1001/announcements")
+    student = client.get("/api/v1/contests/C1001/announcements", headers=auth_headers("alice"))
+    judge = client.get("/api/v1/contests/C1001/announcements", headers=auth_headers("judge"))
+
+    assert anonymous.status_code == 404
+    assert student.status_code == 403
+    assert judge.status_code == 200
+    assert judge.json()[0]["id"] == created.json()["id"]
+
+
+def test_contest_announcements_require_manage_or_judge_permission(client: TestClient, auth_headers) -> None:
+    student_denied = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("alice"),
+        json={"title": "Nope", "content": "Student cannot post."},
+    )
+    assert student_denied.status_code == 403
+
+    coach_created = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("coach"),
+        json={"title": "Coach Notice", "content": "Lineup check."},
+    )
+    assert coach_created.status_code == 200, coach_created.text
+    assert coach_created.json()["created_by"] == "u-coach"
+
+    judge_created = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("judge"),
+        json={"title": "Judge Notice", "content": "Do not refresh."},
+    )
+    assert judge_created.status_code == 200, judge_created.text
+    assert judge_created.json()["created_by"] == "u-judge"
+
+
+def test_private_contest_announcements_only_notify_owned_students(client: TestClient, auth_headers, store) -> None:
+    submitted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.visibility = "private"
+    store.update_contest(contest)
+
+    created = client.post(
+        "/api/v1/contests/C1001/announcements",
+        headers=auth_headers("judge"),
+        json={"title": "Private Notice", "content": "Only participants should receive this."},
+    )
+    assert created.status_code == 200, created.text
+
+    alice_notifications = client.get("/api/v1/notifications", headers=auth_headers("alice"))
+    coach_notifications = client.get("/api/v1/notifications", headers=auth_headers("coach"))
+    assert alice_notifications.status_code == 200, alice_notifications.text
+    assert coach_notifications.status_code == 200, coach_notifications.text
+
+    assert any(item["title"] == "比赛公告：Private Notice" for item in alice_notifications.json())
+    assert all(item["title"] != "比赛公告：Private Notice" for item in coach_notifications.json())
 
 
 def test_contest_print_reads_submission_or_request_only(client: TestClient, auth_headers) -> None:

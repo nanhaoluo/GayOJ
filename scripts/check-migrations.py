@@ -19,6 +19,7 @@ EXPECTED_TABLES = [
     "problem_test_data",
     "problem_versions",
     "contests",
+    "contest_announcements",
     "submissions",
     "judge_queue_jobs",
     "clarifications",
@@ -181,6 +182,11 @@ def main() -> int:
         fail("problem_versions must store snapshots as JSONB")
     if "unique (problem_id, version)" not in problem_versions_block:
         fail("problem_versions must keep per-problem version numbers unique")
+    contest_announcements_block = table_block(combined, "contest_announcements").lower()
+    if "contest_id text not null references contests(id) on delete cascade" not in contest_announcements_block:
+        fail("contest_announcements must reference contests with cascade delete")
+    if "created_by text not null references users(id)" not in contest_announcements_block:
+        fail("contest_announcements must track creator users")
     problem_test_data_block = table_block(combined, "problem_test_data").lower()
     if "object_key text not null" not in problem_test_data_block:
         fail("problem_test_data must keep an object storage key")
@@ -248,6 +254,7 @@ def main() -> int:
         "problem_versions",
         "judge_queue_jobs",
         "submissions",
+        "contest_announcements",
         "source_code",
         "offline_result_key",
         "user_roles",
