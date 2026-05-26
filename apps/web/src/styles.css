@@ -124,6 +124,66 @@ a {
   background: white;
   overflow: auto;
   white-space: pre-wrap;
+  max-height: 70vh;
+}
+
+.print-console {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.print-jobs,
+.print-preview-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.print-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.print-job-row.active {
+  border-color: var(--brand);
+}
+
+.print-job-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.print-job-main strong,
+.print-job-main span,
+.print-job-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-job-main span,
+.print-job-main small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.compact-actions {
+  white-space: nowrap;
 }
 
 .pure-textarea {
@@ -2025,6 +2085,27 @@ pre {
   white-space: nowrap;
 }
 
+.standing-problem-head {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  line-height: 1.1;
+}
+
+.standing-problem-head strong,
+.standing-problem-head small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standing-problem-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .standing-problem-cell {
   min-width: 0;
   min-height: 38px;
@@ -3093,6 +3174,12 @@ pre {
   border-radius: var(--radius);
 }
 
+.form-hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .empty-text {
   color: var(--muted);
   background: var(--surface-strong);
@@ -4117,5 +4204,14 @@ pre {
 
   .contest-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .print-console,
+  .print-job-row {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-actions {
+    justify-content: flex-start;
   }
 }

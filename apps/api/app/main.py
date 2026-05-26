@@ -62,11 +62,14 @@ from .models import (
     ContestUpdate,
     ContestProblemLayoutItem,
     ContestProblemView,
+    ContestPrintJob,
+    ContestPrintJobSummary,
     ContestSubmissionView,
     ContestTeamSubmissionSummary,
     ContestSubmissionStatusResponse,
     ContestPrintRequest,
     ContestPrintResponse,
+    ContestPrintUpdate,
     ContestRollingResponse,
     ContestSubmitRequest,
     ContestBalloonUpdate,
@@ -809,9 +812,24 @@ def is_login_locked(user: User, current: datetime) -> bool:
     return bool(locked_until and locked_until > current)
 
 
-def contest_detail(contest: Contest, store: Repository) -> ContestDetail:
+def contest_summary_submissions(contest: Contest, store: Repository, *, full_board: bool = False) -> list[Submission]:
+    submissions = [
+        submission
+        for submission in store.list_submissions()
+        if submission.contest_id == contest.id
+    ]
+    if full_board:
+        return submissions
+    return [
+        submission
+        for submission in submissions
+        if _contest_submission_before_freeze(submission, contest)
+    ]
+
+
+def contest_detail(contest: Contest, store: Repository, *, full_board: bool = False) -> ContestDetail:
     problems = {p.id: p for p in store.list_problems()}
-    submissions = store.list_submissions()
+    submissions = contest_summary_submissions(contest, store, full_board=full_board)
     participant_ids = student_user_ids(store)
     payload = contest.model_dump()
     payload["status"] = contest_now_status(contest)
@@ -851,7 +869,8 @@ def ensure_contest_access(user: User, contest: Contest, store: Repository) -> No
     if user.role != "student":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if contest.visibility != "public":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        if user.id not in contest_owners(store, contest):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
 
 def ensure_contest_resource_owner(user: User, contest: Contest, store: Repository, *, include_students: bool = True) -> None:
@@ -869,6 +888,19 @@ def ensure_contest_submission_owner(user: User, contest: Contest, submission: Su
     if role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage"):
         return
     if submission.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+
+def can_process_contest_print(user: User) -> bool:
+    return bool(role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor"))
+
+
+def ensure_contest_print_job_access(user: User, contest: Contest, print_job: ContestPrintJob) -> None:
+    if print_job.contest_id != contest.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Print job not found")
+    if can_process_contest_print(user):
+        return
+    if print_job.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
 
@@ -1050,6 +1082,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
     queue = contest_judge_queue_summary(contest, store)
     clarifications = [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest.id]
     announcements = store.list_contest_announcements(contest.id)
+    print_jobs = sorted(store.list_contest_print_jobs(contest.id), key=lambda item: item.requested_at, reverse=True)
     balloons: list[ContestBalloon] = []
     for balloon in store.list_contest_balloons(contest.id):
         submission = store.get_submission(str(balloon.get("submission_id") or ""))
@@ -1068,7 +1101,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         reverse=False,
     )
     return ContestJudgeMonitorResponse(
-        contest=contest_detail(contest, store),
+        contest=contest_detail(contest, store, full_board=True),
         queue_depth=queue.depth,
         queue=queue,
         last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
@@ -1076,6 +1109,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         clarifications=clarifications,
         announcements=announcements,
         balloons=balloons,
+        print_jobs=[contest_print_summary(job) for job in print_jobs[:10]],
     )
 
 
@@ -1089,11 +1123,21 @@ def contest_problem_layout(contest: Contest) -> list[ContestProblemLayoutItem]:
                 ContestProblemLayoutItem(
                     problem_id=problem_id,
                     problem_key=item.problem_key,
+                    display_title=item.display_title,
+                    score=item.score,
                     allowed_languages=list(item.allowed_languages),
                 )
             )
             continue
-        normalized.append(ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index), allowed_languages=[]))
+        normalized.append(
+            ContestProblemLayoutItem(
+                problem_id=problem_id,
+                problem_key=str(index),
+                display_title=None,
+                score=None,
+                allowed_languages=[],
+            )
+        )
     return normalized
 
 
@@ -1101,12 +1145,32 @@ def contest_problem_layout_by_problem_id(contest: Contest) -> dict[str, ContestP
     return {item.problem_id: item for item in contest_problem_layout(contest)}
 
 
+def contest_problem_layout_by_key(contest: Contest) -> dict[str, ContestProblemLayoutItem]:
+    layout_by_key: dict[str, ContestProblemLayoutItem] = {}
+    for item in contest_problem_layout(contest):
+        key = item.problem_key.strip().upper()
+        if key and key not in layout_by_key:
+            layout_by_key[key] = item
+    return layout_by_key
+
+
+def contest_problem_layout_lookup(contest: Contest, problem_ref: str) -> ContestProblemLayoutItem | None:
+    normalized = str(problem_ref or "").strip()
+    if not normalized:
+        return None
+    by_id = contest_problem_layout_by_problem_id(contest).get(normalized)
+    if by_id is not None:
+        return by_id
+    return contest_problem_layout_by_key(contest).get(normalized.upper())
+
+
 def contest_problem_view(layout: ContestProblemLayoutItem, problem: Problem) -> ContestProblemView:
     return ContestProblemView(
         problem_id=problem.id,
         problem_key=layout.problem_key,
-        title=problem.title,
+        title=layout.display_title or problem.title,
         type=problem.type,
+        score=layout.score if layout.score is not None else 100,
         allowed_languages=layout.allowed_languages,
     )
 
@@ -1152,6 +1216,49 @@ def can_view_contest_submission_source(user: User, submission: Submission) -> bo
     return submission.user_id == user.id
 
 
+def contest_print_summary(print_job: ContestPrintJob) -> ContestPrintJobSummary:
+    payload = print_job.model_dump(exclude={"source_code"})
+    return ContestPrintJobSummary(**payload)
+
+
+def contest_print_response(print_job: ContestPrintJob) -> ContestPrintResponse:
+    return ContestPrintResponse(**print_job.model_dump())
+
+
+def build_contest_print_job(
+    *,
+    contest: Contest,
+    store: Repository,
+    payload: ContestPrintRequest,
+    user: User,
+    submission: Submission | None,
+) -> ContestPrintJob:
+    source_code = payload.source_code if payload.source_code is not None else submission.source_code if submission else ""
+    source = safe_print_source(source_code or "")
+    problem_id = submission.problem_id if submission else payload.problem_id
+    if not problem_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires problem_id")
+    problem = contest_problem_lookup(contest, store, problem_id, user)
+    layout = contest_problem_layout_by_problem_id(contest).get(problem.id)
+    submitter = store.get_user(submission.user_id) if submission else None
+    return ContestPrintJob(
+        id=f"CP{uuid4().hex[:8].upper()}",
+        contest_id=contest.id,
+        submission_id=submission.id if submission else None,
+        user_id=submission.user_id if submission else user.id,
+        user_display_name=submitter.display_name if submitter else user.display_name,
+        problem_id=problem.id,
+        problem_key=layout.problem_key if layout else problem.id,
+        problem_title=problem.title,
+        language=submission.language if submission else payload.language,
+        source_kind="submission" if submission else "request",
+        source_code=source,
+        status="pending",
+        line_count=len(source.splitlines()),
+        requested_at=now(),
+    )
+
+
 def contest_submission_view(
     submission: Submission,
     *,
@@ -1167,6 +1274,10 @@ def contest_submission_view(
     ).model_dump()
     layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
     payload["problem_key"] = layout.problem_key if layout else submission.problem_id
+    if layout and layout.display_title:
+        payload["problem_title"] = layout.display_title
+    if layout and layout.score is not None:
+        payload["max_score"] = layout.score
     payload["team_id"] = team.id if team else None
     payload["team_name"] = team.name if team else None
     payload["can_view_source"] = can_view_contest_submission_source(user, submission)
@@ -1215,8 +1326,12 @@ def contest_problem_details(contest: Contest, store: Repository, user: User | No
             continue
         if not problem.visible and not can_view_hidden_contest_problem(user):
             continue
+        display_title = layout.display_title or problem.title
         item = problem_detail(problem).model_dump()
         item["problem_key"] = layout.problem_key
+        item["display_title"] = display_title
+        item["title"] = display_title
+        item["score"] = layout.score if layout.score is not None else 100
         item["allowed_languages"] = list(layout.allowed_languages)
         problems.append(ContestProblemDetail(**item))
     return problems
@@ -1227,6 +1342,29 @@ def ensure_contest_problem_inventory(problem_ids: list[str], store: Repository) 
     missing = [problem_id for problem_id in problem_ids if problem_id not in existing]
     if missing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problems: {', '.join(missing)}")
+
+
+def ensure_contest_layout_valid(contest: Contest, store: Repository) -> None:
+    problems_by_id = {problem.id: problem for problem in store.list_problems()}
+    seen_keys: set[str] = set()
+    for layout in contest_problem_layout(contest):
+        problem = problems_by_id.get(layout.problem_id)
+        if not problem:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problem: {layout.problem_id}")
+        normalized_key = layout.problem_key.strip().lower()
+        if normalized_key in seen_keys:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Duplicate contest problem key: {layout.problem_key}")
+        seen_keys.add(normalized_key)
+        if layout.allowed_languages and problem.type != "code":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Language restrictions only apply to code problems: {layout.problem_id}",
+            )
+        if layout.score is not None and layout.score <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Contest problem score must be positive: {layout.problem_id}",
+            )
 
 
 def ensure_contest_problem_removals_safe(existing: Contest, next_problem_ids: list[str], store: Repository) -> None:
@@ -1253,7 +1391,13 @@ def ensure_contest_problem_removals_safe(existing: Contest, next_problem_ids: li
 
 def contest_payload_layout(payload: ContestCreate | ContestUpdate) -> list[ContestProblemLayoutItem]:
     return payload.problem_layout or [
-        ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index + 1), allowed_languages=[])
+        ContestProblemLayoutItem(
+            problem_id=problem_id,
+            problem_key=str(index + 1),
+            display_title=None,
+            score=None,
+            allowed_languages=[],
+        )
         for index, problem_id in enumerate(payload.problem_ids)
     ]
 
@@ -1366,7 +1510,7 @@ def contest_external_board_payload(
     full_board: bool = False,
 ) -> ContestBoardResponse:
     return ContestBoardResponse(
-        contest=contest_detail(contest, store),
+        contest=contest_detail(contest, store, full_board=full_board),
         board_kind=board_kind,
         standings=build_contest_standings(contest, store, full_board=full_board),
         generated_at=now(),
@@ -1375,7 +1519,7 @@ def contest_external_board_payload(
 
 def contest_rolling_board_payload(contest: Contest, store: Repository) -> ContestRollingResponse:
     return ContestRollingResponse(
-        contest=contest_detail(contest, store),
+        contest=contest_detail(contest, store, full_board=True),
         public_standings=build_contest_standings(contest, store, full_board=False),
         final_standings=build_contest_standings(contest, store, full_board=True),
         generated_at=now(),
@@ -1412,6 +1556,8 @@ def _build_score_standings(
 ) -> list[StandingRow]:
     rows: dict[str, dict[str, Any]] = {}
     for submission in submissions:
+        if not full_board and not _contest_submission_before_freeze(submission, contest):
+            continue
         row = rows.setdefault(
             submission.user_id,
             {
@@ -1425,8 +1571,6 @@ def _build_score_standings(
             },
         )
         problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
-        if not full_board and not _contest_submission_before_freeze(submission, contest):
-            continue
         problem_row["attempts"] += 1
         effective_time = _submission_effective_time(submission)
         score = max(int(submission.score), 0)
@@ -1478,6 +1622,9 @@ def build_contest_standings(contest: Contest, store: Repository, *, full_board: 
     contest_start = auth_datetime(contest.start_at) or now()
 
     for submission in relevant_submissions:
+        visible_to_board = full_board or _contest_submission_before_freeze(submission, contest)
+        if not visible_to_board:
+            continue
         row = rows.setdefault(
             submission.user_id,
             {
@@ -1491,10 +1638,7 @@ def build_contest_standings(contest: Contest, store: Repository, *, full_board: 
             },
         )
         problem_row = row["problems"].setdefault(submission.problem_id, _standing_problem_payload())
-        visible_to_board = full_board or _contest_submission_before_freeze(submission, contest)
         if problem_row["accepted_at"] is not None:
-            continue
-        if not visible_to_board:
             continue
         if submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score:
             effective_time = _submission_effective_time(submission)
@@ -1566,31 +1710,6 @@ def contest_submission_to_balloon(submission: Submission, store: Repository) -> 
     if balloon is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Balloon not available")
     return balloon
-
-
-def contest_print_payload(contest: Contest, submission: Submission | None, request: ContestPrintRequest) -> ContestPrintResponse:
-    if submission:
-        source_code = submission.source_code or ""
-        source_kind = "submission"
-        problem_id = submission.problem_id
-        language = submission.language
-        submission_id = submission.id
-    else:
-        source_code = request.source_code or ""
-        source_kind = "request"
-        problem_id = request.problem_id
-        language = request.language
-        submission_id = request.submission_id
-    source_code = safe_print_source(source_code)
-    return ContestPrintResponse(
-        contest_id=contest.id,
-        submission_id=submission_id,
-        problem_id=problem_id,
-        language=language,
-        source_kind=source_kind,  # type: ignore[arg-type]
-        source_code=source_code,
-        line_count=source_code.count("\n") + (0 if source_code.endswith("\n") else 1),
-    )
 
 
 def contest_submission_is_objective(problem: Problem) -> bool:
@@ -2530,7 +2649,6 @@ def submit_code(
         problem_id=problem.id,
         problem_title=problem.title,
         problem_type=problem.type,
-        contest_id=payload.contest_id,
         language=payload.language,
         source_code=payload.source_code,
         status="queued",
@@ -2575,7 +2693,6 @@ def submit_objective(
         problem_id=problem.id,
         problem_title=problem.title,
         problem_type=problem.type,
-        contest_id=payload.contest_id,
         answers=payload.answers,
         status="accepted" if score == max_score else "wrong_answer",
         score=score,
@@ -2629,7 +2746,8 @@ def list_contests(
         contests = [contest for contest in contests if contest.visibility == "public"]
     elif not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all")):
         contests = [contest for contest in contests if contest.visibility == "public"]
-    return [contest_detail(contest, store) for contest in contests]
+    can_view_full = bool(user and can_view_full_contest_board(user))
+    return [contest_detail(contest, store, full_board=can_view_full) for contest in contests]
 
 
 @app.post("/api/v1/contests", response_model=ContestDetail)
@@ -2645,6 +2763,7 @@ def create_contest(
         payload=payload,
         current=current,
     )
+    ensure_contest_layout_valid(contest, store)
     store.add_contest(contest)
     store.add_audit(
         user.id,
@@ -2655,13 +2774,14 @@ def create_contest(
             "rule": contest.rule,
             "visibility": contest.visibility,
             "problem_ids": contest.problem_ids,
+            "problem_layout": [item.model_dump() for item in contest.problem_layout],
         },
     )
     if contest.visibility == "public":
         for target in store.list_users():
             if target.role == "student":
                 add_notification(store, target.id, "新比赛已发布", f"{contest.title} 已加入比赛列表。", "contest")
-    return contest_detail(contest, store)
+    return contest_detail(contest, store, full_board=True)
 
 
 @app.put("/api/v1/contests/{contest_id}", response_model=ContestDetail)
@@ -2682,6 +2802,7 @@ def update_contest(
         current=now(),
         existing=existing,
     )
+    ensure_contest_layout_valid(contest, store)
     store.update_contest(contest)
     store.add_audit(
         user.id,
@@ -2692,9 +2813,10 @@ def update_contest(
             "rule": contest.rule,
             "visibility": contest.visibility,
             "problem_ids": contest.problem_ids,
+            "problem_layout": [item.model_dump() for item in contest.problem_layout],
         },
     )
-    return contest_detail(contest, store)
+    return contest_detail(contest, store, full_board=True)
 
 
 @app.post("/api/v1/contests/{contest_id}/freeze", response_model=ContestDetail)
@@ -2716,7 +2838,7 @@ def freeze_contest(
     contest.freeze_reason = payload.reason
     store.update_contest(contest)
     store.add_audit(user.id, "contest.freeze", f"contest:{contest.id}", payload.model_dump())
-    return contest_detail(contest, store)
+    return contest_detail(contest, store, full_board=True)
 
 
 @app.post("/api/v1/contests/{contest_id}/unfreeze", response_model=ContestDetail)
@@ -2729,8 +2851,8 @@ def unfreeze_contest(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not contest.frozen:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest is not manually frozen")
+    if not contest.frozen and not contest_public_is_frozen(contest):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest is not frozen")
     contest.frozen = False
     contest.freeze_disabled = True
     contest.frozen_at = None
@@ -2738,7 +2860,7 @@ def unfreeze_contest(
     contest.freeze_reason = payload.reason
     store.update_contest(contest)
     store.add_audit(user.id, "contest.unfreeze", f"contest:{contest.id}", payload.model_dump())
-    return contest_detail(contest, store)
+    return contest_detail(contest, store, full_board=True)
 
 
 @app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestRejudgeResponse)
@@ -2757,15 +2879,13 @@ def rejudge_contest(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
     if payload.problem_id:
         contest_problem_lookup(contest, store, payload.problem_id, user)
-    contest.rejudge_at = now()
-    contest.rejudge_by = user.id
-    contest.rejudge_reason = payload.reason
-    store.update_contest(contest)
+
     requeued: list[Submission] = []
     skipped: list[RejudgeSkipped] = []
     candidates: list[Submission] = []
     seen: set[str] = set()
     contest_problem_ids = set(contest.problem_ids)
+    statuses = set(payload.statuses)
 
     def append_candidate(submission: Submission) -> None:
         if submission.id in seen:
@@ -2773,44 +2893,47 @@ def rejudge_contest(
         seen.add(submission.id)
         candidates.append(submission)
 
+    def candidate_matches_filters(submission: Submission) -> str | None:
+        if submission.contest_id != contest.id:
+            return "Submission does not belong to this contest"
+        if submission.problem_id not in contest_problem_ids:
+            return "Submission problem is not part of this contest"
+        if payload.problem_id and submission.problem_id != payload.problem_id:
+            return f"Problem {submission.problem_id} is outside the requested contest problem filter"
+        if statuses and submission.status not in statuses:
+            return f"Status {submission.status} is outside the requested filter"
+        return None
+
     if payload.submission_ids:
         for submission_id in payload.submission_ids:
             submission = store.get_submission(submission_id)
             if not submission:
                 skipped.append(RejudgeSkipped(submission_id=submission_id, reason="Submission not found"))
                 continue
+            reason = candidate_matches_filters(submission)
+            if reason:
+                skipped.append(RejudgeSkipped(submission_id=submission.id, reason=reason))
+                continue
             append_candidate(submission)
     else:
         for submission in store.list_submissions():
-            if submission.contest_id != contest.id:
-                continue
-            if submission.problem_id not in contest_problem_ids:
-                continue
-            if payload.problem_id and submission.problem_id != payload.problem_id:
-                continue
-            if payload.statuses and submission.status not in payload.statuses:
+            if candidate_matches_filters(submission):
                 continue
             append_candidate(submission)
 
     for submission in candidates:
-        if submission.contest_id != contest.id:
-            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission is outside this contest"))
-            continue
-        if submission.problem_id not in contest_problem_ids:
-            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission problem is not part of this contest"))
-            continue
-        if payload.problem_id and submission.problem_id != payload.problem_id:
-            skipped.append(RejudgeSkipped(submission_id=submission.id, reason="Submission problem is outside the requested filter"))
-            continue
-        if payload.statuses and submission.status not in payload.statuses:
-            skipped.append(RejudgeSkipped(submission_id=submission.id, reason=f"Status {submission.status} is outside the requested filter"))
-            continue
         try:
             requeued.append(requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.submission.rejudge"))
         except ValueError as exc:
             skipped.append(RejudgeSkipped(submission_id=submission.id, reason=str(exc)))
         except QueueBackendUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    rejudge_at = now()
+    contest.rejudge_at = rejudge_at
+    contest.rejudge_by = user.id
+    contest.rejudge_reason = payload.reason
+    store.update_contest(contest)
     refresh_contest_balloons_after_rejudge(store, contest.id, requeued)
     store.add_audit(
         user.id,
@@ -2819,15 +2942,15 @@ def rejudge_contest(
         {
             "reason": payload.reason,
             "problem_id": payload.problem_id,
-            "statuses": list(payload.statuses),
-            "submission_ids": list(payload.submission_ids),
+            "submission_ids": payload.submission_ids,
+            "statuses": payload.statuses,
             "requeued_count": len(requeued),
             "skipped_count": len(skipped),
         },
     )
     return ContestRejudgeResponse(
         contest_id=contest.id,
-        rejudge_at=contest.rejudge_at or now(),
+        rejudge_at=rejudge_at,
         rejudge_by=contest.rejudge_by or user.id,
         rejudge_reason=contest.rejudge_reason,
         requeued=requeued,
@@ -2850,7 +2973,7 @@ def get_contest(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if not user and contest.visibility != "public":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    return contest_detail(contest, store)
+    return contest_detail(contest, store, full_board=can_view_full_contest_board(user))
 
 
 @app.get("/api/v1/contests/{contest_id}/standings", response_model=list[StandingRow])
@@ -2954,7 +3077,12 @@ def create_clarification(
         user.id,
         "clarification.create",
         f"clarification:{clarification.id}",
-        {"contest_id": contest_id, "problem_id": clarification.problem_id},
+        {
+            "contest_id": contest_id,
+            "problem_id": clarification.problem_id,
+            "public": clarification.public,
+            "broadcast": clarification.broadcast,
+        },
     )
     for target in store.list_users():
         if target.role in {"judge", "admin"}:
@@ -3070,7 +3198,17 @@ def reply_clarification(
         for target in contest_notification_targets(store, contest):
             if target.id != clarification.user_id:
                 add_notification(store, target.id, "比赛公告", payload.answer, "contest")
-    store.add_audit(user.id, "clarification.reply", f"clarification:{clarification.id}", payload.model_dump())
+    store.add_audit(
+        user.id,
+        "clarification.reply",
+        f"clarification:{clarification.id}",
+        {
+            **payload.model_dump(),
+            "contest_id": contest.id,
+            "problem_id": clarification.problem_id,
+            "question_user_id": clarification.user_id,
+        },
+    )
     return clarification_payload_for_user(clarification, user)
 
 
@@ -3205,7 +3343,8 @@ def print_contest_source(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if user.role != "student" and not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
+    ensure_contest_access(user, contest, store)
+    if user.role != "student" and not can_process_contest_print(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     submission: Submission | None = None
     if payload.submission_id:
@@ -3215,11 +3354,117 @@ def print_contest_source(
         ensure_contest_submission_owner(user, contest, submission)
         if not submission.source_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission has no printable source")
-    elif payload.source_code and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    elif payload.problem_id and not payload.source_code:
+        contest_problem_lookup(contest, store, submission.problem_id, user)
+    elif payload.source_code:
+        if not can_process_contest_print(user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        if not payload.problem_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires problem_id")
+        problem = contest_problem_lookup(contest, store, payload.problem_id, user)
+        ensure_contest_problem_language_allowed(contest, problem, payload.language)
+    elif payload.problem_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Print request requires source_code")
-    return contest_print_payload(contest, submission, payload)
+    print_job = build_contest_print_job(
+        contest=contest,
+        store=store,
+        payload=payload,
+        user=user,
+        submission=submission,
+    )
+    response = contest_print_response(store.add_contest_print_job(print_job))
+    store.add_audit(
+        user.id,
+        "contest.print",
+        f"contest_print:{response.id}",
+        {
+            "contest_id": contest.id,
+            "submission_id": response.submission_id,
+            "problem_id": response.problem_id,
+            "problem_key": response.problem_key,
+            "language": response.language,
+            "source_kind": response.source_kind,
+            "source_sha256": hashlib.sha256(response.source_code.encode("utf-8")).hexdigest(),
+            "line_count": response.line_count,
+        },
+    )
+    return response
+
+
+@app.get("/api/v1/contests/{contest_id}/print", response_model=list[ContestPrintJobSummary])
+def list_contest_print_jobs(
+    contest_id: str,
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> list[ContestPrintJobSummary]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
+    items = store.list_contest_print_jobs(contest.id)
+    if not can_process_contest_print(user):
+        items = [item for item in items if item.user_id == user.id]
+    items.sort(key=lambda item: item.requested_at, reverse=True)
+    return [contest_print_summary(item) for item in items]
+
+
+@app.get("/api/v1/contests/{contest_id}/print/{print_job_id}", response_model=ContestPrintResponse)
+def get_contest_print_job(
+    contest_id: str,
+    print_job_id: str,
+    user: User = Depends(require_permissions("submission:read:own")),
+    store: Repository = Depends(get_repository),
+) -> ContestPrintResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    ensure_contest_access(user, contest, store)
+    print_job = store.get_contest_print_job(print_job_id)
+    if not print_job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Print job not found")
+    ensure_contest_print_job_access(user, contest, print_job)
+    if can_process_contest_print(user):
+        store.add_audit(
+            user.id,
+            "contest.print.source.read",
+            f"contest_print:{print_job.id}",
+            {"contest_id": contest.id, "submission_id": print_job.submission_id, "problem_id": print_job.problem_id},
+        )
+    return contest_print_response(print_job)
+
+
+@app.patch("/api/v1/contests/{contest_id}/print/{print_job_id}", response_model=ContestPrintResponse)
+def update_contest_print_job(
+    contest_id: str,
+    print_job_id: str,
+    payload: ContestPrintUpdate,
+    user: User = Depends(require_permissions("submission:read:all")),
+    store: Repository = Depends(get_repository),
+) -> ContestPrintResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not can_process_contest_print(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    print_job = store.get_contest_print_job(print_job_id)
+    if not print_job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Print job not found")
+    ensure_contest_print_job_access(user, contest, print_job)
+    print_job.status = payload.status
+    print_job.note = payload.note
+    if payload.status == "printed":
+        print_job.printed_at = now()
+        print_job.printed_by = user.id
+    else:
+        print_job.printed_at = None
+        print_job.printed_by = None
+    store.update_contest_print_job(print_job)
+    store.add_audit(
+        user.id,
+        "contest.print.update",
+        f"contest_print:{print_job.id}",
+        {"contest_id": contest.id, "status": print_job.status, "note": print_job.note},
+    )
+    return contest_print_response(print_job)
 
 
 @app.get("/api/v1/contests/{contest_id}/balloons", response_model=list[ContestBalloon])

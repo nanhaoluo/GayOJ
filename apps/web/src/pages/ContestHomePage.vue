@@ -5,14 +5,14 @@ import { useRoute, useRouter } from 'vue-router';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { Contest, ContestAnnouncement, ProblemDetail } from '@/services/types';
+import type { Contest, ContestAnnouncement, ContestProblemDetail } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
 const contest = ref<Contest | null>(null);
 const announcements = ref<ContestAnnouncement[]>([]);
-const problems = ref<ProblemDetail[]>([]);
+const problems = ref<ContestProblemDetail[]>([]);
 const error = ref('');
 
 const canUseContestTools = computed(() => Boolean(authState.user));
@@ -21,12 +21,14 @@ const canOpenPrintDesk = computed(() => {
   return permissions.includes('judge:monitor') || permissions.includes('contest:manage') || authState.user?.role === 'student';
 });
 
-function contestProblemLabel(index: number): string {
-  return String.fromCharCode('A'.charCodeAt(0) + index);
+function problemAttemptSummary(problem: ContestProblemDetail): string {
+  return `${problem.accepted}/${problem.attempts || 0}`;
 }
 
-function problemAttemptSummary(problem: ProblemDetail): string {
-  return `${problem.accepted}/${problem.attempts || 0}`;
+function allowedLanguageText(problem: ContestProblemDetail): string {
+  if (problem.type !== 'code') return '';
+  if (!problem.allowed_languages.length) return '不限语言';
+  return problem.allowed_languages.join(', ');
 }
 
 async function load() {
@@ -34,13 +36,13 @@ async function load() {
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     announcements.value = await apiRequest<ContestAnnouncement[]>(`/contests/${route.params.id}/announcements`);
-    problems.value = await apiRequest<ProblemDetail[]>(`/contests/${route.params.id}/problems`);
+    problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
   } catch (err) {
     error.value = err instanceof Error ? err.message : '比赛加载失败';
   }
 }
 
-async function openProblem(problem: ProblemDetail) {
+async function openProblem(problem: ContestProblemDetail) {
   await router.push(`/contests/${route.params.id}/p/${problem.id}`);
 }
 
@@ -111,9 +113,9 @@ onMounted(load);
         </div>
 
         <div class="contest-problem-list">
-          <article v-for="(problem, index) in problems" :key="problem.id" class="contest-problem-card">
+          <article v-for="problem in problems" :key="problem.id" class="contest-problem-card">
             <div class="contest-problem-card-main">
-              <div class="contest-problem-badge">{{ contestProblemLabel(index) }}</div>
+              <div class="contest-problem-badge">{{ problem.problem_key }}</div>
               <div class="contest-problem-copy">
                 <div class="contest-problem-title">
                   <strong>{{ problem.title }}</strong>
@@ -123,6 +125,7 @@ onMounted(load);
                   <span><ProblemTypeIcon :type="problem.type" />{{ problemTypeLabel(problem.type) }}</span>
                   <span>{{ problem.difficulty }}</span>
                   <span>{{ problemAttemptSummary(problem) }}</span>
+                  <span v-if="problem.type === 'code'">{{ allowedLanguageText(problem) }}</span>
                 </div>
                 <p class="contest-problem-tags">
                   <span v-for="tag in problem.tags" :key="tag">{{ tag }}</span>

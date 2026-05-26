@@ -17,6 +17,7 @@ from .models import (
     CompilerConfig,
     Contest,
     ContestAnnouncement,
+    ContestPrintJob,
     DEFAULT_STUDENT_SCHOOL,
     Discussion,
     JudgeQueueJob,
@@ -97,26 +98,43 @@ def _normalize_contest_problem_layout(item: dict[str, Any]) -> list[dict[str, An
         if not problem_id or problem_id in layout_by_problem_id or problem_id not in current_problem_id_set:
             continue
         problem_key = str(raw.get("problem_key") or raw.get("alias") or raw.get("label") or index + 1).strip() or str(index + 1)
+        display_title = str(raw.get("display_title") or raw.get("title_alias") or "").strip() or None
+        raw_score = raw.get("score")
+        score: int | None = None
+        if raw_score is not None:
+            try:
+                parsed_score = int(raw_score)
+            except (TypeError, ValueError):
+                parsed_score = -1
+            if 0 <= parsed_score <= 10000:
+                score = parsed_score
         allowed_languages = raw.get("allowed_languages")
         if isinstance(allowed_languages, str):
             allowed_languages = allowed_languages.replace("，", ",").split(",")
-        layout_by_problem_id[problem_id] = (
-            {
-                "problem_id": problem_id,
-                "problem_key": problem_key,
-                "allowed_languages": [
-                    language
-                    for language in [str(value or "").strip().lower() for value in (allowed_languages or [])]
-                    if language in LANGUAGE_CODES
-                ],
-            }
-        )
+        layout_item: dict[str, Any] = {
+            "problem_id": problem_id,
+            "problem_key": problem_key,
+            "display_title": display_title,
+            "score": score,
+            "allowed_languages": [
+                language
+                for language in [str(value or "").strip().lower() for value in (allowed_languages or [])]
+                if language in LANGUAGE_CODES
+            ],
+        }
+        layout_by_problem_id[problem_id] = layout_item
     normalized: list[dict[str, Any]] = []
     for index, problem_id in enumerate(current_problem_ids, start=1):
         normalized.append(
             layout_by_problem_id.get(
                 problem_id,
-                {"problem_id": problem_id, "problem_key": str(index), "allowed_languages": []},
+                {
+                    "problem_id": problem_id,
+                    "problem_key": str(index),
+                    "display_title": None,
+                    "score": None,
+                    "allowed_languages": [],
+                },
             )
         )
     return normalized
@@ -565,6 +583,7 @@ def seed_data() -> dict[str, Any]:
         "clarifications": [],
         "contest_announcements": [],
         "contest_balloons": [],
+        "contest_print_jobs": [],
         "judge_nodes": [n.model_dump(mode="json") for n in nodes],
         "compiler_configs": _seed_compiler_configs(created),
         "audit_logs": [],
@@ -665,6 +684,8 @@ class Store:
         if self._migrate_offline_packs(data):
             changed = True
         if self._migrate_contest_announcements(data):
+            changed = True
+        if self._migrate_contest_print_jobs(data):
             changed = True
         if self._migrate_discussions(data):
             changed = True
@@ -1064,6 +1085,56 @@ class Store:
             normalized.append(normalized_item)
         if normalized != announcements:
             data["contest_announcements"] = normalized
+            changed = True
+        return changed
+
+    def _migrate_contest_print_jobs(self, data: dict[str, Any]) -> bool:
+        jobs = data.get("contest_print_jobs")
+        if not isinstance(jobs, list):
+            data["contest_print_jobs"] = []
+            return True
+        changed = False
+        normalized: list[dict[str, Any]] = []
+        now_iso = now().isoformat()
+        for item in jobs:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            job_id = str(item.get("id") or "").strip()
+            contest_id = str(item.get("contest_id") or "").strip()
+            user_id = str(item.get("user_id") or "").strip()
+            source_code = str(item.get("source_code") or "")
+            if not job_id or not contest_id or not user_id or not source_code:
+                changed = True
+                continue
+            source_kind = item.get("source_kind") if item.get("source_kind") in {"submission", "request"} else "request"
+            status = item.get("status") if item.get("status") in {"pending", "printed", "cancelled"} else "pending"
+            normalized_item = {
+                "id": job_id,
+                "contest_id": contest_id,
+                "submission_id": str(item.get("submission_id") or "").strip() or None,
+                "user_id": user_id,
+                "user_display_name": str(item.get("user_display_name") or "").strip(),
+                "problem_id": str(item.get("problem_id") or "").strip() or None,
+                "problem_key": str(item.get("problem_key") or "").strip() or None,
+                "problem_title": str(item.get("problem_title") or "").strip() or None,
+                "language": str(item.get("language") or "").strip() or None,
+                "source_kind": source_kind,
+                "source_code": source_code,
+                "status": status,
+                "line_count": max(0, int(item.get("line_count", 0) or 0)),
+                "requested_at": item.get("requested_at") or now_iso,
+                "printed_at": item.get("printed_at"),
+                "printed_by": str(item.get("printed_by") or "").strip() or None,
+                "note": str(item.get("note") or "").strip(),
+            }
+            if normalized_item["line_count"] == 0:
+                normalized_item["line_count"] = len(str(source_code).splitlines())
+            if normalized_item != item:
+                changed = True
+            normalized.append(normalized_item)
+        if normalized != jobs:
+            data["contest_print_jobs"] = normalized
             changed = True
         return changed
 
@@ -1727,6 +1798,30 @@ class Store:
         data.setdefault("contest_announcements", []).insert(0, announcement.model_dump(mode="json"))
         self._write(data)
         return announcement
+
+    def list_contest_print_jobs(self, contest_id: str | None = None) -> list[ContestPrintJob]:
+        jobs = [ContestPrintJob(**item) for item in self._read().get("contest_print_jobs", [])]
+        if contest_id:
+            jobs = [item for item in jobs if item.contest_id == contest_id]
+        return jobs
+
+    def get_contest_print_job(self, job_id: str) -> ContestPrintJob | None:
+        return next((item for item in self.list_contest_print_jobs() if item.id == job_id), None)
+
+    def add_contest_print_job(self, job: ContestPrintJob) -> ContestPrintJob:
+        data = self._read()
+        data.setdefault("contest_print_jobs", []).insert(0, job.model_dump(mode="json"))
+        self._write(data)
+        return job
+
+    def update_contest_print_job(self, job: ContestPrintJob) -> ContestPrintJob:
+        data = self._read()
+        data["contest_print_jobs"] = [
+            job.model_dump(mode="json") if item.get("id") == job.id else item
+            for item in data.get("contest_print_jobs", [])
+        ]
+        self._write(data)
+        return job
 
     def list_contest_balloons(self, contest_id: str | None = None) -> list[dict[str, Any]]:
         balloons = [dict(item) for item in self._read().get("contest_balloons", [])]

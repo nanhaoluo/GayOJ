@@ -7,7 +7,23 @@ const props = defineProps<{
   standings: StandingRow[];
 }>();
 
-const problemIds = computed(() => props.contest.problems.map((problem) => problem.id));
+const problemColumns = computed(() => {
+  const summaries = new Map(props.contest.problems.map((problem) => [problem.id, problem]));
+  const layout = props.contest.problem_layout.length
+    ? props.contest.problem_layout
+    : props.contest.problem_ids.map((problemId, index) => ({
+      problem_id: problemId,
+      problem_key: String(index + 1),
+      allowed_languages: [],
+    }));
+  return layout
+    .filter((item) => summaries.has(item.problem_id) || props.contest.problem_ids.includes(item.problem_id))
+    .map((item) => ({
+      id: item.problem_id,
+      key: item.problem_key || item.problem_id,
+      title: summaries.get(item.problem_id)?.title ?? item.problem_id,
+    }));
+});
 const isAcmBoard = computed(() => props.contest.rule === 'ACM');
 
 function totalAttempts(row: StandingRow): number {
@@ -72,19 +88,22 @@ function problemCellMeta(problem: StandingProblemResult | undefined): string {
 
 <template>
   <div class="table-panel contest-board-table">
-    <div class="table-row table-head standings-table standings-grid">
+    <div class="table-row table-head standings-table standings-grid" :style="{ '--standing-problem-count': String(problemColumns.length) }">
       <span>#</span>
       <span>选手</span>
       <span>{{ isAcmBoard ? '通过' : '总分' }}</span>
       <span>{{ isAcmBoard ? '罚时' : '满分题' }}</span>
       <span>{{ isAcmBoard ? '首杀' : '提交' }}</span>
-      <span v-for="problemId in problemIds" :key="problemId">{{ problemId }}</span>
+      <span v-for="problem in problemColumns" :key="problem.id" class="standing-problem-head" :title="problem.title">
+        <strong>{{ problem.key }}</strong>
+        <small>{{ problem.id }}</small>
+      </span>
     </div>
     <div
       v-for="(row, index) in standings"
       :key="row.user_id"
       class="table-row standings-table standings-grid"
-      :style="{ '--standing-problem-count': String(problemIds.length) }"
+      :style="{ '--standing-problem-count': String(problemColumns.length) }"
     >
       <strong>{{ index + 1 }}</strong>
       <span class="standing-user">{{ row.display_name }}</span>
@@ -92,12 +111,12 @@ function problemCellMeta(problem: StandingProblemResult | undefined): string {
       <span>{{ isAcmBoard ? row.penalty : row.solved }}</span>
       <span>{{ isAcmBoard ? row.first_blood : totalAttempts(row) }}</span>
       <div
-        v-for="problemId in problemIds"
-        :key="`${row.user_id}-${problemId}`"
-        :class="problemCellClass(row.problems[problemId])"
+        v-for="problem in problemColumns"
+        :key="`${row.user_id}-${problem.id}`"
+        :class="problemCellClass(row.problems[problem.id])"
       >
-        <strong>{{ problemCellText(row.problems[problemId]) }}</strong>
-        <small>{{ problemCellMeta(row.problems[problemId]) }}</small>
+        <strong>{{ problemCellText(row.problems[problem.id]) }}</strong>
+        <small>{{ problemCellMeta(row.problems[problem.id]) }}</small>
       </div>
     </div>
   </div>

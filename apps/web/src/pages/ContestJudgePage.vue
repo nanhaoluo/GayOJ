@@ -100,6 +100,11 @@ onMounted(load);
             <strong>{{ pendingBalloons.length }}</strong>
             <span>{{ data.balloons.length }} 条比赛记录</span>
           </article>
+          <article class="monitor-stat-card">
+            <small>打印单</small>
+            <strong>{{ data.print_jobs.filter((item) => item.status === 'pending').length }}</strong>
+            <span>{{ data.print_jobs.length }} 条打印请求</span>
+          </article>
         </section>
 
         <section class="contest-monitor-grid">
@@ -212,6 +217,25 @@ onMounted(load);
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
               </div>
               <p v-if="data.balloons.length === 0" class="empty-text">当前比赛还没有气球记录。</p>
+            </div>
+          </article>
+
+          <article class="monitor-panel">
+            <div class="monitor-panel-head">
+              <div>
+                <h2>打印单</h2>
+                <p>只展示当前比赛代码打印请求。</p>
+              </div>
+            </div>
+            <div class="monitor-list">
+              <div v-for="job in data.print_jobs" :key="job.id" class="monitor-list-row compact">
+                <div class="monitor-feed-main">
+                  <strong>{{ job.problem_key || job.problem_id }} · {{ job.user_display_name || job.user_id }}</strong>
+                  <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ formatDate(job.requested_at) }}</span>
+                </div>
+                <StatusBadge :status="job.status" />
+              </div>
+              <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印单。</p>
             </div>
           </article>
         </section>
