@@ -994,6 +994,123 @@ def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store
     assert judge_row["problems"]["P1002"]["first_blood"] is True
 
 
+def test_acm_standings_ignore_records_outside_contest_problem_set(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.problem_ids = ["P1001"]
+    contest.problem_layout = [ContestProblemLayoutItem(problem_id="P1001", problem_key="A")]
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-ACM-INSIDE",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=10),
+            judged_at=start_at + timedelta(minutes=10),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ACM-OUTSIDE",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="Complete Graph Edges",
+            problem_type="blank",
+            status="accepted",
+            score=100,
+            created_at=start_at + timedelta(minutes=15),
+            judged_at=start_at + timedelta(minutes=15),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    alice = next(row for row in response.json() if row["user_id"] == "u-student")
+
+    assert alice["solved"] == 0
+    assert alice["penalty"] == 0
+    assert "P1001" in alice["problems"]
+    assert "P1002" not in alice["problems"]
+
+
+def test_acm_standings_use_submit_time_for_penalty_and_first_blood(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = False
+    store.update_contest(contest)
+
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+
+    store.add_submission(
+        _contest_submission(
+            "S-ACM-DELAYED-ALICE-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=8),
+            judged_at=start_at + timedelta(minutes=80),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ACM-DELAYED-ALICE-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=18),
+            judged_at=start_at + timedelta(minutes=90),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ACM-DELAYED-COACH-AC",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=20),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/standings")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    alice = next(row for row in body if row["user_id"] == "u-student")
+    coach_row = next(row for row in body if row["user_id"] == "u-coach")
+
+    assert alice["penalty"] == 38
+    assert alice["problems"]["P1001"]["penalty_minutes"] == 38
+    assert alice["problems"]["P1001"]["first_blood"] is True
+    assert coach_row["problems"]["P1001"]["first_blood"] is False
+
+
 def test_acm_standings_hide_submissions_after_freeze(client: TestClient, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
