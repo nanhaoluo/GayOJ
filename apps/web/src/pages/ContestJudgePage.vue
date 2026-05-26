@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bell, RefreshCw, Send } from 'lucide-vue-next';
+import { ArrowLeft, Bell, Printer, RefreshCw, Send } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -18,6 +18,7 @@ const publishing = ref(false);
 const pendingClarifications = computed(() => data.value?.clarifications.filter((item) => !item.answer) ?? []);
 const repliedClarifications = computed(() => data.value?.clarifications.filter((item) => item.answer) ?? []);
 const pendingBalloons = computed(() => data.value?.balloons.filter((item) => !item.released) ?? []);
+const pendingPrintJobs = computed(() => data.value?.print_jobs.filter((item) => item.status === 'pending') ?? []);
 const canPublishAnnouncements = computed(() => {
   const permissions = authState.user?.permissions ?? [];
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
@@ -101,9 +102,9 @@ onMounted(load);
             <span>{{ data.balloons.length }} 条比赛记录</span>
           </article>
           <article class="monitor-stat-card">
-            <small>打印单</small>
-            <strong>{{ data.print_jobs.filter((item) => item.status === 'pending').length }}</strong>
-            <span>{{ data.print_jobs.length }} 条打印请求</span>
+            <small>打印</small>
+            <strong>{{ pendingPrintJobs.length }}</strong>
+            <span>{{ data.print_jobs.length }} 条打印申请</span>
           </article>
         </section>
 
@@ -223,19 +224,22 @@ onMounted(load);
           <article class="monitor-panel">
             <div class="monitor-panel-head">
               <div>
-                <h2>打印单</h2>
-                <p>只展示当前比赛代码打印请求。</p>
+                <h2>代码打印</h2>
+                <p>只展示当前比赛的打印申请。</p>
               </div>
+              <button class="secondary-action compact" type="button" @click="router.push(`/contests/${route.params.id}/print`)">
+                <Printer :size="14" />打印台
+              </button>
             </div>
             <div class="monitor-list">
-              <div v-for="job in data.print_jobs" :key="job.id" class="monitor-list-row compact">
+              <div v-for="item in data.print_jobs" :key="item.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ job.problem_key || job.problem_id }} · {{ job.user_display_name || job.user_id }}</strong>
-                  <span>{{ job.source_kind === 'submission' ? '提交源码' : '请求源码' }} · {{ job.language || '未知语言' }} · {{ formatDate(job.requested_at) }}</span>
+                  <strong>{{ item.problem_key || item.problem_id }} · {{ item.user_display_name || item.user_id }}</strong>
+                  <span>{{ item.line_count }} 行 · {{ item.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ formatDate(item.requested_at) }}</span>
                 </div>
-                <StatusBadge :status="job.status" />
+                <StatusBadge :status="item.status === 'pending' ? 'pending' : 'completed'" />
               </div>
-              <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印单。</p>
+              <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印申请。</p>
             </div>
           </article>
         </section>
