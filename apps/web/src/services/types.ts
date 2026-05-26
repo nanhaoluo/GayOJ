@@ -283,6 +283,8 @@ export interface ContestRejudgeResponse extends RejudgeBatchResponse {
   rejudge_reason: string;
 }
 
+export type ContestAccessMode = 'open' | 'password' | 'invite' | 'team' | 'manual';
+
 export interface Contest {
   id: string;
   title: string;
@@ -293,6 +295,10 @@ export interface Contest {
   problem_layout: ContestProblemLayoutItem[];
   status: 'scheduled' | 'running' | 'ended';
   visibility: 'public' | 'private';
+  access_mode: ContestAccessMode;
+  team_ids: string[];
+  participant_user_ids: string[];
+  access_unlocked_user_ids: string[];
   frozen: boolean;
   freeze_disabled: boolean;
   frozen_at: string | null;
@@ -303,6 +309,8 @@ export interface Contest {
   rejudge_at: string | null;
   rejudge_by: string | null;
   rejudge_reason: string;
+  access_unlocked: boolean;
+  participant_count: number;
   problems: ProblemSummary[];
 }
 
@@ -320,6 +328,17 @@ export interface ContestFormPayload {
   problem_ids: string[];
   problem_layout: ContestProblemLayoutItem[];
   visibility: 'public' | 'private';
+  access_mode: ContestAccessMode;
+  access_code?: string;
+  team_ids: string[];
+  participant_user_ids: string[];
+}
+
+export interface ContestAccessResponse {
+  contest_id: string;
+  access_mode: ContestAccessMode;
+  access_unlocked: boolean;
+  message: string;
 }
 
 export interface ContestProblemView {

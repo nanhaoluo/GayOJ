@@ -52,6 +52,10 @@ const contestForm = reactive<ContestFormPayload>({
   problem_ids: [],
   problem_layout: [],
   visibility: 'public',
+  access_mode: 'open',
+  access_code: '',
+  team_ids: [],
+  participant_user_ids: [],
 });
 
 const canManageContests = computed(() => Boolean(authState.user?.permissions.includes('contest:manage')));
@@ -70,6 +74,17 @@ const isEditing = computed(() => Boolean(editingContestId.value));
 
 const ruleOptions: ContestRule[] = ['ACM', 'OI', 'IOI', 'CF'];
 const visibilityOptions: Array<ContestFormPayload['visibility']> = ['public', 'private'];
+const accessModeOptions: Array<{ value: ContestFormPayload['access_mode']; label: string }> = [
+  { value: 'open', label: '开放' },
+  { value: 'password', label: '口令' },
+  { value: 'invite', label: '邀请码' },
+  { value: 'team', label: '队伍/班级' },
+  { value: 'manual', label: '白名单' },
+];
+
+const needsAccessCode = computed(() => contestForm.access_mode === 'password' || contestForm.access_mode === 'invite');
+const needsTeamIds = computed(() => contestForm.access_mode === 'team');
+const needsParticipantIds = computed(() => contestForm.access_mode === 'manual');
 
 function defaultLayoutItem(problemId: string, index: number): ContestProblemLayoutItem {
   return {
@@ -103,6 +118,28 @@ function normalizeLayout(problemIds: string[], layout: ContestProblemLayoutItem[
   });
 }
 
+function splitIdText(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .replace(/，/g, ',')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function joinIdList(value: string[]): string {
+  return value.join(', ');
+}
+
+function accessModeLabel(contest: Contest): string {
+  const option = accessModeOptions.find((item) => item.value === contest.access_mode);
+  return option?.label ?? contest.access_mode;
+}
+
 function resetForm() {
   editingContestId.value = '';
   contestForm.title = '';
@@ -112,6 +149,10 @@ function resetForm() {
   contestForm.problem_ids = [];
   contestForm.problem_layout = [];
   contestForm.visibility = 'public';
+  contestForm.access_mode = 'open';
+  contestForm.access_code = '';
+  contestForm.team_ids = [];
+  contestForm.participant_user_ids = [];
   problemFilter.value = '';
 }
 
@@ -129,6 +170,10 @@ function openEditContest(contest: Contest) {
   contestForm.problem_ids = [...contest.problem_ids];
   contestForm.problem_layout = normalizeLayout(contest.problem_ids, contest.problem_layout);
   contestForm.visibility = contest.visibility;
+  contestForm.access_mode = contest.access_mode;
+  contestForm.access_code = '';
+  contestForm.team_ids = [...contest.team_ids];
+  contestForm.participant_user_ids = [...contest.participant_user_ids];
   problemFilter.value = '';
   editorOpen.value = true;
 }
@@ -188,7 +233,7 @@ function toggleAllowedLanguage(problemId: string, language: CompilerLanguage['co
 }
 
 function buildPayload(): ContestFormPayload {
-  return {
+  const payload: ContestFormPayload = {
     title: contestForm.title.trim(),
     rule: contestForm.rule,
     start_at: new Date(contestForm.start_at).toISOString(),
@@ -200,7 +245,15 @@ function buildPayload(): ContestFormPayload {
       allowed_languages: [...item.allowed_languages],
     })),
     visibility: contestForm.visibility,
+    access_mode: contestForm.access_mode,
+    team_ids: needsTeamIds.value ? [...contestForm.team_ids] : [],
+    participant_user_ids: needsParticipantIds.value ? [...contestForm.participant_user_ids] : [],
   };
+  const accessCode = contestForm.access_code?.trim();
+  if (needsAccessCode.value && accessCode) {
+    payload.access_code = accessCode;
+  }
+  return payload;
 }
 
 async function load() {
@@ -348,6 +401,8 @@ onMounted(load);
         <span>{{ contest.problem_ids.length }} 题</span>
         <div class="contest-status-stack">
           <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
+          <small>{{ contest.visibility === 'public' ? '公开' : '私有' }} · {{ accessModeLabel(contest) }}</small>
+          <small v-if="contest.participant_count">{{ contest.participant_count }} 人可进入</small>
           <small v-if="contest.freeze_active">已封榜</small>
           <small v-if="rejudgeMeta(contest)">{{ rejudgeMeta(contest) }}</small>
         </div>
@@ -430,6 +485,46 @@ onMounted(load);
               </option>
             </select>
           </label>
+          <label>
+            访问模式
+            <select v-model="contestForm.access_mode">
+              <option v-for="mode in accessModeOptions" :key="mode.value" :value="mode.value">{{ mode.label }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div v-if="contestForm.access_mode !== 'open'" class="field-block contest-access-editor">
+          <label v-if="needsAccessCode">
+            {{ contestForm.access_mode === 'password' ? '访问口令' : '邀请码' }}
+            <input
+              v-model="contestForm.access_code"
+              :required="!isEditing"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="isEditing ? '留空则沿用当前口令' : '输入访问凭据'"
+            />
+          </label>
+          <label v-if="needsTeamIds">
+            队伍/班级 ID
+            <input
+              :value="joinIdList(contestForm.team_ids)"
+              required
+              placeholder="T1001, T2001"
+              @input="contestForm.team_ids = splitIdText(($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label v-if="needsParticipantIds">
+            参赛用户 ID
+            <input
+              :value="joinIdList(contestForm.participant_user_ids)"
+              required
+              placeholder="u-student, u-coach"
+              @input="contestForm.participant_user_ids = splitIdText(($event.target as HTMLInputElement).value)"
+            />
+          </label>
+        </div>
+
+        <div class="form-grid two">
           <label>题目搜索<input v-model="problemFilter" placeholder="P1001 / 标签 / 标题" /></label>
         </div>
 
