@@ -1108,7 +1108,13 @@ class Store:
                 changed = True
                 continue
             source_kind = item.get("source_kind") if item.get("source_kind") in {"submission", "request"} else "request"
-            status = item.get("status") if item.get("status") in {"pending", "printed", "cancelled"} else "pending"
+            job_status = item.get("status") if item.get("status") in {"pending", "printed", "cancelled"} else "pending"
+            try:
+                line_count = max(0, int(item.get("line_count", 0) or 0))
+            except (TypeError, ValueError):
+                line_count = 0
+            if line_count == 0:
+                line_count = len(source_code.splitlines())
             normalized_item = {
                 "id": job_id,
                 "contest_id": contest_id,
@@ -1121,15 +1127,13 @@ class Store:
                 "language": str(item.get("language") or "").strip() or None,
                 "source_kind": source_kind,
                 "source_code": source_code,
-                "status": status,
-                "line_count": max(0, int(item.get("line_count", 0) or 0)),
+                "status": job_status,
+                "line_count": line_count,
                 "requested_at": item.get("requested_at") or now_iso,
                 "printed_at": item.get("printed_at"),
                 "printed_by": str(item.get("printed_by") or "").strip() or None,
                 "note": str(item.get("note") or "").strip(),
             }
-            if normalized_item["line_count"] == 0:
-                normalized_item["line_count"] = len(str(source_code).splitlines())
             if normalized_item != item:
                 changed = True
             normalized.append(normalized_item)

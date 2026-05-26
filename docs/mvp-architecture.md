@@ -26,6 +26,8 @@
 - 离线训练包包含授权客观题规则，并使用 HMAC 签名防篡改。
 - 离线 CLI 可保存客观题练习结果，并通过 `/api/v1/offline-results/sync` 恢复联网后同步。
 - 运行时存储使用 MySQL 主存储 + SQLite 兜底；`apps/api/storage/dev-db.json` 只作为兼容种子快照。
+- 比赛题面、提交、Clarification、打印和重测都通过比赛资源归属校验；普通题目提交入口不能附带 `contest_id`。
+- 比赛代码打印只读取已提交源码或本次请求源码，保存为打印工单，不执行用户代码；列表响应不返回源码，源码读取和状态更新写审计日志。
 
 ## P1-01 仓储层
 
@@ -227,6 +229,13 @@
 - 重测会清空旧测试点详情和 `judged_at`，生成新的 `judge_queue_jobs` 记录，写入审计日志，并通知提交者。
 - Web 提交列表对具备 `submission:override` 权限的用户显示单条和批量重测入口；普通选手只看到自己的提交记录。
 - API 与 Web 仅重置状态并入队，不编译、不运行、不本地判题；客观题 `judge_config` 隔离和离线 CLI 客观题边界不变。
+
+## P6-05 Clarification 与打印边界
+
+- `POST/GET /api/v1/contests/{contest_id}/clarifications` 和 `PATCH /api/v1/clarifications/{clarification_id}` 均先校验比赛可访问性和题目归属，私有回复只对提问者和裁判/管理员可见，公开/广播回复会隐藏其他选手身份。
+- Clarification 创建和回复审计记录包含 `contest_id`、`problem_id`、`question_user_id`、`public` 和 `broadcast`，便于正式赛复核。
+- `POST /api/v1/contests/{contest_id}/print` 创建打印工单，`GET /print` 返回无源码摘要，`GET/PATCH /print/{print_job_id}` 分别用于授权读取源码和标记打印状态。
+- 比赛重测 `POST /api/v1/contests/{contest_id}/rejudge` 支持按提交、题目和状态过滤，跨比赛提交会被跳过并记录原因，单条重排和比赛汇总分别写审计。
 
 ## P5-01 客观题规则引擎单测
 

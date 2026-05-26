@@ -61,9 +61,9 @@ from .models import (
     ContestUnfreezeRequest,
     ContestUpdate,
     ContestProblemLayoutItem,
-    ContestProblemView,
     ContestPrintJob,
     ContestPrintJobSummary,
+    ContestProblemView,
     ContestSubmissionView,
     ContestTeamSubmissionSummary,
     ContestSubmissionStatusResponse,
@@ -892,7 +892,11 @@ def ensure_contest_submission_owner(user: User, contest: Contest, submission: Su
 
 
 def can_process_contest_print(user: User) -> bool:
-    return bool(role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor"))
+    return bool(
+        role_has_permission(user.role, "submission:read:all")
+        or role_has_permission(user.role, "contest:manage")
+        or role_has_permission(user.role, "judge:monitor")
+    )
 
 
 def ensure_contest_print_job_access(user: User, contest: Contest, print_job: ContestPrintJob) -> None:
@@ -1217,8 +1221,7 @@ def can_view_contest_submission_source(user: User, submission: Submission) -> bo
 
 
 def contest_print_summary(print_job: ContestPrintJob) -> ContestPrintJobSummary:
-    payload = print_job.model_dump(exclude={"source_code"})
-    return ContestPrintJobSummary(**payload)
+    return ContestPrintJobSummary(**print_job.model_dump(exclude={"source_code"}))
 
 
 def contest_print_response(print_job: ContestPrintJob) -> ContestPrintResponse:
@@ -2877,12 +2880,13 @@ def rejudge_contest(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if not contest_has_ended(contest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest rejudge is only available after the contest ends")
+
     if payload.problem_id:
         contest_problem_lookup(contest, store, payload.problem_id, user)
 
+    candidates: list[Submission] = []
     requeued: list[Submission] = []
     skipped: list[RejudgeSkipped] = []
-    candidates: list[Submission] = []
     seen: set[str] = set()
     contest_problem_ids = set(contest.problem_ids)
     statuses = set(payload.statuses)
@@ -2893,7 +2897,7 @@ def rejudge_contest(
         seen.add(submission.id)
         candidates.append(submission)
 
-    def candidate_matches_filters(submission: Submission) -> str | None:
+    def candidate_filter_error(submission: Submission) -> str | None:
         if submission.contest_id != contest.id:
             return "Submission does not belong to this contest"
         if submission.problem_id not in contest_problem_ids:
@@ -2910,20 +2914,28 @@ def rejudge_contest(
             if not submission:
                 skipped.append(RejudgeSkipped(submission_id=submission_id, reason="Submission not found"))
                 continue
-            reason = candidate_matches_filters(submission)
+            reason = candidate_filter_error(submission)
             if reason:
                 skipped.append(RejudgeSkipped(submission_id=submission.id, reason=reason))
                 continue
             append_candidate(submission)
     else:
         for submission in store.list_submissions():
-            if candidate_matches_filters(submission):
+            if candidate_filter_error(submission):
                 continue
             append_candidate(submission)
 
     for submission in candidates:
         try:
-            requeued.append(requeue_submission_for_rejudge(store, submission, user, reason=payload.reason, action="contest.submission.rejudge"))
+            requeued.append(
+                requeue_submission_for_rejudge(
+                    store,
+                    submission,
+                    user,
+                    reason=payload.reason,
+                    action="contest.submission.rejudge",
+                )
+            )
         except ValueError as exc:
             skipped.append(RejudgeSkipped(submission_id=submission.id, reason=str(exc)))
         except QueueBackendUnavailable as exc:
@@ -3374,7 +3386,7 @@ def print_contest_source(
     response = contest_print_response(store.add_contest_print_job(print_job))
     store.add_audit(
         user.id,
-        "contest.print",
+        "contest.print.request",
         f"contest_print:{response.id}",
         {
             "contest_id": contest.id,

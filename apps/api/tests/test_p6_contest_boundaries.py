@@ -842,13 +842,31 @@ def test_contest_print_requires_problem_scope_and_writes_audit(client: TestClien
     assert payload["source_kind"] == "request"
     assert payload["problem_id"] == "P1001"
 
-    logs, total = store.list_audit_logs(action="contest.print")
+    detail = client.get(f"/api/v1/contests/C1001/print/{payload['id']}", headers=auth_headers("judge"))
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["source_code"] == payload["source_code"]
+
+    updated = client.patch(
+        f"/api/v1/contests/C1001/print/{payload['id']}",
+        headers=auth_headers("judge"),
+        json={"status": "printed"},
+    )
+    assert updated.status_code == 200, updated.text
+
+    logs, total = store.list_audit_logs(action="contest.print.request")
     assert total == 1
     metadata = logs[0].metadata
     assert metadata["problem_id"] == "P1001"
     assert metadata["source_kind"] == "request"
     assert "source_sha256" in metadata
     assert "source_code" not in metadata
+
+    source_logs, source_total = store.list_audit_logs(action="contest.print.source.read")
+    update_logs, update_total = store.list_audit_logs(action="contest.print.update")
+    assert source_total == 1
+    assert source_logs[0].metadata["problem_id"] == "P1001"
+    assert update_total == 1
+    assert update_logs[0].metadata["status"] == "printed"
 
 
 def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient, auth_headers, store) -> None:
@@ -1068,6 +1086,8 @@ def test_contest_rejudge_filters_stay_inside_contest_and_problem_scope(client: T
     assert total == 1
     assert logs[0].metadata["problem_id"] == "P1001"
     assert logs[0].metadata["statuses"] == ["accepted"]
+    assert logs[0].metadata["requeued_count"] == 1
+    assert logs[0].metadata["skipped_count"] == 4
 
 
 def test_contest_rejudge_clears_stale_balloon_for_requeued_submission(client: TestClient, auth_headers, store) -> None:

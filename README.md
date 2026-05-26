@@ -588,6 +588,21 @@ for problems present in the current signed pack. `sync-results` forwards the
 recorded source to the API; the API rejects results whose source problem set is
 not authorized for that problem and returns a machine-readable `reason_code`.
 
+## P6-05 Contest Clarification and print boundaries
+
+Contest Clarification now keeps private, public, and broadcast replies scoped to
+the contest and optional contest problem. Student lists hide private questions
+from other contestants, while judge views include all records. Create/reply
+actions write audit metadata with contest id, problem id, question owner, and
+public/broadcast state.
+
+Contest printing is stored as contest print jobs. Students can request printing
+only from their own contest submissions; authorized judges/admins may print
+source from a submission or from the current request body, then read the source
+and mark the job as printed. Print-job lists omit `source_code`, and audits store
+only source hashes and metadata. Normal problem submissions reject `contest_id`,
+so contest scoring must go through `/api/v1/contests/{contest_id}/submit`.
+
 ## OpenAPI export
 
 Export the current FastAPI schema to `api/openapi.json`:
