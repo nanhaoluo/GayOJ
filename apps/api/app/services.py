@@ -14,12 +14,15 @@ from .models import (
     AssignmentAnalytics,
     AssignmentProgressState,
     AssignmentStudentStatus,
+    ActivityHeatmapCell,
     CoachAnalyticsResponse,
     ContestBalloon,
     Contest,
     ObjectiveItemResult,
     Problem,
+    ProblemTypeMastery,
     ProblemSet,
+    StudentAbilityProfile,
     Submission,
     TagMastery,
     Team,
@@ -54,6 +57,121 @@ def assignment_student_state(
     if solved_ids:
         return "overdue" if now_value > due_at else "in_progress"
     return "overdue" if now_value > due_at else "not_started"
+
+
+def submission_is_full_score(submission: Submission) -> bool:
+    return submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score
+
+
+def mastery_accuracy(accepted: int, attempts: int) -> float:
+    return accepted / attempts if attempts else 0.0
+
+
+def build_activity_heatmap(submissions: list[Submission]) -> list[ActivityHeatmapCell]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        submitted_at = ensure_utc_datetime(submission.judged_at) or ensure_utc_datetime(submission.created_at)
+        if submitted_at is None:
+            continue
+        key = submitted_at.date().isoformat()
+        bucket = buckets.setdefault(key, {"attempts": 0, "accepted": 0, "students": set()})
+        bucket["attempts"] += 1
+        bucket["students"].add(submission.user_id)
+        if submission_is_full_score(submission):
+            bucket["accepted"] += 1
+    return [
+        ActivityHeatmapCell(
+            date=date,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            active_students=len(value["students"]),
+        )
+        for date, value in sorted(buckets.items())
+    ]
+
+
+def build_tag_mastery(
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> list[TagMastery]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        problem = problem_by_id.get(submission.problem_id)
+        if not problem:
+            continue
+        accepted = submission_is_full_score(submission)
+        for tag in problem.tags:
+            bucket = buckets.setdefault(tag, {"attempts": 0, "accepted": 0, "solved": set(), "students": set()})
+            bucket["attempts"] += 1
+            bucket["students"].add(submission.user_id)
+            if accepted:
+                bucket["accepted"] += 1
+                bucket["solved"].add(submission.problem_id)
+    return [
+        TagMastery(
+            tag=tag,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            solved=len(value["solved"]),
+            student_count=len(value["students"]),
+            accuracy=mastery_accuracy(value["accepted"], value["attempts"]),
+        )
+        for tag, value in sorted(buckets.items(), key=lambda item: (-item[1]["attempts"], item[0]))
+    ]
+
+
+def build_type_mastery(
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> list[ProblemTypeMastery]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        problem = problem_by_id.get(submission.problem_id)
+        problem_type = problem.type if problem else submission.problem_type
+        bucket = buckets.setdefault(str(problem_type), {"attempts": 0, "accepted": 0, "solved": set()})
+        bucket["attempts"] += 1
+        if submission_is_full_score(submission):
+            bucket["accepted"] += 1
+            bucket["solved"].add(submission.problem_id)
+    return [
+        ProblemTypeMastery(
+            problem_type=problem_type,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            solved=len(value["solved"]),
+            accuracy=mastery_accuracy(value["accepted"], value["attempts"]),
+        )
+        for problem_type, value in sorted(buckets.items())
+    ]
+
+
+def build_student_ability_profile(
+    student: User,
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> StudentAbilityProfile:
+    sorted_submissions = sorted(
+        submissions,
+        key=lambda item: ensure_utc_datetime(item.judged_at) or ensure_utc_datetime(item.created_at) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    accepted_submissions = [submission for submission in sorted_submissions if submission_is_full_score(submission)]
+    last_submission_at = None
+    if sorted_submissions:
+        last = sorted_submissions[-1]
+        last_submission_at = ensure_utc_datetime(last.judged_at) or ensure_utc_datetime(last.created_at)
+    return StudentAbilityProfile(
+        user_id=student.id,
+        display_name=student.display_name,
+        school=student.school,
+        attempts=len(sorted_submissions),
+        accepted=len(accepted_submissions),
+        solved=len({submission.problem_id for submission in accepted_submissions}),
+        accuracy=mastery_accuracy(len(accepted_submissions), len(sorted_submissions)),
+        last_submission_at=last_submission_at,
+        tag_mastery=build_tag_mastery(sorted_submissions, problem_by_id),
+        type_mastery=build_type_mastery(sorted_submissions, problem_by_id),
+        heatmap=build_activity_heatmap(sorted_submissions),
+    )
 
 
 def build_coach_analytics(
@@ -102,25 +220,14 @@ def build_coach_analytics(
 
     solved_by_student: dict[str, set[str]] = {}
     latest_submission_at: dict[str, datetime] = {}
-    tag_counts: dict[str, dict[str, int]] = {}
     for submission in scoped_submissions:
         judged_at = ensure_utc_datetime(submission.judged_at) or ensure_utc_datetime(submission.created_at)
         if judged_at is not None:
             previous = latest_submission_at.get(submission.user_id)
             if previous is None or judged_at > previous:
                 latest_submission_at[submission.user_id] = judged_at
-        if submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score:
+        if submission_is_full_score(submission):
             solved_by_student.setdefault(submission.user_id, set()).add(submission.problem_id)
-            problem = problem_by_id.get(submission.problem_id)
-            if problem:
-                for tag in problem.tags:
-                    bucket = tag_counts.setdefault(tag, {"attempts": 0, "accepted": 0})
-                    bucket["accepted"] += 1
-        problem = problem_by_id.get(submission.problem_id)
-        if problem:
-            for tag in problem.tags:
-                bucket = tag_counts.setdefault(tag, {"attempts": 0, "accepted": 0})
-                bucket["attempts"] += 1
 
     assignment_cards: list[AssignmentAnalytics] = []
     for assignment in sorted(scoped_assignments, key=lambda item: (ensure_utc_datetime(item.due_at) or current, item.id)):
@@ -191,9 +298,16 @@ def build_coach_analytics(
         active_students=len({submission.user_id for submission in scoped_submissions}),
         assignments=assignment_cards,
         teams=team_scope,
-        tag_mastery=[
-            TagMastery(tag=tag, attempts=value["attempts"], accepted=value["accepted"])
-            for tag, value in sorted(tag_counts.items(), key=lambda item: (-item[1]["attempts"], item[0]))
+        tag_mastery=build_tag_mastery(scoped_submissions, problem_by_id),
+        type_mastery=build_type_mastery(scoped_submissions, problem_by_id),
+        activity_heatmap=build_activity_heatmap(scoped_submissions),
+        student_profiles=[
+            build_student_ability_profile(
+                student,
+                [submission for submission in scoped_submissions if submission.user_id == student.id],
+                problem_by_id,
+            )
+            for student in sorted(student_scope, key=lambda item: (item.display_name, item.id))
         ],
     )
 

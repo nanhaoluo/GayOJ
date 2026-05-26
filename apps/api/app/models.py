@@ -1177,6 +1177,38 @@ class TagMastery(BaseModel):
     tag: str
     attempts: int
     accepted: int
+    solved: int = 0
+    student_count: int = 0
+    accuracy: float = 0.0
+
+
+class ProblemTypeMastery(BaseModel):
+    problem_type: ProblemType
+    attempts: int
+    accepted: int
+    solved: int
+    accuracy: float = 0.0
+
+
+class ActivityHeatmapCell(BaseModel):
+    date: str
+    attempts: int
+    accepted: int
+    active_students: int
+
+
+class StudentAbilityProfile(BaseModel):
+    user_id: str
+    display_name: str
+    school: str
+    attempts: int
+    accepted: int
+    solved: int
+    accuracy: float
+    last_submission_at: datetime | None = None
+    tag_mastery: list[TagMastery] = Field(default_factory=list)
+    type_mastery: list[ProblemTypeMastery] = Field(default_factory=list)
+    heatmap: list[ActivityHeatmapCell] = Field(default_factory=list)
 
 
 class CoachAnalyticsResponse(BaseModel):
@@ -1185,6 +1217,9 @@ class CoachAnalyticsResponse(BaseModel):
     assignments: list[AssignmentAnalytics]
     teams: list[Team]
     tag_mastery: list[TagMastery]
+    type_mastery: list[ProblemTypeMastery] = Field(default_factory=list)
+    activity_heatmap: list[ActivityHeatmapCell] = Field(default_factory=list)
+    student_profiles: list[StudentAbilityProfile] = Field(default_factory=list)
 
 
 class Discussion(BaseModel):
