@@ -919,10 +919,13 @@ def ensure_contest_access(user: User, contest: Contest, store: Repository) -> No
         return
     if user.role != "student":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    if contest.visibility != "public":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if contest.participation_mode == "open":
+        if contest.visibility != "public":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        return
     if not contest_user_is_participant(user, contest, store):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Contest registration required")
+        detail = "Contest registration required" if contest.visibility == "public" else "Permission denied"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def ensure_contest_resource_owner(user: User, contest: Contest, store: Repository, *, include_students: bool = True) -> None:
@@ -2944,9 +2947,10 @@ def get_contest(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if not user and contest.visibility != "public":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if user:
+    if not user:
+        if contest.visibility != "public":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    elif contest.visibility != "public":
         ensure_contest_access(user, contest, store)
     return contest_detail(contest, store, viewer=user)
 

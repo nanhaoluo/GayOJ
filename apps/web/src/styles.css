@@ -2329,6 +2329,12 @@ pre {
   width: 100%;
 }
 
+.contest-form select[multiple] {
+  height: auto;
+  min-height: 112px;
+  padding: 8px 12px;
+}
+
 .contest-home-main,
 .contest-home-side {
   display: grid;
