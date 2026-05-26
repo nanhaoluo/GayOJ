@@ -845,6 +845,12 @@ def contest_summary_submissions(contest: Contest, store: Repository, *, full_boa
     ]
 
 
+def contest_problem_summary_submissions(contest: Contest, store: Repository, *, full_board: bool = False) -> list[Submission]:
+    submissions = contest_summary_submissions(contest, store, full_board=full_board)
+    contest_problem_ids = set(contest.problem_ids)
+    return [submission for submission in submissions if submission.problem_id in contest_problem_ids]
+
+
 def contest_team_ids_for_user(store: Repository, user_id: str) -> list[str]:
     return [team.id for team in store.list_teams() if user_id in team.member_ids]
 
@@ -920,7 +926,7 @@ def contest_detail(
     viewer: User | None = None,
 ) -> ContestDetail:
     problems = {p.id: p for p in store.list_problems()}
-    submissions = contest_summary_submissions(contest, store, full_board=full_board)
+    submissions = contest_problem_summary_submissions(contest, store, full_board=full_board)
     participant_ids = contest_participant_user_ids(contest, store)
     payload = contest.model_dump()
     payload["status"] = contest_now_status(contest)
