@@ -8,7 +8,7 @@ import json
 import re
 import zipfile
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 from xml.sax.saxutils import escape as xml_escape
 
@@ -27,6 +27,11 @@ from .models import (
     ContestBalloon,
     Contest,
     CoachReportFormat,
+    Discussion,
+    DiscussionListResponse,
+    Notification,
+    NotificationStreamEvent,
+    NotificationStreamItem,
     ObjectiveItemResult,
     Problem,
     ProblemTypeMastery,
@@ -573,6 +578,72 @@ def build_coach_report_export(
 def coach_report_filename(report_format: CoachReportFormat, generated_at: datetime | None = None) -> str:
     stamp = (ensure_utc_datetime(generated_at) or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
     return f"coach-report-{stamp}.{report_format}"
+
+
+def discussion_matches_query(discussion: Discussion, query: str) -> bool:
+    needle = query.strip().lower()
+    if not needle:
+        return True
+    haystack = " ".join(
+        [
+            discussion.title,
+            discussion.content,
+            discussion.author_name,
+            discussion.target_id or "",
+            discussion.type,
+        ]
+    ).lower()
+    return needle in haystack
+
+
+def paginate_discussions(
+    discussions: list[Discussion],
+    *,
+    limit: int,
+    offset: int,
+) -> DiscussionListResponse:
+    ordered = sorted(
+        discussions,
+        key=lambda item: (item.pinned, ensure_utc_datetime(item.updated_at) or datetime.min.replace(tzinfo=timezone.utc), item.id),
+        reverse=True,
+    )
+    total = len(ordered)
+    return DiscussionListResponse(
+        items=ordered[offset : offset + limit],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def notification_stream_event(
+    notifications: list[Notification],
+    *,
+    event: Literal["snapshot", "update", "heartbeat"] = "snapshot",
+    generated_at: datetime | None = None,
+) -> NotificationStreamEvent:
+    ordered = sorted(
+        notifications,
+        key=lambda item: ensure_utc_datetime(item.created_at) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    latest = ordered[0] if ordered else None
+    return NotificationStreamEvent(
+        event=event,
+        unread_count=sum(1 for item in ordered if not item.is_read),
+        latest=(
+            NotificationStreamItem(
+                id=latest.id,
+                title=latest.title,
+                type=latest.type,
+                is_read=latest.is_read,
+                created_at=latest.created_at,
+            )
+            if latest
+            else None
+        ),
+        generated_at=ensure_utc_datetime(generated_at) or datetime.now(timezone.utc),
+    )
 
 
 def coach_scope(
