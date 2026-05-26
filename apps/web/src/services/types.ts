@@ -323,6 +323,20 @@ export interface StandingRow {
   problems: Record<string, StandingProblemResult>;
 }
 
+export interface ContestBoardResponse {
+  contest: Contest;
+  board_kind: 'external' | 'live';
+  standings: StandingRow[];
+  generated_at: string;
+}
+
+export interface ContestRollingResponse {
+  contest: Contest;
+  public_standings: StandingRow[];
+  final_standings: StandingRow[];
+  generated_at: string;
+}
+
 export interface JudgeNode {
   id: string;
   name: string;
