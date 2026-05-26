@@ -30,6 +30,8 @@ SubmissionStatus = Literal[
 JudgeNodeStatus = Literal["online", "offline", "draining"]
 JudgeQueueBackend = Literal["json", "redis", "kafka"]
 JudgeQueueJobStatus = Literal["pending", "leased", "completed", "failed"]
+ContestPrintSourceKind = Literal["submission", "request"]
+ContestPrintStatus = Literal["pending", "printed", "cancelled"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
 OfflineAnswerVisibility = Literal["full", "none"]
@@ -449,14 +451,16 @@ class ProblemVersion(BaseModel):
 
 
 class CodeSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     language: LanguageCode
     source_code: str = Field(min_length=1, max_length=65536)
-    contest_id: str | None = None
 
 
 class ObjectiveSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     answers: dict[str, Any]
-    contest_id: str | None = None
 
 
 class ObjectiveItemResult(BaseModel):
@@ -836,17 +840,64 @@ class ContestPrintRequest(BaseModel):
     def require_source(self) -> "ContestPrintRequest":
         if not self.submission_id and not self.source_code:
             raise ValueError("Print request requires submission_id or source_code")
+        if self.submission_id and self.source_code:
+            raise ValueError("Print request must use submission_id or source_code, not both")
         return self
 
 
-class ContestPrintResponse(BaseModel):
+class ContestPrintJob(BaseModel):
+    id: str
     contest_id: str
     submission_id: str | None = None
+    user_id: str
+    user_display_name: str = ""
     problem_id: str | None = None
+    problem_key: str | None = None
+    problem_title: str | None = None
     language: str | None = None
-    source_kind: Literal["submission", "request"]
+    source_kind: ContestPrintSourceKind
     source_code: str
+    status: ContestPrintStatus = "pending"
     line_count: int = Field(ge=0)
+    requested_at: datetime
+    printed_at: datetime | None = None
+    printed_by: str | None = None
+    note: str = ""
+
+
+class ContestPrintJobSummary(BaseModel):
+    id: str
+    contest_id: str
+    submission_id: str | None = None
+    user_id: str
+    user_display_name: str = ""
+    problem_id: str | None = None
+    problem_key: str | None = None
+    problem_title: str | None = None
+    language: str | None = None
+    source_kind: ContestPrintSourceKind
+    status: ContestPrintStatus = "pending"
+    line_count: int = Field(ge=0)
+    requested_at: datetime
+    printed_at: datetime | None = None
+    printed_by: str | None = None
+    note: str = ""
+
+
+class ContestPrintResponse(ContestPrintJobSummary):
+    source_code: str
+
+
+class ContestPrintUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContestPrintStatus = "printed"
+    note: str = Field(default="", max_length=300)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_note(cls, value: str | None) -> str:
+        return str(value or "").strip()
 
 
 class ContestSubmitRequest(BaseModel):
@@ -1106,6 +1157,34 @@ class RejudgeBatchRequest(RejudgeRequest):
         if not self.submission_ids and not self.problem_id and not self.contest_id:
             raise ValueError("Batch rejudge requires submission_ids, problem_id, or contest_id")
         return self
+
+
+class ContestRejudgeRequest(RejudgeRequest):
+    submission_ids: list[str] = Field(default_factory=list, max_length=500)
+    problem_id: str | None = None
+    statuses: list[SubmissionStatus] = Field(default_factory=list)
+
+    @field_validator("submission_ids", "statuses", mode="before")
+    @classmethod
+    def normalize_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        result: list[str] = []
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in result:
+                result.append(text)
+        return result
+
+    @field_validator("problem_id", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class RejudgeSkipped(BaseModel):
@@ -1585,6 +1664,7 @@ class ContestJudgeMonitorResponse(BaseModel):
     clarifications: list[Clarification]
     announcements: list[ContestAnnouncement] = Field(default_factory=list)
     balloons: list[ContestBalloon] = Field(default_factory=list)
+    print_jobs: list[ContestPrintJobSummary] = Field(default_factory=list)
 
 
 class SystemConfig(BaseModel):
