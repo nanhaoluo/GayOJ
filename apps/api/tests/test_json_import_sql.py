@@ -61,6 +61,7 @@ def test_dev_db_export_generates_core_business_import_sql() -> None:
         "assignments",
         "discussions",
         "notifications",
+        "contest_announcements",
         "system_config",
     ]:
         assert f"INSERT INTO {table}" in sql or f"-- no rows for {table}" in sql

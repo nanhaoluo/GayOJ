@@ -280,6 +280,10 @@ a {
   gap: 12px;
 }
 
+.contest-monitor-summary-wide {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .monitor-stat-card,
 .monitor-panel {
   border: 1px solid var(--line);
@@ -318,6 +322,24 @@ a {
   display: grid;
   gap: 12px;
   padding: 16px;
+}
+
+.announcement-form {
+  display: grid;
+  gap: 10px;
+}
+
+.announcement-form input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: white;
+}
+
+.announcement-textarea {
+  min-height: 120px;
 }
 
 .monitor-panel-head {
@@ -1730,6 +1752,19 @@ pre {
   gap: 16px;
 }
 
+.contest-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contest-side-head span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .contest-home-toolbar {
   display: flex;
   align-items: flex-start;
@@ -1830,6 +1865,35 @@ pre {
 
 .contest-home-facts {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.contest-announcement-panel,
+.contest-announcement-list,
+.contest-home-info {
+  display: grid;
+  gap: 12px;
+}
+
+.contest-announcement-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.contest-announcement-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contest-announcement-card p,
+.contest-announcement-card small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .contest-home-fact {

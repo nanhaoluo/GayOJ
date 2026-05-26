@@ -20,6 +20,7 @@ SECTION_NAMES = [
     "submissions",
     "judge_queue_jobs",
     "contests",
+    "contest_announcements",
     "clarifications",
     "judge_nodes",
     "compiler_configs",
@@ -553,6 +554,23 @@ def clarification_rows(clarifications: list[dict[str, Any]]) -> list[dict[str, s
     return rows
 
 
+def contest_announcement_rows(announcements: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = []
+    for item in announcements:
+        rows.append(
+            {
+                "id": sql_literal(item.get("id", "")),
+                "contest_id": sql_literal(item.get("contest_id", "")),
+                "title": sql_literal(item.get("title", "")),
+                "content": sql_literal(item.get("content", "")),
+                "created_by": sql_literal(item.get("created_by", "")),
+                "created_by_name": sql_literal(item.get("created_by_name", "")),
+                "created_at": sql_time(item.get("created_at")),
+            }
+        )
+    return rows
+
+
 def judge_node_rows(nodes: list[dict[str, Any]]) -> list[dict[str, str]]:
     rows = []
     for node in nodes:
@@ -844,6 +862,14 @@ def generate_sql(data: dict[str, Any]) -> str:
             "contests",
             ["id", "title", "rule", "start_at", "end_at", "problem_ids", "status", "visibility"],
             contest_rows(contests),
+            ["id"],
+        )
+    )
+    lines.extend(
+        emit_upsert(
+            "contest_announcements",
+            ["id", "contest_id", "title", "content", "created_by", "created_by_name", "created_at"],
+            contest_announcement_rows(as_items(data, "contest_announcements")),
             ["id"],
         )
     )

@@ -45,6 +45,8 @@ from .models import (
     CompilerLanguage,
     CoachAnalyticsResponse,
     Contest,
+    ContestAnnouncement,
+    ContestAnnouncementCreate,
     ContestCreate,
     ContestDetail,
     ContestBalloon,
@@ -580,6 +582,13 @@ def add_notification(store: Repository, user_id: str, title: str, content: str, 
     )
 
 
+def contest_notification_targets(store: Repository, contest: Contest) -> list[User]:
+    if contest.visibility == "public":
+        return [user for user in store.list_users() if user.role == "student"]
+    owner_ids = contest_owners(store, contest)
+    return [user for user in store.list_users() if user.role == "student" and user.id in owner_ids]
+
+
 def enqueue_code_submission_job(
     store: Repository,
     submission: Submission,
@@ -858,6 +867,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
     submissions = [submission for submission in store.list_submissions() if submission.contest_id == contest.id]
     queue = contest_judge_queue_summary(contest, store)
     clarifications = [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest.id]
+    announcements = store.list_contest_announcements(contest.id)
     balloons: list[ContestBalloon] = []
     for balloon in store.list_contest_balloons(contest.id):
         submission = store.get_submission(str(balloon.get("submission_id") or ""))
@@ -882,6 +892,7 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
         last_submissions=[sanitized_submission(submission) for submission in submissions[:10]],
         judge_nodes=store.list_judge_nodes(),
         clarifications=clarifications,
+        announcements=announcements,
         balloons=balloons,
     )
 
@@ -2422,6 +2433,55 @@ def list_contest_clarifications(
     return [clarification_payload_for_user(c, user) for c in visible]
 
 
+@app.get("/api/v1/contests/{contest_id}/announcements", response_model=list[ContestAnnouncement])
+def list_contest_announcements(
+    contest_id: str,
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> list[ContestAnnouncement]:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not user and contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if user:
+        ensure_contest_access(user, contest, store)
+    return store.list_contest_announcements(contest_id)
+
+
+@app.post("/api/v1/contests/{contest_id}/announcements", response_model=ContestAnnouncement)
+def create_contest_announcement(
+    contest_id: str,
+    payload: ContestAnnouncementCreate,
+    user: User = Depends(get_current_user),
+    store: Repository = Depends(get_repository),
+) -> ContestAnnouncement:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    announcement = ContestAnnouncement(
+        id=f"CA{uuid4().hex[:8].upper()}",
+        contest_id=contest_id,
+        title=payload.title,
+        content=payload.content,
+        created_by=user.id,
+        created_by_name=user.display_name,
+        created_at=now(),
+    )
+    store.add_contest_announcement(announcement)
+    store.add_audit(
+        user.id,
+        "contest.announcement.create",
+        f"contest:{contest_id}",
+        {"announcement_id": announcement.id, "title": announcement.title},
+    )
+    for target in contest_notification_targets(store, contest):
+        add_notification(store, target.id, f"比赛公告：{announcement.title}", announcement.content, "contest")
+    return announcement
+
+
 @app.get("/api/v1/judge/clar/{contest_id}", response_model=list[Clarification])
 def list_judge_contest_clarifications(
     contest_id: str,
@@ -2461,8 +2521,8 @@ def reply_clarification(
     store.update_clarification(clarification)
     add_notification(store, clarification.user_id, "Clarification 已回复", payload.answer, "contest")
     if first_broadcast:
-        for target in store.list_users():
-            if target.id != clarification.user_id and target.role == "student":
+        for target in contest_notification_targets(store, contest):
+            if target.id != clarification.user_id:
                 add_notification(store, target.id, "比赛公告", payload.answer, "contest")
     store.add_audit(user.id, "clarification.reply", f"clarification:{clarification.id}", payload.model_dump())
     return clarification_payload_for_user(clarification, user)
@@ -2798,12 +2858,14 @@ def judge_monitor(
 @app.get("/api/v1/judge/monitor/{contest_id}", response_model=ContestJudgeMonitorResponse)
 def contest_judge_monitor(
     contest_id: str,
-    user: User = Depends(require_permissions("judge:monitor")),
+    user: User = Depends(get_current_user),
     store: Repository = Depends(get_repository),
 ) -> ContestJudgeMonitorResponse:
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "contest:manage")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     return contest_judge_monitor_payload(contest, store)
 
 

@@ -18,6 +18,7 @@ PROBLEM_TEST_DATA_MIGRATION = ROOT / "migrations" / "versions" / "0009_problem_t
 JUDGE_QUEUE_MIGRATION = ROOT / "migrations" / "versions" / "0010_judge_queue_jobs.sql"
 COMPILER_CONFIG_MIGRATION = ROOT / "migrations" / "versions" / "0011_compiler_configs.sql"
 PARTICIPANT_BOUNDARY_MIGRATION = ROOT / "migrations" / "versions" / "0012_participant_role_boundaries.sql"
+CONTEST_ANNOUNCEMENTS_MIGRATION = ROOT / "migrations" / "versions" / "0015_contest_announcements.sql"
 CHECK_SCRIPT = ROOT / "scripts" / "check-migrations.py"
 RUNNER = ROOT / "scripts" / "db-migrate.ps1"
 
@@ -233,6 +234,19 @@ def test_participant_role_boundary_migration_removes_non_student_grants() -> Non
     assert "admin + judge" in sql
     assert "insert into schema_migrations" in sql
     assert "0012" in sql
+
+
+def test_contest_announcements_migration_adds_table_and_indexes() -> None:
+    sql = CONTEST_ANNOUNCEMENTS_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "create table if not exists contest_announcements" in sql
+    assert "contest_id text not null references contests(id) on delete cascade" in sql
+    assert "title text not null" in sql
+    assert "content text not null" in sql
+    assert "created_by text not null references users(id)" in sql
+    assert "created_at timestamptz not null" in sql
+    assert "idx_contest_announcements_contest_created" in sql
+    assert "0015" in sql
 
 
 def test_migration_static_check_passes() -> None:

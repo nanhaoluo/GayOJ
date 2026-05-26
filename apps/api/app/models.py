@@ -630,6 +630,28 @@ class ClarificationReply(BaseModel):
         return self
 
 
+class ContestAnnouncement(BaseModel):
+    id: str
+    contest_id: str
+    title: str
+    content: str
+    created_by: str
+    created_by_name: str
+    created_at: datetime
+
+
+class ContestAnnouncementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("title", "content", mode="before")
+    @classmethod
+    def strip_announcement_text(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+
 class ContestFreezeRequest(BaseModel):
     reason: str = Field(default="", max_length=300)
 
@@ -1248,6 +1270,7 @@ class ContestJudgeMonitorResponse(BaseModel):
     last_submissions: list[SubmissionReview]
     judge_nodes: list[JudgeNode]
     clarifications: list[Clarification]
+    announcements: list[ContestAnnouncement] = Field(default_factory=list)
     balloons: list[ContestBalloon] = Field(default_factory=list)
 
 
