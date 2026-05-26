@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Lock, LockOpen, MessageSquare, RotateCcw, Trophy } from 'lucide-vue-next';
+import { ArrowRight, ClipboardList, Lock, LockOpen, MessageSquare, RotateCcw, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -31,6 +31,10 @@ async function openStandings(id: string) {
 
 async function openContest(id: string) {
   await router.push(`/contests/${id}`);
+}
+
+async function openSubmissions(id: string) {
+  await router.push(`/contests/${id}/submissions`);
 }
 
 async function openClarifications(id: string) {
@@ -155,6 +159,9 @@ onMounted(load);
           </button>
           <button class="secondary-action" type="button" @click="openContest(contest.id)">
             <ArrowRight :size="16" />进入比赛
+          </button>
+          <button class="secondary-action" type="button" @click="openSubmissions(contest.id)">
+            <ClipboardList :size="16" />提交
           </button>
           <button class="secondary-action" type="button" @click="openClarifications(contest.id)">
             <MessageSquare :size="16" />提问

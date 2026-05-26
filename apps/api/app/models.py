@@ -515,6 +515,35 @@ class OfflineResultReview(SubmissionReview):
     expected_visible: bool = False
 
 
+class ContestProblemLayoutItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problem_id: str = Field(min_length=1, max_length=64)
+    problem_key: str = Field(min_length=1, max_length=16)
+    allowed_languages: list[LanguageCode] = Field(default_factory=list)
+
+    @field_validator("problem_id", "problem_key", mode="before")
+    @classmethod
+    def strip_contest_problem_text(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @field_validator("allowed_languages", mode="before")
+    @classmethod
+    def normalize_allowed_languages(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = value.replace("，", ",").split(",")
+        languages: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item or "").strip().lower()
+            if text and text not in seen:
+                seen.add(text)
+                languages.append(text)
+        return languages
+
+
 class Contest(BaseModel):
     id: str
     title: str
@@ -522,6 +551,7 @@ class Contest(BaseModel):
     start_at: datetime
     end_at: datetime
     problem_ids: list[str]
+    problem_layout: list[ContestProblemLayoutItem] = Field(default_factory=list)
     status: Literal["scheduled", "running", "ended"]
     visibility: Literal["public", "private"] = "public"
     frozen: bool = False
@@ -540,6 +570,7 @@ class ContestCreate(BaseModel):
     start_at: datetime
     end_at: datetime
     problem_ids: list[str]
+    problem_layout: list[ContestProblemLayoutItem] = Field(default_factory=list)
     visibility: Visibility = "public"
 
 
@@ -547,6 +578,45 @@ class ContestDetail(Contest):
     problems: list[ProblemSummary] = Field(default_factory=list)
     freeze_active: bool = False
     freeze_effective_at: datetime | None = None
+
+
+class ContestProblemView(BaseModel):
+    problem_id: str
+    problem_key: str
+    title: str
+    type: ProblemType
+    allowed_languages: list[LanguageCode] = Field(default_factory=list)
+
+
+class ContestSubmissionView(SubmissionReview):
+    problem_key: str
+    team_id: str | None = None
+    team_name: str | None = None
+    can_view_source: bool = False
+
+
+class ContestTeamSubmissionSummary(BaseModel):
+    team_id: str
+    team_name: str
+    member_ids: list[str] = Field(default_factory=list)
+    submission_count: int = 0
+    accepted_count: int = 0
+    latest_submission_at: datetime | None = None
+    latest_status: SubmissionStatus | None = None
+
+
+class ContestSubmissionStatusResponse(BaseModel):
+    contest_id: str
+    contest_title: str
+    rule: Literal["ACM", "OI", "IOI", "CF"]
+    now: datetime
+    can_submit: bool
+    status: Literal["scheduled", "running", "ended"]
+    can_view_all: bool
+    show_team_view: bool
+    problems: list[ContestProblemView] = Field(default_factory=list)
+    submissions: list[ContestSubmissionView] = Field(default_factory=list)
+    teams: list[ContestTeamSubmissionSummary] = Field(default_factory=list)
 
 
 class StandingProblemResult(BaseModel):

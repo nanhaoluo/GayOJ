@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
-from app.models import Submission
+from app.models import ContestProblemLayoutItem, Submission, Team
 
 
 def _contest_submission(
@@ -621,7 +621,8 @@ def test_contest_print_reads_submission_or_request_only(client: TestClient, auth
 def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
-    contest.end_at = datetime(2026, 5, 20, 17, 0, tzinfo=timezone.utc)
+    contest.start_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    contest.end_at = datetime.now(timezone.utc) + timedelta(hours=1)
     store.update_contest(contest)
 
     forbidden = client.post(
@@ -645,6 +646,9 @@ def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient
         json={"problem_id": "P1001", "language": "python", "source_code": "print('rejudge')\n"},
     )
     assert submitted.status_code == 200, submitted.text
+
+    contest.end_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    store.update_contest(contest)
 
     judge_rejudge = client.post(
         "/api/v1/contests/C1001/rejudge",
@@ -702,7 +706,8 @@ def test_contest_rejudge_requires_judge_or_admin_and_contest_end(client: TestCli
 def test_contest_rejudge_skips_objective_submissions_with_clear_reason(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
-    contest.end_at = datetime(2026, 5, 20, 17, 0, tzinfo=timezone.utc)
+    contest.start_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    contest.end_at = datetime.now(timezone.utc) + timedelta(hours=1)
     store.update_contest(contest)
 
     code_submitted = client.post(
@@ -718,6 +723,9 @@ def test_contest_rejudge_skips_objective_submissions_with_clear_reason(client: T
         json={"problem_id": "P1003", "answers": {"choice": "B"}},
     )
     assert objective_submitted.status_code == 200, objective_submitted.text
+
+    contest.end_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    store.update_contest(contest)
 
     response = client.post(
         "/api/v1/contests/C1001/rejudge",
@@ -1371,3 +1379,175 @@ def test_rolling_board_requires_judge_or_manage_and_contest_end(client: TestClie
     assert public_row["problems"]["P1001"]["accepted_at"] is None
     assert final_row["solved"] == 1
     assert final_row["problems"]["P1001"]["accepted_at"] is not None
+
+
+def test_contest_submission_status_view_limits_students_to_own_records(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=2)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-CONTEST-OWN",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=5),
+            judged_at=start_at + timedelta(minutes=5),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-CONTEST-OTHER",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            created_at=start_at + timedelta(minutes=8),
+            judged_at=start_at + timedelta(minutes=8),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/submissions", headers=auth_headers("alice"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["contest_id"] == "C1001"
+    assert body["can_view_all"] is False
+    assert body["show_team_view"] is False
+    assert len(body["submissions"]) == 1
+    assert body["submissions"][0]["id"] == "S-CONTEST-OWN"
+    assert body["submissions"][0]["can_view_source"] is True
+    assert body["submissions"][0]["source_code"] is not None
+    assert body["teams"] == []
+
+
+def test_contest_submission_status_view_groups_teams_for_judge(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=2)
+    store.update_contest(contest)
+
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+
+    team = Team(
+        id="T2001",
+        name="Contest Team",
+        description="contest members",
+        invite_code="TEAM2001",
+        owner_id="u-coach",
+        member_ids=["u-student", "u-coach"],
+        created_at=start_at,
+    )
+    store.add_team(team)
+
+    store.add_submission(
+        _contest_submission(
+            "S-TEAM-1",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="P1002",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=3),
+            judged_at=start_at + timedelta(minutes=3),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-TEAM-2",
+            user_id="u-coach",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=4),
+            judged_at=start_at + timedelta(minutes=4),
+        )
+    )
+
+    response = client.get("/api/v1/contests/C1001/submissions", headers=auth_headers("judge"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["can_view_all"] is True
+    assert body["show_team_view"] is True
+    assert len(body["submissions"]) == 2
+    assert all(item["team_id"] == "T2001" for item in body["submissions"])
+    assert body["teams"]
+    team_summary = next(item for item in body["teams"] if item["team_id"] == "T2001")
+    assert team_summary["submission_count"] == 2
+    assert team_summary["accepted_count"] == 1
+
+
+def test_contest_submission_rejects_before_start_and_after_end(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+    contest.start_at = future
+    contest.end_at = future + timedelta(hours=2)
+    store.update_contest(contest)
+
+    before_start = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert before_start.status_code == 409
+    assert before_start.json()["detail"] == "Contest has not started"
+
+    contest.start_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    contest.end_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    store.update_contest(contest)
+
+    after_end = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    assert after_end.status_code == 409
+    assert after_end.json()["detail"] == "Contest has ended"
+
+
+def test_contest_submission_respects_problem_language_restrictions(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.start_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    contest.end_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    contest.problem_layout = [
+        ContestProblemLayoutItem(problem_id="P1001", problem_key="A", allowed_languages=["cpp"]),
+        ContestProblemLayoutItem(problem_id="P1002", problem_key="B", allowed_languages=[]),
+        ContestProblemLayoutItem(problem_id="P1003", problem_key="C", allowed_languages=[]),
+    ]
+    store.update_contest(contest)
+
+    forbidden = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('x')\n"},
+    )
+    assert forbidden.status_code == 400
+    assert "not allowed" in forbidden.json()["detail"]
+
+    allowed = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "cpp", "source_code": "#include <bits/stdc++.h>\nint main(){return 0;}\n"},
+    )
+    assert allowed.status_code == 200, allowed.text

@@ -83,6 +83,45 @@ def _default_offline_enabled(problem_type: str | None = None) -> bool:
     return problem_type != "code"
 
 
+def _normalize_contest_problem_layout(item: dict[str, Any]) -> list[dict[str, Any]]:
+    layout = item.get("problem_layout")
+    if not isinstance(layout, list):
+        layout = []
+    current_problem_ids = [str(problem_id).strip() for problem_id in item.get("problem_ids", []) if str(problem_id).strip()]
+    current_problem_id_set = set(current_problem_ids)
+    layout_by_problem_id: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(layout):
+        if not isinstance(raw, dict):
+            continue
+        problem_id = str(raw.get("problem_id") or "").strip()
+        if not problem_id or problem_id in layout_by_problem_id or problem_id not in current_problem_id_set:
+            continue
+        problem_key = str(raw.get("problem_key") or raw.get("alias") or raw.get("label") or index + 1).strip() or str(index + 1)
+        allowed_languages = raw.get("allowed_languages")
+        if isinstance(allowed_languages, str):
+            allowed_languages = allowed_languages.replace("，", ",").split(",")
+        layout_by_problem_id[problem_id] = (
+            {
+                "problem_id": problem_id,
+                "problem_key": problem_key,
+                "allowed_languages": [
+                    language
+                    for language in [str(value or "").strip().lower() for value in (allowed_languages or [])]
+                    if language in LANGUAGE_CODES
+                ],
+            }
+        )
+    normalized: list[dict[str, Any]] = []
+    for index, problem_id in enumerate(current_problem_ids, start=1):
+        normalized.append(
+            layout_by_problem_id.get(
+                problem_id,
+                {"problem_id": problem_id, "problem_key": str(index), "allowed_languages": []},
+            )
+        )
+    return normalized
+
+
 def _normalize_offline_policy(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         value = {}
@@ -617,6 +656,8 @@ class Store:
             changed = True
         if self._migrate_compiler_configs(data, seeded["compiler_configs"]):
             changed = True
+        if self._migrate_contests(data):
+            changed = True
         if self._migrate_judge_nodes(data):
             changed = True
         if self._migrate_judge_queue_jobs(data):
@@ -739,6 +780,26 @@ class Store:
                 problem_set["offline_policy"] = policy
                 changed = True
 
+        return changed
+
+    def _migrate_contests(self, data: dict[str, Any]) -> bool:
+        changed = False
+        contests = data.get("contests")
+        if not isinstance(contests, list):
+            data["contests"] = []
+            return True
+        for contest in contests:
+            if not isinstance(contest, dict):
+                changed = True
+                continue
+            problem_ids = [str(pid).strip() for pid in contest.get("problem_ids", []) if str(pid).strip()]
+            if contest.get("problem_ids") != problem_ids:
+                contest["problem_ids"] = problem_ids
+                changed = True
+            problem_layout = _normalize_contest_problem_layout(contest)
+            if contest.get("problem_layout") != problem_layout:
+                contest["problem_layout"] = problem_layout
+                changed = True
         return changed
 
     def _migrate_judge_nodes(self, data: dict[str, Any]) -> bool:

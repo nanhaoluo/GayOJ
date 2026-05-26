@@ -1753,6 +1753,89 @@ pre {
   background: color-mix(in oklch, white 72%, var(--accent) 28%);
 }
 
+.contest-submissions-content {
+  max-width: 1320px;
+}
+
+.contest-submissions-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+}
+
+.contest-submission-table {
+  grid-template-columns: 72px minmax(180px, 1.2fr) 110px 120px 110px 140px 120px;
+}
+
+.contest-submission-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.contest-submission-row.active {
+  background: color-mix(in oklch, var(--surface) 72%, var(--surface-strong));
+}
+
+.contest-submission-detail-panel {
+  min-width: 0;
+}
+
+.contest-submission-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.contest-detail-grid {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.contest-detail-grid span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.contest-detail-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contest-team-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 78%, var(--surface-strong));
+}
+
+.contest-source-block {
+  display: grid;
+  gap: 10px;
+}
+
+.contest-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contest-source-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .contest-status-stack {
   display: grid;
   gap: 4px;
@@ -3420,5 +3503,23 @@ pre {
   .login-form input {
     flex: 1;
     min-width: 130px;
+  }
+
+  .contest-submissions-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .contest-submission-table {
+    grid-template-columns: 64px minmax(0, 1fr) 96px 108px;
+  }
+
+  .contest-submission-table > :nth-child(5),
+  .contest-submission-table > :nth-child(6),
+  .contest-submission-table > :nth-child(7) {
+    display: none;
+  }
+
+  .contest-detail-grid {
+    grid-template-columns: 1fr;
   }
 }

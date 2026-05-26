@@ -303,6 +303,45 @@ export interface Contest {
   problems: ProblemSummary[];
 }
 
+export interface ContestProblemView {
+  problem_id: string;
+  problem_key: string;
+  title: string;
+  type: ProblemType;
+  allowed_languages: CompilerLanguageCode[];
+}
+
+export interface ContestSubmissionView extends Submission {
+  problem_key: string;
+  team_id: string | null;
+  team_name: string | null;
+  can_view_source: boolean;
+}
+
+export interface ContestTeamSubmissionSummary {
+  team_id: string;
+  team_name: string;
+  member_ids: string[];
+  submission_count: number;
+  accepted_count: number;
+  latest_submission_at: string | null;
+  latest_status: string | null;
+}
+
+export interface ContestSubmissionStatusResponse {
+  contest_id: string;
+  contest_title: string;
+  rule: string;
+  now: string;
+  can_submit: boolean;
+  status: 'scheduled' | 'running' | 'ended';
+  can_view_all: boolean;
+  show_team_view: boolean;
+  problems: ContestProblemView[];
+  submissions: ContestSubmissionView[];
+  teams: ContestTeamSubmissionSummary[];
+}
+
 export interface StandingProblemResult {
   score: number;
   max_score: number;

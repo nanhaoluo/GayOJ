@@ -54,6 +54,11 @@ from .models import (
     ContestBoardResponse,
     ContestRejudgeResponse,
     ContestUnfreezeRequest,
+    ContestProblemLayoutItem,
+    ContestProblemView,
+    ContestSubmissionView,
+    ContestTeamSubmissionSummary,
+    ContestSubmissionStatusResponse,
     ContestPrintRequest,
     ContestPrintResponse,
     ContestRollingResponse,
@@ -899,10 +904,138 @@ def contest_judge_monitor_payload(contest: Contest, store: Repository) -> Contes
     )
 
 
+def contest_problem_layout(contest: Contest) -> list[ContestProblemLayoutItem]:
+    layout_by_problem_id = {item.problem_id: item for item in contest.problem_layout}
+    normalized: list[ContestProblemLayoutItem] = []
+    for index, problem_id in enumerate(contest.problem_ids, start=1):
+        item = layout_by_problem_id.get(problem_id)
+        if item is not None:
+            normalized.append(
+                ContestProblemLayoutItem(
+                    problem_id=problem_id,
+                    problem_key=item.problem_key,
+                    allowed_languages=list(item.allowed_languages),
+                )
+            )
+            continue
+        normalized.append(ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index), allowed_languages=[]))
+    return normalized
+
+
+def contest_problem_layout_by_problem_id(contest: Contest) -> dict[str, ContestProblemLayoutItem]:
+    return {item.problem_id: item for item in contest_problem_layout(contest)}
+
+
+def contest_problem_view(layout: ContestProblemLayoutItem, problem: Problem) -> ContestProblemView:
+    return ContestProblemView(
+        problem_id=problem.id,
+        problem_key=layout.problem_key,
+        title=problem.title,
+        type=problem.type,
+        allowed_languages=layout.allowed_languages,
+    )
+
+
+def contest_now_status(contest: Contest, *, current: datetime | None = None) -> str:
+    current = current or now()
+    start_at = auth_datetime(contest.start_at)
+    end_at = auth_datetime(contest.end_at)
+    if start_at and current < start_at:
+        return "scheduled"
+    if end_at and current > end_at:
+        return "ended"
+    return "running"
+
+
+def ensure_contest_submission_window(contest: Contest, *, current: datetime | None = None) -> None:
+    current = current or now()
+    start_at = auth_datetime(contest.start_at)
+    end_at = auth_datetime(contest.end_at)
+    if start_at and current < start_at:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest has not started")
+    if end_at and current > end_at:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest has ended")
+
+
+def ensure_contest_problem_language_allowed(contest: Contest, problem: Problem, language: str | None) -> None:
+    if problem.type != "code":
+        return
+    layout = contest_problem_layout_by_problem_id(contest).get(problem.id)
+    allowed = layout.allowed_languages if layout else []
+    if not allowed or language is None:
+        return
+    if language not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Language {language} is not allowed for contest problem {layout.problem_key}",
+        )
+
+
+def can_view_contest_submission_source(user: User, submission: Submission) -> bool:
+    if role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage"):
+        return True
+    return submission.user_id == user.id
+
+
+def contest_submission_view(
+    submission: Submission,
+    *,
+    contest: Contest,
+    user: User,
+    team_by_member: dict[str, Team],
+) -> ContestSubmissionView:
+    team = team_by_member.get(submission.user_id)
+    payload = sanitized_submission(
+        submission,
+        include_expected=role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage"),
+        include_source=can_view_contest_submission_source(user, submission),
+    ).model_dump()
+    layout = contest_problem_layout_by_problem_id(contest).get(submission.problem_id)
+    payload["problem_key"] = layout.problem_key if layout else submission.problem_id
+    payload["team_id"] = team.id if team else None
+    payload["team_name"] = team.name if team else None
+    payload["can_view_source"] = can_view_contest_submission_source(user, submission)
+    return ContestSubmissionView(**payload)
+
+
+def contest_team_submission_summaries(
+    submissions: list[Submission],
+    *,
+    team_by_member: dict[str, Team],
+) -> list[ContestTeamSubmissionSummary]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        team = team_by_member.get(submission.user_id)
+        if not team:
+            continue
+        bucket = buckets.setdefault(
+            team.id,
+            {
+                "team_id": team.id,
+                "team_name": team.name,
+                "member_ids": list(team.member_ids),
+                "submission_count": 0,
+                "accepted_count": 0,
+                "latest_submission_at": None,
+                "latest_status": None,
+            },
+        )
+        bucket["submission_count"] += 1
+        if submission.status in {"accepted", "manual_override"} and submission.score == submission.max_score:
+            bucket["accepted_count"] += 1
+        latest_time = auth_datetime(submission.created_at)
+        current_latest = bucket["latest_submission_at"]
+        if current_latest is None or (latest_time and latest_time > current_latest):
+            bucket["latest_submission_at"] = latest_time
+            bucket["latest_status"] = submission.status
+    summaries = [ContestTeamSubmissionSummary(**payload) for payload in buckets.values()]
+    return sorted(summaries, key=lambda item: (-item.accepted_count, -item.submission_count, item.team_name))
+
+
 def contest_problem_details(contest: Contest, store: Repository, user: User | None = None) -> list[ProblemDetail]:
     problems = []
-    for problem_id in contest.problem_ids:
-        problem = store.get_problem(problem_id)
+    for layout in contest_problem_layout(contest):
+        problem = store.get_problem(layout.problem_id)
         if not problem or not problem.visible:
             continue
         problems.append(problem_detail(problem))
@@ -2241,6 +2374,9 @@ def create_contest(
     missing = [pid for pid in payload.problem_ids if pid not in existing]
     if missing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown problems: {', '.join(missing)}")
+    layout_problem_ids = [item.problem_id for item in payload.problem_layout]
+    if layout_problem_ids and layout_problem_ids != payload.problem_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="problem_layout must match problem_ids in order")
     current = now()
     contest = Contest(
         id=f"C{1000 + len(store.list_contests()) + 1}",
@@ -2249,6 +2385,11 @@ def create_contest(
         start_at=payload.start_at,
         end_at=payload.end_at,
         problem_ids=payload.problem_ids,
+        problem_layout=payload.problem_layout
+        or [
+            ContestProblemLayoutItem(problem_id=problem_id, problem_key=str(index + 1), allowed_languages=[])
+            for index, problem_id in enumerate(payload.problem_ids)
+        ],
         status="running" if payload.start_at <= current <= payload.end_at else "scheduled",
         visibility=payload.visibility,
     )
@@ -2592,21 +2733,53 @@ def reply_clarification(
     return clarification_payload_for_user(clarification, user)
 
 
-@app.get("/api/v1/contests/{contest_id}/submissions", response_model=list[SubmissionReview])
+@app.get("/api/v1/contests/{contest_id}/submissions", response_model=ContestSubmissionStatusResponse)
 def list_contest_submissions(
     contest_id: str,
     user: User = Depends(require_permissions("submission:read:own")),
     store: Repository = Depends(get_repository),
-) -> list[SubmissionReview]:
+) -> ContestSubmissionStatusResponse:
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if user.role != "student" and not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    ensure_contest_access(user, contest, store)
+    can_view_all = bool(role_has_permission(user.role, "submission:read:all") or role_has_permission(user.role, "contest:manage"))
     items = [submission for submission in store.list_submissions() if submission.contest_id == contest_id]
-    if not role_has_permission(user.role, "submission:read:all") and not role_has_permission(user.role, "contest:manage"):
+    if not can_view_all:
         items = [submission for submission in items if submission.user_id == user.id]
-    return [sanitized_submission(submission, include_expected=True) for submission in items]
+    teams = store.list_teams()
+    team_by_member: dict[str, Team] = {}
+    for team in teams:
+        for member_id in team.member_ids:
+            team_by_member.setdefault(member_id, team)
+    items.sort(key=lambda submission: (auth_datetime(submission.created_at) or now(), submission.id), reverse=True)
+    contest_problems = []
+    for layout in contest_problem_layout(contest):
+        problem = store.get_problem(layout.problem_id)
+        if not problem or not problem.visible:
+            continue
+        contest_problems.append(contest_problem_view(layout, problem))
+    return ContestSubmissionStatusResponse(
+        contest_id=contest.id,
+        contest_title=contest.title,
+        rule=contest.rule,
+        now=now(),
+        can_submit=user.role == "student" and contest_now_status(contest) == "running",
+        status=contest_now_status(contest),  # type: ignore[arg-type]
+        can_view_all=can_view_all,
+        show_team_view=can_view_all,
+        problems=contest_problems,
+        submissions=[
+            contest_submission_view(
+                submission,
+                contest=contest,
+                user=user,
+                team_by_member=team_by_member,
+            )
+            for submission in items
+        ],
+        teams=contest_team_submission_summaries(items, team_by_member=team_by_member) if can_view_all else [],
+    )
 
 
 @app.post("/api/v1/contests/{contest_id}/submit", response_model=SubmissionReview)
@@ -2620,10 +2793,12 @@ def submit_contest_entry(
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     ensure_contest_access(user, contest, store)
+    ensure_contest_submission_window(contest)
     problem = contest_problem_lookup(contest, store, payload.problem_id)
     if problem.type == "code":
         if not payload.language or not payload.source_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code contest submissions require language and source_code")
+        ensure_contest_problem_language_allowed(contest, problem, payload.language)
         compiler_config = ensure_enabled_compiler_language(store, payload.language)
         submission = Submission(
             id=make_submission_id(),
@@ -2640,7 +2815,9 @@ def submit_contest_entry(
             created_at=now(),
         )
         try:
-            enqueue_code_submission_job(store, submission, problem, message="已进入比赛在线评测队列。")
+            layout = contest_problem_layout_by_problem_id(contest).get(problem.id)
+            message = f"已进入比赛在线评测队列。题号 {layout.problem_key}。" if layout else "已进入比赛在线评测队列。"
+            enqueue_code_submission_job(store, submission, problem, message=message)
         except QueueBackendUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         store.add_audit(
