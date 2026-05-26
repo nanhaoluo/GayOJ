@@ -209,9 +209,13 @@ try {
     Invoke-ApiFailure -Method PUT -Path "/discussions/$($general.id)/like" -ExpectedStatus 400 -Token $coachToken
 
     Write-Step "checking notification stream redaction"
+    $studentNotifications = @(Invoke-ApiJson -Method GET -Path "/notifications" -Token $studentToken)
+    $likeNotifications = @($studentNotifications | Where-Object { $_.type -eq "reply" -and $_.content -eq "P8 smoke solution" })
+    Assert-True ($likeNotifications.Count -ge 1) "solution like must notify the solution author"
     $streamResponse = Invoke-WebRequest -UseBasicParsing -Method GET -Uri "$script:BaseUrl/notifications/stream?token=$studentToken" -Headers @{ Accept = "text/event-stream" } -TimeoutSec 15
     Assert-True ($streamResponse.Headers["Content-Type"] -like "text/event-stream*") "notification stream must use SSE content type"
-    Assert-True ($streamResponse.Content -match "题解收到点赞") "solution like must notify the solution author"
+    Assert-True ($streamResponse.Content -match "event: snapshot") "notification stream must emit snapshot events"
+    Assert-True ($streamResponse.Content -match "unread_count") "notification stream must include user-scoped unread summary"
     Assert-True ($streamResponse.Content -notmatch "source_code|judge_config|answers|expected|bookmarked_by|liked_by") "notification stream must not expose sensitive fields"
 
     Write-Host ""
