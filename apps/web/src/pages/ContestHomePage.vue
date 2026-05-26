@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Radio, Rows3, Trophy } from 'lucide-vue-next';
+import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Radio, Rows3, Trophy, UserPlus } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { Contest, ContestAnnouncement, ContestProblemDetail } from '@/services/types';
+import type { Contest, ContestAnnouncement, ContestProblemDetail, ContestRegistrationResponse } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
@@ -14,8 +14,13 @@ const contest = ref<Contest | null>(null);
 const announcements = ref<ContestAnnouncement[]>([]);
 const problems = ref<ContestProblemDetail[]>([]);
 const error = ref('');
+const notice = ref('');
+const registering = ref(false);
 
 const canUseContestTools = computed(() => Boolean(authState.user));
+const canRegister = computed(() => {
+  return Boolean(authState.user?.role === 'student' && contest.value && contest.value.participation_mode !== 'open' && !contest.value.self_registered);
+});
 const canOpenPrintDesk = computed(() => {
   const permissions = authState.user?.permissions ?? [];
   return permissions.includes('judge:monitor') || permissions.includes('contest:manage') || authState.user?.role === 'student';
@@ -31,14 +36,49 @@ function allowedLanguageText(problem: ContestProblemDetail): string {
   return problem.allowed_languages.join(', ');
 }
 
+function participationLabel(value: Contest['participation_mode']): string {
+  const labels: Record<Contest['participation_mode'], string> = {
+    open: '开放参赛',
+    individual: '个人报名',
+    team: '队伍报名',
+  };
+  return labels[value];
+}
+
 async function load() {
   error.value = '';
+  notice.value = '';
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
     announcements.value = await apiRequest<ContestAnnouncement[]>(`/contests/${route.params.id}/announcements`);
-    problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
+    try {
+      problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
+    } catch (err) {
+      problems.value = [];
+      if (!canRegister.value) {
+        throw err;
+      }
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '比赛加载失败';
+  }
+}
+
+async function registerContest() {
+  if (!contest.value) return;
+  registering.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const result = await apiRequest<ContestRegistrationResponse>(`/contests/${contest.value.id}/register`, { method: 'POST' });
+    contest.value = result.contest;
+    notice.value = contest.value.participation_mode === 'team' ? '已完成队伍报名。' : '已完成个人报名。';
+    announcements.value = await apiRequest<ContestAnnouncement[]>(`/contests/${route.params.id}/announcements`);
+    problems.value = await apiRequest<ContestProblemDetail[]>(`/contests/${route.params.id}/problems`);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '报名失败';
+  } finally {
+    registering.value = false;
   }
 }
 
@@ -85,6 +125,7 @@ onMounted(load);
     </section>
 
     <p v-if="error" class="form-error">{{ error }}</p>
+    <p v-if="notice" class="form-success">{{ notice }}</p>
 
     <section v-if="contest" class="contest-home-layout">
       <article class="panel contest-home-main">
@@ -94,6 +135,9 @@ onMounted(load);
             <p>按比赛顺序查看题面，提交代码或作答客观题。</p>
           </div>
           <div class="row-actions">
+            <button v-if="canRegister" class="primary-action" type="button" :disabled="registering || contest.roster_locked" @click="registerContest">
+              <UserPlus :size="16" />报名
+            </button>
             <button class="secondary-action" type="button" @click="openStandings">
               <Trophy :size="16" />榜单
             </button>
@@ -174,10 +218,19 @@ onMounted(load);
               <small>状态</small>
               <strong>{{ contest.freeze_active ? '封榜中' : contest.status }}</strong>
             </div>
+            <div class="contest-home-fact">
+              <small>参赛</small>
+              <strong>{{ participationLabel(contest.participation_mode) }}</strong>
+            </div>
+            <div class="contest-home-fact">
+              <small>名单</small>
+              <strong>{{ contest.participant_user_count }}</strong>
+            </div>
           </div>
           <div class="contest-home-notes">
             <p><FileCode2 :size="16" />代码题统一进入在线评测队列。</p>
             <p><FileQuestion :size="16" />客观题在比赛内即时判分。</p>
+            <p v-if="contest.participation_mode !== 'open'"><UserPlus :size="16" />{{ contest.self_registered ? '当前账号已在参赛名单内。' : '报名后才能查看题面、提交、提问和打印。' }}</p>
           </div>
         </section>
       </aside>

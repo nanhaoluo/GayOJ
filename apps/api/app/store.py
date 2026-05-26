@@ -446,6 +446,7 @@ def seed_data() -> dict[str, Any]:
         start_at=created - timedelta(hours=1),
         end_at=created + timedelta(hours=4),
         problem_ids=["P1001", "P1002", "P1003"],
+        participation_mode="open",
         status="running",
     )
     nodes = [
@@ -822,6 +823,37 @@ class Store:
             problem_layout = _normalize_contest_problem_layout(contest)
             if contest.get("problem_layout") != problem_layout:
                 contest["problem_layout"] = problem_layout
+                changed = True
+            mode = str(contest.get("participation_mode") or "open").strip().lower()
+            if mode not in {"open", "individual", "team"}:
+                mode = "open"
+            if contest.get("participation_mode") != mode:
+                contest["participation_mode"] = mode
+                changed = True
+            registered_user_ids = _dedupe_text(list(contest.get("registered_user_ids") or []))
+            registered_team_ids = _dedupe_text(list(contest.get("registered_team_ids") or []))
+            if mode == "open":
+                registered_user_ids = []
+                registered_team_ids = []
+            elif mode == "individual":
+                registered_team_ids = []
+            elif mode == "team":
+                registered_user_ids = []
+            if contest.get("registered_user_ids") != registered_user_ids:
+                contest["registered_user_ids"] = registered_user_ids
+                changed = True
+            if contest.get("registered_team_ids") != registered_team_ids:
+                contest["registered_team_ids"] = registered_team_ids
+                changed = True
+            roster_locked = bool(contest.get("roster_locked", False))
+            if contest.get("roster_locked") != roster_locked:
+                contest["roster_locked"] = roster_locked
+                changed = True
+            if "roster_locked_at" not in contest:
+                contest["roster_locked_at"] = None
+                changed = True
+            if "roster_locked_by" not in contest:
+                contest["roster_locked_by"] = None
                 changed = True
         return changed
 

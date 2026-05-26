@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Users,
   Trophy,
 } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
@@ -25,6 +26,7 @@ import type {
   ContestProblemLayoutItem,
   ContestRejudgeResponse,
   ProblemAdminDetail,
+  Team,
 } from '@/services/types';
 import { authState } from '@/stores/auth';
 
@@ -34,6 +36,7 @@ const router = useRouter();
 const contests = ref<Contest[]>([]);
 const problems = ref<ProblemAdminDetail[]>([]);
 const compilerLanguages = ref<CompilerLanguage[]>([]);
+const teams = ref<Team[]>([]);
 const selected = ref('');
 const actionError = ref('');
 const notice = ref('');
@@ -52,6 +55,9 @@ const contestForm = reactive<ContestFormPayload>({
   problem_ids: [],
   problem_layout: [],
   visibility: 'public',
+  participation_mode: 'open',
+  registered_user_ids: [],
+  registered_team_ids: [],
 });
 
 const canManageContests = computed(() => Boolean(authState.user?.permissions.includes('contest:manage')));
@@ -70,6 +76,26 @@ const isEditing = computed(() => Boolean(editingContestId.value));
 
 const ruleOptions: ContestRule[] = ['ACM', 'OI', 'IOI', 'CF'];
 const visibilityOptions: Array<ContestFormPayload['visibility']> = ['public', 'private'];
+const participationOptions: Array<ContestFormPayload['participation_mode']> = ['open', 'individual', 'team'];
+const userRosterText = computed({
+  get: () => contestForm.registered_user_ids.join(','),
+  set: (value: string) => {
+    contestForm.registered_user_ids = value
+      .replace(/，/g, ',')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  },
+});
+
+function participationLabel(value: ContestFormPayload['participation_mode']): string {
+  const labels: Record<ContestFormPayload['participation_mode'], string> = {
+    open: '开放参赛',
+    individual: '个人报名',
+    team: '队伍报名',
+  };
+  return labels[value];
+}
 
 function defaultLayoutItem(problemId: string, index: number): ContestProblemLayoutItem {
   return {
@@ -112,6 +138,9 @@ function resetForm() {
   contestForm.problem_ids = [];
   contestForm.problem_layout = [];
   contestForm.visibility = 'public';
+  contestForm.participation_mode = 'open';
+  contestForm.registered_user_ids = [];
+  contestForm.registered_team_ids = [];
   problemFilter.value = '';
 }
 
@@ -129,6 +158,9 @@ function openEditContest(contest: Contest) {
   contestForm.problem_ids = [...contest.problem_ids];
   contestForm.problem_layout = normalizeLayout(contest.problem_ids, contest.problem_layout);
   contestForm.visibility = contest.visibility;
+  contestForm.participation_mode = contest.participation_mode;
+  contestForm.registered_user_ids = [...contest.registered_user_ids];
+  contestForm.registered_team_ids = [...contest.registered_team_ids];
   problemFilter.value = '';
   editorOpen.value = true;
 }
@@ -143,6 +175,12 @@ function canRejudgeContest(contest: Contest): boolean {
 
 function rejudgeMeta(contest: Contest): string {
   return contest.rejudge_at ? `最近重测 ${formatDate(contest.rejudge_at)}` : '';
+}
+
+function rosterMeta(contest: Contest): string {
+  if (contest.participation_mode === 'open') return '开放';
+  const count = contest.participation_mode === 'team' ? contest.registered_team_count : contest.registered_user_count;
+  return `${participationLabel(contest.participation_mode)} · ${count}${contest.participation_mode === 'team' ? ' 队' : ' 人'}${contest.roster_locked ? ' · 已锁定' : ''}`;
 }
 
 function problemTitle(problemId: string): string {
@@ -200,6 +238,9 @@ function buildPayload(): ContestFormPayload {
       allowed_languages: [...item.allowed_languages],
     })),
     visibility: contestForm.visibility,
+    participation_mode: contestForm.participation_mode,
+    registered_user_ids: contestForm.participation_mode === 'individual' ? [...contestForm.registered_user_ids] : [],
+    registered_team_ids: contestForm.participation_mode === 'team' ? [...contestForm.registered_team_ids] : [],
   };
 }
 
@@ -207,19 +248,36 @@ async function load() {
   loading.value = true;
   actionError.value = '';
   try {
-    const [contestData, problemData, languageData] = await Promise.all([
+    const [contestData, problemData, languageData, teamData] = await Promise.all([
       apiRequest<Contest[]>('/contests'),
       canManageContests.value ? apiRequest<ProblemAdminDetail[]>('/admin/problems') : Promise.resolve([]),
       apiRequest<CompilerLanguage[]>('/judge/languages', { auth: false }).catch(() => []),
+      canManageContests.value ? apiRequest<Team[]>('/teams') : Promise.resolve([]),
     ]);
     contests.value = contestData;
     problems.value = problemData;
     compilerLanguages.value = languageData;
+    teams.value = teamData;
     selected.value = contestData[0]?.id ?? '';
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : '比赛列表加载失败';
   } finally {
     loading.value = false;
+  }
+}
+
+async function setRosterLock(contest: Contest, locked: boolean) {
+  actionError.value = '';
+  notice.value = '';
+  try {
+    await apiRequest(`/contests/${contest.id}/roster/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ locked }),
+    });
+    notice.value = `${contest.title} 名单已${locked ? '锁定' : '解锁'}。`;
+    await load();
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : '名单锁定失败';
   }
 }
 
@@ -335,7 +393,7 @@ onMounted(load);
       <div class="set-table-row set-table-head contest-manage-table">
         <span>比赛</span>
         <span>赛制</span>
-        <span>题量</span>
+        <span>参赛</span>
         <span>状态</span>
         <span>操作</span>
       </div>
@@ -345,7 +403,7 @@ onMounted(load);
           <span>{{ formatDate(contest.start_at) }} - {{ formatDate(contest.end_at) }}</span>
         </div>
         <span>{{ contest.rule }}</span>
-        <span>{{ contest.problem_ids.length }} 题</span>
+        <span>{{ rosterMeta(contest) }}</span>
         <div class="contest-status-stack">
           <StatusBadge :status="contest.freeze_active ? 'disabled' : contest.status" />
           <small v-if="contest.freeze_active">{{ contest.frozen ? '手动封榜' : '自动封榜' }}</small>
@@ -354,6 +412,14 @@ onMounted(load);
         <div class="row-actions">
           <button v-if="canManageContests" class="secondary-action" type="button" @click="openEditContest(contest)">
             <FilePenLine :size="16" />编辑
+          </button>
+          <button
+            v-if="canManageContests && contest.participation_mode !== 'open'"
+            class="secondary-action"
+            type="button"
+            @click="setRosterLock(contest, !contest.roster_locked)"
+          >
+            <Users :size="16" />{{ contest.roster_locked ? '解锁名单' : '锁定名单' }}
           </button>
           <button
             v-if="canManageContests && !contest.freeze_active"
@@ -430,7 +496,30 @@ onMounted(load);
               </option>
             </select>
           </label>
+          <label>
+            参赛方式
+            <select v-model="contestForm.participation_mode">
+              <option v-for="mode in participationOptions" :key="mode" :value="mode">{{ participationLabel(mode) }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="form-grid two">
           <label>题目搜索<input v-model="problemFilter" placeholder="P1001 / 标签 / 标题" /></label>
+          <label v-if="contestForm.participation_mode === 'individual'">
+            个人名单
+            <input v-model="userRosterText" placeholder="u-student,u-xxx" />
+          </label>
+          <label v-else-if="contestForm.participation_mode === 'team'">
+            队伍名单
+            <select v-model="contestForm.registered_team_ids" multiple size="4">
+              <option v-for="team in teams" :key="team.id" :value="team.id">{{ team.name }} · {{ team.id }}</option>
+            </select>
+          </label>
+          <label v-else>
+            名单策略
+            <input value="开放赛无需维护名单" disabled />
+          </label>
         </div>
 
         <div class="contest-editor-layout">

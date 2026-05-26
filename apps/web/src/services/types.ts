@@ -7,6 +7,7 @@ export type JudgeNodeStatus = 'online' | 'offline' | 'draining';
 export type JudgeQueueJobStatus = 'pending' | 'leased' | 'completed' | 'failed';
 export type JudgeQueueBackend = 'json' | 'redis' | 'kafka';
 export type CompilerLanguageCode = 'c' | 'cpp' | 'java' | 'python';
+export type ContestParticipationMode = 'open' | 'individual' | 'team';
 export type OfflineAnswerVisibility = 'full' | 'none';
 export type OfflineSyncMode = 'allow' | 'disabled';
 
@@ -293,6 +294,12 @@ export interface Contest {
   problem_layout: ContestProblemLayoutItem[];
   status: 'scheduled' | 'running' | 'ended';
   visibility: 'public' | 'private';
+  participation_mode: ContestParticipationMode;
+  registered_user_ids: string[];
+  registered_team_ids: string[];
+  roster_locked: boolean;
+  roster_locked_at: string | null;
+  roster_locked_by: string | null;
   frozen: boolean;
   freeze_disabled: boolean;
   frozen_at: string | null;
@@ -303,6 +310,11 @@ export interface Contest {
   rejudge_at: string | null;
   rejudge_by: string | null;
   rejudge_reason: string;
+  registered_user_count: number;
+  registered_team_count: number;
+  participant_user_count: number;
+  self_registered: boolean;
+  self_team_ids: string[];
   problems: ProblemSummary[];
 }
 
@@ -320,6 +332,25 @@ export interface ContestFormPayload {
   problem_ids: string[];
   problem_layout: ContestProblemLayoutItem[];
   visibility: 'public' | 'private';
+  participation_mode: ContestParticipationMode;
+  registered_user_ids: string[];
+  registered_team_ids: string[];
+}
+
+export interface ContestRosterResponse {
+  contest_id: string;
+  participation_mode: ContestParticipationMode;
+  roster_locked: boolean;
+  roster_locked_at: string | null;
+  roster_locked_by: string | null;
+  registered_users: PublicUser[];
+  registered_teams: Team[];
+  participant_user_ids: string[];
+}
+
+export interface ContestRegistrationResponse {
+  contest: Contest;
+  roster: ContestRosterResponse;
 }
 
 export interface ContestProblemView {

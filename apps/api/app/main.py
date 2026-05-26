@@ -64,6 +64,10 @@ from .models import (
     ContestPrintJob,
     ContestPrintJobSummary,
     ContestProblemView,
+    ContestRegistrationResponse,
+    ContestRosterLockRequest,
+    ContestRosterResponse,
+    ContestRosterUpdate,
     ContestSubmissionView,
     ContestTeamSubmissionSummary,
     ContestSubmissionStatusResponse,
@@ -195,6 +199,17 @@ app.add_middleware(
 
 def student_user_ids(store: Repository) -> set[str]:
     return {user.id for user in store.list_users() if user.role == "student"}
+
+
+def dedupe_ids(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
 
 
 def _canonical_json(value: Any) -> str:
@@ -613,10 +628,13 @@ def add_notification(store: Repository, user_id: str, title: str, content: str, 
 
 
 def contest_notification_targets(store: Repository, contest: Contest) -> list[User]:
-    if contest.visibility == "public":
+    if contest.visibility == "public" and contest.participation_mode == "open":
         return [user for user in store.list_users() if user.role == "student"]
-    owner_ids = contest_owners(store, contest)
-    return [user for user in store.list_users() if user.role == "student" and user.id in owner_ids]
+    if contest.participation_mode == "open":
+        owner_ids = contest_owners(store, contest)
+        return [user for user in store.list_users() if user.role == "student" and user.id in owner_ids]
+    participant_ids = contest_participant_user_ids(contest, store)
+    return [user for user in store.list_users() if user.role == "student" and user.id in participant_ids]
 
 
 def enqueue_code_submission_job(
@@ -827,16 +845,95 @@ def contest_summary_submissions(contest: Contest, store: Repository, *, full_boa
     ]
 
 
-def contest_detail(contest: Contest, store: Repository, *, full_board: bool = False) -> ContestDetail:
+def contest_team_ids_for_user(store: Repository, user_id: str) -> list[str]:
+    return [team.id for team in store.list_teams() if user_id in team.member_ids]
+
+
+def contest_participant_user_ids(contest: Contest, store: Repository) -> set[str]:
+    if contest.participation_mode == "open":
+        return student_user_ids(store)
+    if contest.participation_mode == "individual":
+        students = student_user_ids(store)
+        return {user_id for user_id in contest.registered_user_ids if user_id in students}
+    registered_teams = set(contest.registered_team_ids)
+    participants: set[str] = set()
+    for team in store.list_teams():
+        if team.id in registered_teams:
+            participants.update(team.member_ids)
+    students = student_user_ids(store)
+    return {user_id for user_id in participants if user_id in students}
+
+
+def contest_user_is_participant(user: User | None, contest: Contest, store: Repository) -> bool:
+    if user is None or user.role != "student":
+        return False
+    if contest.participation_mode == "open":
+        return True
+    return user.id in contest_participant_user_ids(contest, store)
+
+
+def contest_roster_response(contest: Contest, store: Repository) -> ContestRosterResponse:
+    user_by_id = {user.id: user for user in store.list_users()}
+    team_by_id = {team.id: team for team in store.list_teams()}
+    participant_user_ids = sorted(contest_participant_user_ids(contest, store))
+    return ContestRosterResponse(
+        contest_id=contest.id,
+        participation_mode=contest.participation_mode,
+        roster_locked=contest.roster_locked,
+        roster_locked_at=contest.roster_locked_at,
+        roster_locked_by=contest.roster_locked_by,
+        registered_users=[
+            public_user(user_by_id[user_id])
+            for user_id in contest.registered_user_ids
+            if user_id in user_by_id and user_by_id[user_id].role == "student"
+        ],
+        registered_teams=[team_by_id[team_id] for team_id in contest.registered_team_ids if team_id in team_by_id],
+        participant_user_ids=participant_user_ids,
+    )
+
+
+def ensure_contest_roster_payload(contest: Contest, payload: ContestRosterUpdate, store: Repository) -> tuple[list[str], list[str]]:
+    if contest.roster_locked:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
+    users = {user.id: user for user in store.list_users()}
+    teams = {team.id: team for team in store.list_teams()}
+    registered_user_ids = dedupe_ids(payload.registered_user_ids)
+    registered_team_ids = dedupe_ids(payload.registered_team_ids)
+    unknown_users = [user_id for user_id in registered_user_ids if user_id not in users or users[user_id].role != "student"]
+    unknown_teams = [team_id for team_id in registered_team_ids if team_id not in teams]
+    if unknown_users:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown student users: {', '.join(unknown_users)}")
+    if unknown_teams:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown teams: {', '.join(unknown_teams)}")
+    if contest.participation_mode == "open":
+        return [], []
+    if contest.participation_mode == "individual":
+        return registered_user_ids, []
+    return [], registered_team_ids
+
+
+def contest_detail(
+    contest: Contest,
+    store: Repository,
+    *,
+    full_board: bool = False,
+    viewer: User | None = None,
+) -> ContestDetail:
     problems = {p.id: p for p in store.list_problems()}
     submissions = contest_summary_submissions(contest, store, full_board=full_board)
-    participant_ids = student_user_ids(store)
+    participant_ids = contest_participant_user_ids(contest, store)
     payload = contest.model_dump()
     payload["status"] = contest_now_status(contest)
+    self_team_ids = contest_team_ids_for_user(store, viewer.id) if viewer else []
     return ContestDetail(
         **payload,
         freeze_active=contest_public_is_frozen(contest),
         freeze_effective_at=contest_freeze_at(contest),
+        registered_user_count=len(contest.registered_user_ids),
+        registered_team_count=len(contest.registered_team_ids),
+        participant_user_count=len(participant_ids),
+        self_registered=contest_user_is_participant(viewer, contest, store) if viewer else False,
+        self_team_ids=[team_id for team_id in self_team_ids if contest.participation_mode == "team" and team_id in contest.registered_team_ids],
         problems=[
             problem_summary(problems[pid], submissions, participant_ids)
             for pid in contest.problem_ids
@@ -854,6 +951,8 @@ def contest_has_ended(contest: Contest, *, current: datetime | None = None) -> b
 
 def contest_owners(store: Repository, contest: Contest) -> set[str]:
     owners: set[str] = set()
+    if contest.participation_mode != "open":
+        owners.update(contest_participant_user_ids(contest, store))
     for clarification in store.list_clarifications():
         if clarification.contest_id == contest.id:
             owners.add(clarification.user_id)
@@ -868,9 +967,14 @@ def ensure_contest_access(user: User, contest: Contest, store: Repository) -> No
         return
     if user.role != "student":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    if contest.visibility != "public":
-        if user.id not in contest_owners(store, contest):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if contest.participation_mode == "open":
+        if contest.visibility != "public":
+            if user.id not in contest_owners(store, contest):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        return
+    if not contest_user_is_participant(user, contest, store):
+        detail = "Contest registration required" if contest.visibility == "public" else "Permission denied"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def ensure_contest_resource_owner(user: User, contest: Contest, store: Repository, *, include_students: bool = True) -> None:
@@ -1392,6 +1496,17 @@ def ensure_contest_problem_removals_safe(existing: Contest, next_problem_ids: li
         )
 
 
+def ensure_contest_roster_mode_change_safe(existing: Contest, payload: ContestCreate | ContestUpdate) -> None:
+    if not existing.roster_locked:
+        return
+    if payload.participation_mode != existing.participation_mode:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
+    if dedupe_ids(payload.registered_user_ids) != existing.registered_user_ids:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
+    if dedupe_ids(payload.registered_team_ids) != existing.registered_team_ids:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
+
+
 def contest_payload_layout(payload: ContestCreate | ContestUpdate) -> list[ContestProblemLayoutItem]:
     return payload.problem_layout or [
         ContestProblemLayoutItem(
@@ -1405,13 +1520,33 @@ def contest_payload_layout(payload: ContestCreate | ContestUpdate) -> list[Conte
     ]
 
 
+def contest_payload_roster(payload: ContestCreate | ContestUpdate, store: Repository) -> tuple[list[str], list[str]]:
+    users = {user.id: user for user in store.list_users()}
+    teams = {team.id: team for team in store.list_teams()}
+    user_ids = dedupe_ids(payload.registered_user_ids)
+    team_ids = dedupe_ids(payload.registered_team_ids)
+    unknown_users = [user_id for user_id in user_ids if user_id not in users or users[user_id].role != "student"]
+    unknown_teams = [team_id for team_id in team_ids if team_id not in teams]
+    if unknown_users:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown student users: {', '.join(unknown_users)}")
+    if unknown_teams:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown teams: {', '.join(unknown_teams)}")
+    if payload.participation_mode == "open":
+        return [], []
+    if payload.participation_mode == "individual":
+        return user_ids, []
+    return [], team_ids
+
+
 def build_contest_from_payload(
     *,
     contest_id: str,
     payload: ContestCreate | ContestUpdate,
     current: datetime,
+    store: Repository,
     existing: Contest | None = None,
 ) -> Contest:
+    registered_user_ids, registered_team_ids = contest_payload_roster(payload, store)
     return Contest(
         id=contest_id,
         title=payload.title,
@@ -1431,6 +1566,12 @@ def build_contest_from_payload(
                 problem_layout=contest_payload_layout(payload),
                 status=existing.status if existing else "scheduled",
                 visibility=payload.visibility,
+                participation_mode=payload.participation_mode,
+                registered_user_ids=registered_user_ids,
+                registered_team_ids=registered_team_ids,
+                roster_locked=existing.roster_locked if existing else False,
+                roster_locked_at=existing.roster_locked_at if existing else None,
+                roster_locked_by=existing.roster_locked_by if existing else None,
                 frozen=existing.frozen if existing else False,
                 freeze_disabled=existing.freeze_disabled if existing else False,
                 frozen_at=existing.frozen_at if existing else None,
@@ -1443,6 +1584,12 @@ def build_contest_from_payload(
             current=current,
         ),  # type: ignore[arg-type]
         visibility=payload.visibility,
+        participation_mode=payload.participation_mode,
+        registered_user_ids=registered_user_ids,
+        registered_team_ids=registered_team_ids,
+        roster_locked=existing.roster_locked if existing else False,
+        roster_locked_at=existing.roster_locked_at if existing else None,
+        roster_locked_by=existing.roster_locked_by if existing else None,
         frozen=existing.frozen if existing else False,
         freeze_disabled=existing.freeze_disabled if existing else False,
         frozen_at=existing.frozen_at if existing else None,
@@ -1605,7 +1752,7 @@ def _build_score_standings(
 
 def build_contest_standings(contest: Contest, store: Repository, *, full_board: bool = False) -> list[StandingRow]:
     users = {u.id: u for u in store.list_users()}
-    participant_ids = {user_id for user_id, item in users.items() if item.role == "student"}
+    participant_ids = contest_participant_user_ids(contest, store)
     contest_problem_ids = set(contest.problem_ids)
     relevant_submissions = [
         submission
@@ -2750,7 +2897,7 @@ def list_contests(
     elif not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "clarification:read:all")):
         contests = [contest for contest in contests if contest.visibility == "public"]
     can_view_full = bool(user and can_view_full_contest_board(user))
-    return [contest_detail(contest, store, full_board=can_view_full) for contest in contests]
+    return [contest_detail(contest, store, full_board=can_view_full, viewer=user) for contest in contests]
 
 
 @app.post("/api/v1/contests", response_model=ContestDetail)
@@ -2765,6 +2912,7 @@ def create_contest(
         contest_id=f"C{1000 + len(store.list_contests()) + 1}",
         payload=payload,
         current=current,
+        store=store,
     )
     ensure_contest_layout_valid(contest, store)
     store.add_contest(contest)
@@ -2776,15 +2924,18 @@ def create_contest(
             "title": contest.title,
             "rule": contest.rule,
             "visibility": contest.visibility,
+            "participation_mode": contest.participation_mode,
             "problem_ids": contest.problem_ids,
             "problem_layout": [item.model_dump() for item in contest.problem_layout],
+            "registered_user_ids": contest.registered_user_ids,
+            "registered_team_ids": contest.registered_team_ids,
         },
     )
     if contest.visibility == "public":
         for target in store.list_users():
             if target.role == "student":
                 add_notification(store, target.id, "新比赛已发布", f"{contest.title} 已加入比赛列表。", "contest")
-    return contest_detail(contest, store, full_board=True)
+    return contest_detail(contest, store, full_board=True, viewer=user)
 
 
 @app.put("/api/v1/contests/{contest_id}", response_model=ContestDetail)
@@ -2799,10 +2950,12 @@ def update_contest(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
     ensure_contest_problem_inventory(payload.problem_ids, store)
     ensure_contest_problem_removals_safe(existing, payload.problem_ids, store)
+    ensure_contest_roster_mode_change_safe(existing, payload)
     contest = build_contest_from_payload(
         contest_id=existing.id,
         payload=payload,
         current=now(),
+        store=store,
         existing=existing,
     )
     ensure_contest_layout_valid(contest, store)
@@ -2815,11 +2968,14 @@ def update_contest(
             "title": contest.title,
             "rule": contest.rule,
             "visibility": contest.visibility,
+            "participation_mode": contest.participation_mode,
             "problem_ids": contest.problem_ids,
             "problem_layout": [item.model_dump() for item in contest.problem_layout],
+            "registered_user_ids": contest.registered_user_ids,
+            "registered_team_ids": contest.registered_team_ids,
         },
     )
-    return contest_detail(contest, store, full_board=True)
+    return contest_detail(contest, store, full_board=True, viewer=user)
 
 
 @app.post("/api/v1/contests/{contest_id}/freeze", response_model=ContestDetail)
@@ -2841,7 +2997,7 @@ def freeze_contest(
     contest.freeze_reason = payload.reason
     store.update_contest(contest)
     store.add_audit(user.id, "contest.freeze", f"contest:{contest.id}", payload.model_dump())
-    return contest_detail(contest, store, full_board=True)
+    return contest_detail(contest, store, full_board=True, viewer=user)
 
 
 @app.post("/api/v1/contests/{contest_id}/unfreeze", response_model=ContestDetail)
@@ -2863,7 +3019,7 @@ def unfreeze_contest(
     contest.freeze_reason = payload.reason
     store.update_contest(contest)
     store.add_audit(user.id, "contest.unfreeze", f"contest:{contest.id}", payload.model_dump())
-    return contest_detail(contest, store, full_board=True)
+    return contest_detail(contest, store, full_board=True, viewer=user)
 
 
 @app.post("/api/v1/contests/{contest_id}/rejudge", response_model=ContestRejudgeResponse)
@@ -2981,11 +3137,121 @@ def get_contest(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    if user and contest.visibility != "public" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor") and not role_has_permission(user.role, "clarification:read:all"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
-    if not user and contest.visibility != "public":
+    if not user:
+        if contest.visibility != "public":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    elif contest.visibility != "public":
+        ensure_contest_access(user, contest, store)
+    return contest_detail(contest, store, viewer=user)
+
+
+@app.get("/api/v1/contests/{contest_id}/roster", response_model=ContestRosterResponse)
+def get_contest_roster(
+    contest_id: str,
+    user: User = Depends(get_current_user),
+    store: Repository = Depends(get_repository),
+) -> ContestRosterResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
-    return contest_detail(contest, store, full_board=can_view_full_contest_board(user))
+    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
+        ensure_contest_access(user, contest, store)
+    return contest_roster_response(contest, store)
+
+
+@app.put("/api/v1/contests/{contest_id}/roster", response_model=ContestRosterResponse)
+def update_contest_roster(
+    contest_id: str,
+    payload: ContestRosterUpdate,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestRosterResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    registered_user_ids, registered_team_ids = ensure_contest_roster_payload(contest, payload, store)
+    contest.registered_user_ids = registered_user_ids
+    contest.registered_team_ids = registered_team_ids
+    store.update_contest(contest)
+    store.add_audit(
+        user.id,
+        "contest.roster.update",
+        f"contest:{contest.id}",
+        {
+            "participation_mode": contest.participation_mode,
+            "registered_user_ids": registered_user_ids,
+            "registered_team_ids": registered_team_ids,
+        },
+    )
+    return contest_roster_response(contest, store)
+
+
+@app.post("/api/v1/contests/{contest_id}/roster/lock", response_model=ContestRosterResponse)
+def set_contest_roster_lock(
+    contest_id: str,
+    payload: ContestRosterLockRequest,
+    user: User = Depends(require_permissions("contest:manage")),
+    store: Repository = Depends(get_repository),
+) -> ContestRosterResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    contest.roster_locked = payload.locked
+    contest.roster_locked_at = now() if payload.locked else None
+    contest.roster_locked_by = user.id if payload.locked else None
+    store.update_contest(contest)
+    store.add_audit(
+        user.id,
+        "contest.roster.lock" if payload.locked else "contest.roster.unlock",
+        f"contest:{contest.id}",
+        {"locked": payload.locked},
+    )
+    return contest_roster_response(contest, store)
+
+
+@app.post("/api/v1/contests/{contest_id}/register", response_model=ContestRegistrationResponse)
+def register_contest(
+    contest_id: str,
+    user: User = Depends(require_student_permissions("submission:create")),
+    store: Repository = Depends(get_repository),
+) -> ContestRegistrationResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if contest.roster_locked:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contest roster is locked")
+    if contest.participation_mode == "open":
+        return ContestRegistrationResponse(contest=contest_detail(contest, store, viewer=user), roster=contest_roster_response(contest, store))
+    changed = False
+    if contest.participation_mode == "individual":
+        if user.id not in contest.registered_user_ids:
+            contest.registered_user_ids = [*contest.registered_user_ids, user.id]
+            changed = True
+    elif contest.participation_mode == "team":
+        user_team_ids = contest_team_ids_for_user(store, user.id)
+        if not user_team_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Contest team registration requires team membership")
+        next_team_ids = list(contest.registered_team_ids)
+        for team_id in user_team_ids:
+            if team_id not in next_team_ids:
+                next_team_ids.append(team_id)
+                changed = True
+        contest.registered_team_ids = next_team_ids
+    if changed:
+        store.update_contest(contest)
+        store.add_audit(
+            user.id,
+            "contest.register",
+            f"contest:{contest.id}",
+            {
+                "participation_mode": contest.participation_mode,
+                "registered_user_ids": contest.registered_user_ids,
+                "registered_team_ids": contest.registered_team_ids,
+            },
+        )
+    return ContestRegistrationResponse(contest=contest_detail(contest, store, viewer=user), roster=contest_roster_response(contest, store))
 
 
 @app.get("/api/v1/contests/{contest_id}/standings", response_model=list[StandingRow])
@@ -3177,6 +3443,8 @@ def list_judge_contest_clarifications(
     contest = store.get_contest(contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     return [clarification for clarification in store.list_clarifications() if clarification.contest_id == contest_id]
 
 
@@ -3193,6 +3461,8 @@ def reply_clarification(
     contest = store.get_contest(clarification.contest_id)
     if not contest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     if clarification.problem_id:
         contest_problem_lookup(contest, store, clarification.problem_id, user)
     answered_at = now()
@@ -3255,7 +3525,7 @@ def list_contest_submissions(
         contest_title=contest.title,
         rule=contest.rule,
         now=now(),
-        can_submit=user.role == "student" and contest_now_status(contest) == "running",
+        can_submit=user.role == "student" and contest_now_status(contest) == "running" and contest_user_is_participant(user, contest, store),
         status=contest_now_status(contest),  # type: ignore[arg-type]
         can_view_all=can_view_all,
         show_team_view=can_view_all,
@@ -3722,6 +3992,16 @@ def create_team(
     store.add_team(team)
     store.add_audit(user.id, "team.create", f"team:{team.id}", {"name": team.name})
     return team
+
+
+@app.get("/api/v1/teams", response_model=list[Team])
+def list_teams(
+    user: User = Depends(require_permissions("team:manage")),
+    store: Repository = Depends(get_repository),
+) -> list[Team]:
+    if role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor"):
+        return store.list_teams()
+    return [team for team in store.list_teams() if team.owner_id == user.id]
 
 
 @app.post("/api/v1/assignments", response_model=Assignment)
