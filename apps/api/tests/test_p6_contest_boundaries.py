@@ -855,6 +855,177 @@ def test_contest_rejudge_skips_objective_submissions_with_clear_reason(client: T
     assert "Only code submissions can be rejudged" in skipped[objective_submitted.json()["id"]]
 
 
+def test_contest_rejudge_filters_stay_inside_contest_and_problem_scope(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    current = datetime.now(timezone.utc)
+    contest.start_at = current - timedelta(hours=4)
+    contest.end_at = current - timedelta(minutes=1)
+    contest.problem_ids = ["P1001", "P1002"]
+    contest.problem_layout = [
+        ContestProblemLayoutItem(problem_id="P1001", problem_key="A", allowed_languages=["python"]),
+        ContestProblemLayoutItem(problem_id="P1002", problem_key="B", allowed_languages=[]),
+    ]
+    store.update_contest(contest)
+
+    inside_target = _contest_submission(
+        "S-P6-07-IN-TARGET",
+        user_id="u-student",
+        contest_id="C1001",
+        problem_id="P1001",
+        problem_title="A+B Problem",
+        problem_type="code",
+        status="accepted",
+        created_at=current - timedelta(hours=3),
+        judged_at=current - timedelta(hours=3),
+    )
+    inside_other_problem = _contest_submission(
+        "S-P6-07-IN-OTHER",
+        user_id="u-student",
+        contest_id="C1001",
+        problem_id="P1002",
+        problem_title="Complete Graph Edges",
+        problem_type="code",
+        status="accepted",
+        created_at=current - timedelta(hours=3, minutes=5),
+        judged_at=current - timedelta(hours=3, minutes=5),
+    )
+    outside_contest = _contest_submission(
+        "S-P6-07-OUT-CONTEST",
+        user_id="u-student",
+        contest_id="C9999",
+        problem_id="P1001",
+        problem_title="A+B Problem",
+        problem_type="code",
+        status="accepted",
+        created_at=current - timedelta(hours=3, minutes=10),
+        judged_at=current - timedelta(hours=3, minutes=10),
+    )
+    outside_problem_set = _contest_submission(
+        "S-P6-07-OUT-PROBLEM",
+        user_id="u-student",
+        contest_id="C1001",
+        problem_id="P1003",
+        problem_title="Single Choice",
+        problem_type="code",
+        status="accepted",
+        created_at=current - timedelta(hours=3, minutes=15),
+        judged_at=current - timedelta(hours=3, minutes=15),
+    )
+    for submission in [inside_target, inside_other_problem, outside_contest, outside_problem_set]:
+        store.add_submission(submission)
+
+    response = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={
+            "submission_ids": [
+                inside_target.id,
+                inside_other_problem.id,
+                outside_contest.id,
+                outside_problem_set.id,
+                "S-P6-07-MISSING",
+            ],
+            "problem_id": "P1001",
+            "statuses": ["accepted"],
+            "reason": "scoped contest hacking",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["requeued_count"] == 1
+    assert [item["id"] for item in payload["requeued"]] == [inside_target.id]
+    skipped = {item["submission_id"]: item["reason"] for item in payload["skipped"]}
+    assert skipped[inside_other_problem.id] == "Submission problem is outside the requested filter"
+    assert skipped[outside_contest.id] == "Submission is outside this contest"
+    assert skipped[outside_problem_set.id] == "Submission problem is not part of this contest"
+    assert skipped["S-P6-07-MISSING"] == "Submission not found"
+    assert store.get_submission(inside_target.id).status == "queued"
+    assert store.get_submission(inside_other_problem.id).status == "accepted"
+    assert store.get_submission(outside_contest.id).status == "accepted"
+
+    logs, total = store.list_audit_logs(action="contest.rejudge")
+    assert total == 1
+    assert logs[0].metadata["problem_id"] == "P1001"
+    assert logs[0].metadata["statuses"] == ["accepted"]
+
+
+def test_contest_rejudge_clears_stale_balloon_for_requeued_submission(client: TestClient, auth_headers, store) -> None:
+    from app.db import now
+    from app.services import refresh_contest_balloon_for_submission
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.start_at = now() - timedelta(hours=4)
+    contest.end_at = now() - timedelta(minutes=1)
+    contest.rule = "ACM"
+    store.update_contest(contest)
+
+    accepted = _contest_submission(
+        "S-P6-07-AC-BALLOON",
+        user_id="u-student",
+        contest_id="C1001",
+        problem_id="P1001",
+        problem_title="A+B Problem",
+        problem_type="code",
+        status="accepted",
+        created_at=now() - timedelta(hours=3),
+        judged_at=now() - timedelta(hours=3),
+    )
+    store.add_submission(accepted)
+    assert refresh_contest_balloon_for_submission(store, accepted) is not None
+    assert store.list_contest_balloons("C1001")
+
+    response = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={"reason": "accepted source changed"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["requeued_count"] == 1
+    assert store.get_submission(accepted.id).status == "queued"
+    assert store.list_contest_balloons("C1001") == []
+
+
+def test_submission_override_refreshes_contest_balloon(client: TestClient, auth_headers, store) -> None:
+    from app.db import now
+
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.start_at = now() - timedelta(hours=1)
+    contest.end_at = now() + timedelta(hours=1)
+    contest.rule = "ACM"
+    store.update_contest(contest)
+
+    submission = _contest_submission(
+        "S-P6-07-OVERRIDE-AC",
+        user_id="u-student",
+        contest_id="C1001",
+        problem_id="P1001",
+        problem_title="A+B Problem",
+        problem_type="code",
+        status="wrong_answer",
+        created_at=now() - timedelta(minutes=20),
+        judged_at=now() - timedelta(minutes=20),
+        score=0,
+    )
+    store.add_submission(submission)
+
+    response = client.post(
+        f"/api/v1/judge/submissions/{submission.id}/override",
+        headers=auth_headers("judge"),
+        json={"status": "accepted", "score": 100, "message": "manual AC after appeal"},
+    )
+
+    assert response.status_code == 200, response.text
+    balloons = store.list_contest_balloons("C1001")
+    assert len(balloons) == 1
+    assert balloons[0]["submission_id"] == submission.id
+    assert balloons[0]["eligible"] is True
+
+
 def test_contest_unfreeze_requires_manage_permission(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
