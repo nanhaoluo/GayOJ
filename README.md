@@ -627,6 +627,15 @@ mark the job as printed. Print-job lists omit `source_code`, and audits store
 only source hashes and metadata. Normal problem submissions reject `contest_id`,
 so contest scoring must go through `/api/v1/contests/{contest_id}/submit`.
 
+The print desk can dispatch an authorized print job to a physical printer
+backend through `POST /api/v1/contests/{contest_id}/print/{print_job_id}/dispatch`.
+The default `GAYOJ_PRINT_BACKEND=file` writes a spool text file under
+`apps/api/storage/print-spool` and records the path as a receipt. Production
+sites can set `GAYOJ_PRINT_BACKEND=system` to use the host OS print queue
+(`windows` on Windows, `cups`/`lp` elsewhere), or set `command` plus
+`GAYOJ_PRINT_COMMAND` for a site-local print gateway. Dispatch audit records
+include printer metadata and queue ids, never the source body.
+
 ## P6-13 Contest judge workbench
 
 The pure judge workbench lives at:
@@ -702,6 +711,11 @@ Local npm scripts read the same variable names used by Docker Compose. Useful ke
 | `GAYOJ_JUDGE_QUEUE_TOPIC` | `gayoj.judge.submissions` | Redis list name or Kafka topic for code judge jobs |
 | `GAYOJ_REDIS_URL` | empty | Optional Redis URL when using the Redis queue backend |
 | `GAYOJ_KAFKA_BOOTSTRAP_SERVERS` | empty | Optional Kafka bootstrap servers when using the Kafka queue backend |
+| `GAYOJ_PRINT_BACKEND` | `file` | Contest print backend: `file`, `system`, `cups`, `windows`, `command`, or `disabled` |
+| `GAYOJ_PRINT_SPOOL_DIR` | `apps/api/storage/print-spool` | Local spool directory used before dispatching to printer backends |
+| `GAYOJ_PRINT_DEFAULT_PRINTER` | empty | Default physical printer name shown in receipts and passed to commands |
+| `GAYOJ_PRINT_COMMAND` | empty | Command template for `command` backend; supports `{file}`, `{printer}`, `{copies}`, `{job_id}` |
+| `GAYOJ_PRINT_COMMAND_TIMEOUT_SECONDS` | `15` | Timeout for the configured physical print queue command |
 | `GAYOJ_OBJECT_STORAGE_BACKEND` | `local` | Test-data object storage backend: `local` or `minio` |
 | `GAYOJ_OBJECT_STORAGE_BUCKET` | `gayoj-testdata` | Bucket name for code test-data ZIP objects |
 | `GAYOJ_LOCAL_OBJECT_STORAGE_DIR` | `apps/api/storage/objects` | Local object directory when using the local backend |

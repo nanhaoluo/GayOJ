@@ -32,6 +32,7 @@ JudgeQueueBackend = Literal["json", "redis", "kafka"]
 JudgeQueueJobStatus = Literal["pending", "leased", "completed", "failed"]
 ContestPrintSourceKind = Literal["submission", "request"]
 ContestPrintStatus = Literal["pending", "printed", "cancelled"]
+ContestPrintBackendStatus = Literal["not_sent", "queued", "accepted", "failed"]
 DiscussionType = Literal["general", "problem", "contest", "solution"]
 Visibility = Literal["public", "private"]
 ContestParticipationMode = Literal["open", "individual", "team"]
@@ -1027,6 +1028,14 @@ class ContestPrintJob(BaseModel):
     printed_at: datetime | None = None
     printed_by: str | None = None
     note: str = ""
+    printer_backend: str = "manual"
+    printer_name: str | None = None
+    printer_job_id: str | None = None
+    printer_status: ContestPrintBackendStatus = "not_sent"
+    printer_receipt: str = ""
+    printer_error: str = ""
+    printer_sent_at: datetime | None = None
+    printer_confirmed_at: datetime | None = None
 
 
 class ContestPrintJobSummary(BaseModel):
@@ -1046,10 +1055,39 @@ class ContestPrintJobSummary(BaseModel):
     printed_at: datetime | None = None
     printed_by: str | None = None
     note: str = ""
+    printer_backend: str = "manual"
+    printer_name: str | None = None
+    printer_job_id: str | None = None
+    printer_status: ContestPrintBackendStatus = "not_sent"
+    printer_receipt: str = ""
+    printer_error: str = ""
+    printer_sent_at: datetime | None = None
+    printer_confirmed_at: datetime | None = None
 
 
 class ContestPrintResponse(ContestPrintJobSummary):
     source_code: str
+
+
+class ContestPrintDispatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    printer_name: str | None = Field(default=None, max_length=128)
+    copies: int = Field(default=1, ge=1, le=10)
+    note: str = Field(default="", max_length=300)
+
+    @field_validator("printer_name", mode="before")
+    @classmethod
+    def strip_dispatch_printer_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_dispatch_note(cls, value: str | None) -> str:
+        return str(value or "").strip()
 
 
 class ContestPrintUpdate(BaseModel):

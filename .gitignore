@@ -12,5 +12,6 @@ apps/api/storage/*.sqlite3-wal
 apps/api/storage/*.sqlite3-shm
 apps/api/storage/*.db
 apps/api/storage/objects/
+apps/api/storage/print-spool/
 offline-pack.json
 offline-results.json

@@ -69,6 +69,7 @@ from .models import (
     ContestProblemLayoutItem,
     ContestPrintJob,
     ContestPrintJobSummary,
+    ContestPrintDispatchRequest,
     ContestProblemView,
     ContestRegistrationResponse,
     ContestRosterLockRequest,
@@ -166,6 +167,7 @@ from .services import (
     build_contest_balloon,
     coach_scope,
     contest_submission_is_balloon_eligible,
+    dispatch_contest_print_job,
     discussion_matches_query,
     discussion_view,
     judge_objective,
@@ -176,6 +178,7 @@ from .services import (
     reconcile_contest_balloon,
     refresh_contest_balloon_for_submission,
     safe_print_source,
+    PrintBackendError,
 )
 from .db import Repository, get_repository, now
 from .object_storage import ObjectNotFoundError, ObjectStorage, get_object_storage
@@ -1614,6 +1617,15 @@ def contest_print_summary(print_job: ContestPrintJob) -> ContestPrintJobSummary:
 
 def contest_print_response(print_job: ContestPrintJob) -> ContestPrintResponse:
     return ContestPrintResponse(**print_job.model_dump())
+
+
+def apply_print_dispatch_failure(print_job: ContestPrintJob, exc: Exception) -> None:
+    print_job.printer_backend = app_config.PRINT_BACKEND.strip().lower() or "file"
+    print_job.printer_status = "failed"
+    print_job.printer_error = str(exc)[:1000]
+    print_job.printer_receipt = ""
+    print_job.printer_sent_at = now()
+    print_job.printer_confirmed_at = None
 
 
 def contest_clarification_response(contest: Contest, clarification: Clarification) -> Clarification:
@@ -4183,6 +4195,77 @@ def update_contest_print_job(
         "contest.print.update",
         f"contest_print:{print_job.id}",
         {"contest_id": contest.id, "status": print_job.status, "note": print_job.note},
+    )
+    return contest_print_response(print_job)
+
+
+@app.post("/api/v1/contests/{contest_id}/print/{print_job_id}/dispatch", response_model=ContestPrintResponse)
+def dispatch_contest_print_job_to_printer(
+    contest_id: str,
+    print_job_id: str,
+    payload: ContestPrintDispatchRequest,
+    user: User = Depends(require_permissions("submission:read:all")),
+    store: Repository = Depends(get_repository),
+) -> ContestPrintResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not can_process_contest_print(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    print_job = store.get_contest_print_job(print_job_id)
+    if not print_job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Print job not found")
+    ensure_contest_print_job_access(user, contest, print_job)
+    if print_job.status == "cancelled":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cancelled print job cannot be dispatched")
+    try:
+        result = dispatch_contest_print_job(
+            print_job,
+            printer_name=payload.printer_name,
+            copies=payload.copies,
+        )
+    except PrintBackendError as exc:
+        apply_print_dispatch_failure(print_job, exc)
+        store.update_contest_print_job(print_job)
+        store.add_audit(
+            user.id,
+            "contest.print.dispatch.failed",
+            f"contest_print:{print_job.id}",
+            {
+                "contest_id": contest.id,
+                "printer_backend": print_job.printer_backend,
+                "printer_name": print_job.printer_name,
+                "error": print_job.printer_error,
+            },
+        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=print_job.printer_error) from exc
+    sent_at = now()
+    print_job.printer_backend = result.backend
+    print_job.printer_name = result.printer_name
+    print_job.printer_job_id = result.printer_job_id
+    print_job.printer_status = result.status
+    print_job.printer_receipt = result.receipt
+    print_job.printer_error = result.error
+    print_job.printer_sent_at = sent_at
+    print_job.printer_confirmed_at = sent_at if result.status == "accepted" else None
+    print_job.status = "printed"
+    print_job.printed_at = sent_at
+    print_job.printed_by = user.id
+    if payload.note:
+        print_job.note = payload.note
+    store.update_contest_print_job(print_job)
+    store.add_audit(
+        user.id,
+        "contest.print.dispatch",
+        f"contest_print:{print_job.id}",
+        {
+            "contest_id": contest.id,
+            "printer_backend": print_job.printer_backend,
+            "printer_name": print_job.printer_name,
+            "printer_job_id": print_job.printer_job_id,
+            "printer_status": print_job.printer_status,
+            "copies": payload.copies,
+        },
     )
     return contest_print_response(print_job)
 

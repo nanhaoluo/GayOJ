@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -1282,6 +1283,189 @@ def test_contest_print_requires_problem_scope_and_writes_audit(client: TestClien
     assert source_logs[0].metadata["problem_id"] == "P1001"
     assert update_total == 1
     assert update_logs[0].metadata["status"] == "printed"
+
+
+def test_contest_print_dispatches_to_physical_spool_and_records_receipt(
+    client: TestClient,
+    auth_headers,
+    store,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.services.PRINT_BACKEND", "file")
+    monkeypatch.setattr("app.main.app_config.PRINT_BACKEND", "file")
+    monkeypatch.setattr("app.services.PRINT_SPOOL_DIR", str(tmp_path / "print-spool"))
+    monkeypatch.setattr("app.services.PRINT_DEFAULT_PRINTER", "contest-printer")
+
+    created = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('physical')\n"},
+    )
+    assert created.status_code == 200, created.text
+    job_id = created.json()["id"]
+
+    dispatched = client.post(
+        f"/api/v1/contests/C1001/print/{job_id}/dispatch",
+        headers=auth_headers("judge"),
+        json={"copies": 2, "note": "handed to printer queue"},
+    )
+    assert dispatched.status_code == 200, dispatched.text
+    body = dispatched.json()
+    assert body["status"] == "printed"
+    assert body["printer_backend"] == "file"
+    assert body["printer_name"] == "contest-printer"
+    assert body["printer_status"] == "queued"
+    assert body["printer_job_id"] == f"file:{job_id}"
+    assert body["printed_by"] == "u-judge"
+    assert body["note"] == "handed to printer queue"
+
+    receipt_path = Path(body["printer_receipt"])
+    assert receipt_path.exists()
+    printed_document = receipt_path.read_text(encoding="utf-8")
+    assert "Print job: " + job_id in printed_document
+    assert "Copies: 2" in printed_document
+    assert "print('physical')" in printed_document
+
+    stored = store.get_contest_print_job(job_id)
+    assert stored is not None
+    assert stored.printer_receipt == body["printer_receipt"]
+    logs, total = store.list_audit_logs(action="contest.print.dispatch")
+    assert total == 1
+    assert logs[0].metadata["printer_backend"] == "file"
+    assert logs[0].metadata["printer_job_id"] == f"file:{job_id}"
+    assert "source_code" not in logs[0].metadata
+
+
+def test_contest_print_dispatches_to_cups_queue_and_records_queue_receipt(
+    client: TestClient,
+    auth_headers,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    captured_args: list[list[str]] = []
+
+    def fake_printer_command(args: list[str]) -> str:
+        captured_args.append(args)
+        return "request id is contest-printer-42 (1 file(s))"
+
+    monkeypatch.setattr("app.services.PRINT_BACKEND", "cups")
+    monkeypatch.setattr("app.main.app_config.PRINT_BACKEND", "cups")
+    monkeypatch.setattr("app.services.PRINT_SPOOL_DIR", str(tmp_path / "print-spool"))
+    monkeypatch.setattr("app.services._run_printer_command", fake_printer_command)
+
+    created = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('cups')\n"},
+    )
+    assert created.status_code == 200, created.text
+    job_id = created.json()["id"]
+
+    dispatched = client.post(
+        f"/api/v1/contests/C1001/print/{job_id}/dispatch",
+        headers=auth_headers("judge"),
+        json={"printer_name": "contest-printer", "copies": 3},
+    )
+    assert dispatched.status_code == 200, dispatched.text
+    body = dispatched.json()
+    assert body["status"] == "printed"
+    assert body["printer_backend"] == "cups"
+    assert body["printer_name"] == "contest-printer"
+    assert body["printer_status"] == "accepted"
+    assert body["printer_job_id"] == "contest-printer-42"
+    assert "request id is contest-printer-42" in body["printer_receipt"]
+    assert captured_args == [
+        [
+            "lp",
+            "-d",
+            "contest-printer",
+            "-n",
+            "3",
+            "-t",
+            f"gayoj-{job_id}",
+            str(tmp_path / "print-spool" / f"{job_id}.txt"),
+        ]
+    ]
+
+
+def test_contest_print_dispatch_failure_is_audited_without_source_leak(
+    client: TestClient,
+    auth_headers,
+    store,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.services.PRINT_BACKEND", "disabled")
+    monkeypatch.setattr("app.main.app_config.PRINT_BACKEND", "disabled")
+
+    created = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("judge"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('no printer')\n"},
+    )
+    assert created.status_code == 200, created.text
+    job_id = created.json()["id"]
+
+    dispatched = client.post(
+        f"/api/v1/contests/C1001/print/{job_id}/dispatch",
+        headers=auth_headers("judge"),
+        json={},
+    )
+    assert dispatched.status_code == 503
+    assert "disabled" in dispatched.json()["detail"]
+
+    stored = store.get_contest_print_job(job_id)
+    assert stored is not None
+    assert stored.status == "pending"
+    assert stored.printer_status == "failed"
+    assert stored.printer_backend == "disabled"
+    assert "disabled" in stored.printer_error
+
+    logs, total = store.list_audit_logs(action="contest.print.dispatch.failed")
+    assert total == 1
+    assert logs[0].metadata["printer_backend"] == "disabled"
+    assert "source_code" not in logs[0].metadata
+
+
+def test_contest_print_dispatch_requires_processor_and_contest_scope(client: TestClient, auth_headers, store) -> None:
+    from app.db import now
+    from app.models import Contest
+
+    other_contest = Contest(
+        id="C2001",
+        title="Other Dispatch Contest",
+        rule="ACM",
+        start_at=now() - timedelta(hours=1),
+        end_at=now() + timedelta(hours=1),
+        problem_ids=["P1001"],
+        problem_layout=[ContestProblemLayoutItem(problem_id="P1001", problem_key="A")],
+        status="running",
+        visibility="public",
+    )
+    store.add_contest(other_contest)
+
+    created = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('scope')\n"},
+    )
+    assert created.status_code == 200, created.text
+    job_id = created.json()["id"]
+
+    student_dispatch = client.post(
+        f"/api/v1/contests/C1001/print/{job_id}/dispatch",
+        headers=auth_headers("alice"),
+        json={},
+    )
+    wrong_contest_dispatch = client.post(
+        f"/api/v1/contests/C2001/print/{job_id}/dispatch",
+        headers=auth_headers("judge"),
+        json={},
+    )
+
+    assert student_dispatch.status_code == 403
+    assert wrong_contest_dispatch.status_code == 404
+    assert store.get_contest_print_job(job_id).status == "pending"
 
 
 def test_contest_print_update_rejects_job_from_other_contest(client: TestClient, auth_headers, store) -> None:

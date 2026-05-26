@@ -2587,6 +2587,38 @@
         "title": "ContestJudgeWorkbenchSummary",
         "type": "object"
       },
+      "ContestPrintDispatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "copies": {
+            "default": 1,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Copies",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Note",
+            "type": "string"
+          },
+          "printer_name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Name"
+          }
+        },
+        "title": "ContestPrintDispatchRequest",
+        "type": "object"
+      },
       "ContestPrintJobSummary": {
         "properties": {
           "contest_id": {
@@ -2640,6 +2672,78 @@
               }
             ],
             "title": "Printed By"
+          },
+          "printer_backend": {
+            "default": "manual",
+            "title": "Printer Backend",
+            "type": "string"
+          },
+          "printer_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Confirmed At"
+          },
+          "printer_error": {
+            "default": "",
+            "title": "Printer Error",
+            "type": "string"
+          },
+          "printer_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Job Id"
+          },
+          "printer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Name"
+          },
+          "printer_receipt": {
+            "default": "",
+            "title": "Printer Receipt",
+            "type": "string"
+          },
+          "printer_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Sent At"
+          },
+          "printer_status": {
+            "default": "not_sent",
+            "enum": [
+              "not_sent",
+              "queued",
+              "accepted",
+              "failed"
+            ],
+            "title": "Printer Status",
+            "type": "string"
           },
           "problem_id": {
             "anyOf": [
@@ -2840,6 +2944,78 @@
               }
             ],
             "title": "Printed By"
+          },
+          "printer_backend": {
+            "default": "manual",
+            "title": "Printer Backend",
+            "type": "string"
+          },
+          "printer_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Confirmed At"
+          },
+          "printer_error": {
+            "default": "",
+            "title": "Printer Error",
+            "type": "string"
+          },
+          "printer_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Job Id"
+          },
+          "printer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Name"
+          },
+          "printer_receipt": {
+            "default": "",
+            "title": "Printer Receipt",
+            "type": "string"
+          },
+          "printer_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Sent At"
+          },
+          "printer_status": {
+            "default": "not_sent",
+            "enum": [
+              "not_sent",
+              "queued",
+              "accepted",
+              "failed"
+            ],
+            "title": "Printer Status",
+            "type": "string"
           },
           "problem_id": {
             "anyOf": [
@@ -11782,6 +11958,80 @@
           }
         },
         "summary": "Update Contest Print Job"
+      }
+    },
+    "/api/v1/contests/{contest_id}/print/{print_job_id}/dispatch": {
+      "post": {
+        "operationId": "dispatch_contest_print_job_to_printer_api_v1_contests__contest_id__print__print_job_id__dispatch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "print_job_id",
+            "required": true,
+            "schema": {
+              "title": "Print Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestPrintDispatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestPrintResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dispatch Contest Print Job To Printer"
       }
     },
     "/api/v1/contests/{contest_id}/problems": {

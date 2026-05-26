@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, CheckCircle2, Eye, Printer, RefreshCw, XCircle } from 'lucide-vue-next';
+import { ArrowLeft, CheckCircle2, Eye, Printer, RefreshCw, Send, XCircle } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiRequest, formatDate } from '@/services/api';
@@ -18,6 +18,9 @@ const sourceCode = ref('');
 const loading = ref(false);
 const submitting = ref(false);
 const updatingId = ref('');
+const dispatchingId = ref('');
+const printerName = ref('');
+const copies = ref(1);
 
 const canProcessPrint = computed(() => {
   const permissions = authState.user?.permissions ?? [];
@@ -92,12 +95,42 @@ async function updatePrintJob(job: ContestPrintJobSummary, status: ContestPrintS
   }
 }
 
+async function dispatchPrintJob(job: ContestPrintJobSummary) {
+  dispatchingId.value = job.id;
+  error.value = '';
+  try {
+    selectedJob.value = await apiRequest<ContestPrintResponse>(`/contests/${contestId()}/print/${job.id}/dispatch`, {
+      method: 'POST',
+      body: JSON.stringify({
+        printer_name: printerName.value.trim() || undefined,
+        copies: copies.value,
+        note: 'sent to physical printer queue',
+      }),
+    });
+    await refreshJobs();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '发送打印队列失败';
+  } finally {
+    dispatchingId.value = '';
+  }
+}
+
 function printPreview() {
   window.print();
 }
 
 function printProblemLabel(job: ContestPrintJobSummary | ContestPrintResponse): string {
   return [job.problem_key, job.problem_title].filter(Boolean).join(' · ') || job.problem_id || '比赛题目';
+}
+
+function printerStatusText(job: ContestPrintJobSummary | ContestPrintResponse): string {
+  const labels: Record<string, string> = {
+    not_sent: '未发送',
+    queued: '已入物理队列',
+    accepted: '打印机已接收',
+    failed: '发送失败',
+  };
+  return labels[job.printer_status] ?? job.printer_status;
 }
 
 onMounted(() => {
@@ -133,6 +166,13 @@ onMounted(() => {
         </div>
       </form>
 
+      <section v-if="canProcessPrint" class="print-request-panel">
+        <div class="inline-form">
+          <input v-model="printerName" placeholder="打印机名称（默认）" />
+          <input v-model.number="copies" type="number" min="1" max="10" placeholder="份数" />
+        </div>
+      </section>
+
       <p v-if="error" class="form-error">{{ error }}</p>
 
       <section class="print-desk-layout">
@@ -148,11 +188,21 @@ onMounted(() => {
               <div class="monitor-feed-main">
                 <strong>{{ printProblemLabel(item) }} · {{ item.user_display_name || item.user_id }}</strong>
                 <span>{{ item.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ item.user_display_name || item.user_id }} · {{ item.line_count }} 行</span>
-                <small>{{ item.language || '未知语言' }} · {{ formatDate(item.requested_at) }}</small>
+                <small>{{ item.language || '未知语言' }} · {{ printerStatusText(item) }} · {{ formatDate(item.requested_at) }}</small>
               </div>
               <div class="row-actions">
                 <button class="secondary-action compact" type="button" @click="openPrintJob(item)">
                   <Eye :size="14" />打开
+                </button>
+                <button
+                  v-if="canProcessPrint"
+                  class="icon-action"
+                  type="button"
+                  :disabled="dispatchingId === item.id"
+                  title="发送到物理打印机"
+                  @click="dispatchPrintJob(item)"
+                >
+                  <Send :size="16" />
                 </button>
                 <button
                   v-if="canProcessPrint"
@@ -191,7 +241,7 @@ onMounted(() => {
             <div v-for="item in completedJobs" :key="item.id" class="monitor-list-row print-job-row compact">
               <div class="monitor-feed-main">
                 <strong>{{ printProblemLabel(item) }} · {{ item.status }}</strong>
-                <span>{{ item.user_display_name || item.user_id }} · {{ formatDate(item.printed_at || item.requested_at) }}</span>
+                <span>{{ item.user_display_name || item.user_id }} · {{ printerStatusText(item) }} · {{ formatDate(item.printed_at || item.requested_at) }}</span>
               </div>
               <button class="secondary-action compact" type="button" @click="openPrintJob(item)">
                 <Eye :size="14" />打开
@@ -209,6 +259,11 @@ onMounted(() => {
             <p v-if="selectedJob">
               {{ selectedJob.id }} · {{ selectedJob.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ selectedJob.status }} · {{ selectedJob.line_count }} 行
             </p>
+            <p v-if="selectedJob">
+              {{ printerStatusText(selectedJob) }} · {{ selectedJob.printer_name || '默认打印机' }} · {{ selectedJob.printer_job_id || '未分配队列号' }}
+            </p>
+            <p v-if="selectedJob?.printer_error" class="form-error">{{ selectedJob.printer_error }}</p>
+            <p v-if="selectedJob?.printer_receipt" class="receipt-text">回执：{{ selectedJob.printer_receipt }}</p>
           </div>
           <button v-if="selectedJob" class="secondary-action" type="button" @click="printPreview">
             <Printer :size="16" />打印预览

@@ -1182,6 +1182,7 @@ class Store:
                 continue
             source_kind = item.get("source_kind") if item.get("source_kind") in {"submission", "request"} else "request"
             job_status = item.get("status") if item.get("status") in {"pending", "printed", "cancelled"} else "pending"
+            printer_status = item.get("printer_status") if item.get("printer_status") in {"not_sent", "queued", "accepted", "failed"} else "not_sent"
             try:
                 line_count = max(0, int(item.get("line_count", 0) or 0))
             except (TypeError, ValueError):
@@ -1206,6 +1207,14 @@ class Store:
                 "printed_at": item.get("printed_at"),
                 "printed_by": str(item.get("printed_by") or "").strip() or None,
                 "note": str(item.get("note") or "").strip(),
+                "printer_backend": str(item.get("printer_backend") or "manual").strip() or "manual",
+                "printer_name": str(item.get("printer_name") or "").strip() or None,
+                "printer_job_id": str(item.get("printer_job_id") or "").strip() or None,
+                "printer_status": printer_status,
+                "printer_receipt": str(item.get("printer_receipt") or "").strip(),
+                "printer_error": str(item.get("printer_error") or "").strip(),
+                "printer_sent_at": item.get("printer_sent_at"),
+                "printer_confirmed_at": item.get("printer_confirmed_at"),
             }
             if normalized_item != item:
                 changed = True

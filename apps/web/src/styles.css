@@ -227,6 +227,13 @@ a {
   font-size: 13px;
 }
 
+.receipt-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .pure-textarea {
   min-height: 220px;
   width: 100%;

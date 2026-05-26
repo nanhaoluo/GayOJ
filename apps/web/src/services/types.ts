@@ -695,6 +695,7 @@ export interface ContestAnnouncement {
 
 export type ContestPrintSourceKind = 'submission' | 'request';
 export type ContestPrintStatus = 'pending' | 'printed' | 'cancelled';
+export type ContestPrintBackendStatus = 'not_sent' | 'queued' | 'accepted' | 'failed';
 
 export interface ContestPrintJobSummary {
   id: string;
@@ -713,6 +714,14 @@ export interface ContestPrintJobSummary {
   printed_at: string | null;
   printed_by: string | null;
   note: string;
+  printer_backend: string;
+  printer_name: string | null;
+  printer_job_id: string | null;
+  printer_status: ContestPrintBackendStatus;
+  printer_receipt: string;
+  printer_error: string;
+  printer_sent_at: string | null;
+  printer_confirmed_at: string | null;
 }
 
 export interface ContestPrintResponse extends ContestPrintJobSummary {

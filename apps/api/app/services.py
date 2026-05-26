@@ -5,14 +5,28 @@ import hashlib
 import hmac
 import io
 import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
 import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 from xml.sax.saxutils import escape as xml_escape
 
-from .config import OFFLINE_PACK_SECRET, OFFLINE_PACK_TTL_HOURS
+from .config import (
+    API_ROOT,
+    OFFLINE_PACK_SECRET,
+    OFFLINE_PACK_TTL_HOURS,
+    PRINT_BACKEND,
+    PRINT_COMMAND,
+    PRINT_COMMAND_TIMEOUT_SECONDS,
+    PRINT_DEFAULT_PRINTER,
+    PRINT_SPOOL_DIR,
+)
 from .models import (
     Assignment,
     AssignmentAnalytics,
@@ -26,6 +40,7 @@ from .models import (
     CoachSimilarityStudent,
     ContestBalloon,
     Contest,
+    ContestPrintJob,
     CoachReportFormat,
     Discussion,
     DiscussionListResponse,
@@ -55,6 +70,30 @@ COACH_REPORT_MIME_TYPES: dict[CoachReportFormat, str] = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 SOLUTION_CATEGORY_VALUES = {"general", "tutorial", "analysis", "official", "trick"}
+DEFAULT_PRINT_SPOOL_DIR = API_ROOT / "storage" / "print-spool"
+
+
+class PrintBackendError(RuntimeError):
+    pass
+
+
+class PrintDispatchResult:
+    def __init__(
+        self,
+        *,
+        backend: str,
+        printer_name: str,
+        printer_job_id: str,
+        status: Literal["queued", "accepted", "failed"],
+        receipt: str,
+        error: str = "",
+    ) -> None:
+        self.backend = backend
+        self.printer_name = printer_name
+        self.printer_job_id = printer_job_id
+        self.status = status
+        self.receipt = receipt
+        self.error = error
 
 
 def make_submission_id() -> str:
@@ -1092,6 +1131,199 @@ def build_offline_pack(
 def safe_print_source(source_code: str) -> str:
     source = source_code.replace("\r\n", "\n").replace("\r", "\n")
     return source if source.endswith("\n") else f"{source}\n"
+
+
+def contest_print_document(print_job: ContestPrintJob, *, copies: int = 1) -> str:
+    header = [
+        f"Contest: {print_job.contest_id}",
+        f"Print job: {print_job.id}",
+        f"Submission: {print_job.submission_id or '-'}",
+        f"User: {print_job.user_display_name or print_job.user_id} ({print_job.user_id})",
+        f"Problem: {print_job.problem_key or print_job.problem_id or '-'} {print_job.problem_title or ''}".rstrip(),
+        f"Language: {print_job.language or '-'}",
+        f"Source: {print_job.source_kind}",
+        f"Lines: {print_job.line_count}",
+        f"Copies: {copies}",
+        "",
+        "-" * 72,
+        "",
+    ]
+    return "\n".join(header) + print_job.source_code
+
+
+def _print_spool_dir() -> Path:
+    configured = PRINT_SPOOL_DIR.strip()
+    return Path(configured).expanduser() if configured else DEFAULT_PRINT_SPOOL_DIR
+
+
+def _write_print_spool_file(print_job: ContestPrintJob, document: str) -> tuple[str, str]:
+    spool_dir = _print_spool_dir()
+    spool_dir.mkdir(parents=True, exist_ok=True)
+    path = spool_dir / f"{print_job.id}.txt"
+    path.write_text(document, encoding="utf-8", newline="\n")
+    return f"file:{print_job.id}", str(path)
+
+
+def _completed_output(completed: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(part.strip() for part in [completed.stdout, completed.stderr] if part and part.strip())
+
+
+def _run_printer_command(args: list[str]) -> str:
+    timeout = max(1, PRINT_COMMAND_TIMEOUT_SECONDS)
+    try:
+        completed = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise PrintBackendError(f"Printer command not found: {args[0]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PrintBackendError(f"Printer command timed out after {timeout} seconds") from exc
+    output = _completed_output(completed)
+    if completed.returncode != 0:
+        raise PrintBackendError(output or f"Print command failed with exit code {completed.returncode}")
+    return output
+
+
+def _cups_job_id(output: str) -> str:
+    match = re.search(r"\brequest id is\s+([^\s]+)", output, flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def _powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _dispatch_print_file(print_job: ContestPrintJob, document: str, *, printer_name: str, copies: int) -> PrintDispatchResult:
+    job_id, receipt = _write_print_spool_file(print_job, document)
+    return PrintDispatchResult(
+        backend="file",
+        printer_name=printer_name,
+        printer_job_id=job_id,
+        status="queued",
+        receipt=receipt,
+    )
+
+
+def _dispatch_print_command(print_job: ContestPrintJob, document: str, *, printer_name: str, copies: int) -> PrintDispatchResult:
+    command_template = PRINT_COMMAND.strip()
+    if not command_template:
+        raise PrintBackendError("GAYOJ_PRINT_COMMAND is required when GAYOJ_PRINT_BACKEND=command")
+    job_id, spool_path = _write_print_spool_file(print_job, document)
+    command = command_template.format(
+        file=spool_path,
+        printer=printer_name,
+        copies=copies,
+        job_id=print_job.id,
+    )
+    output = _run_printer_command(shlex.split(command))
+    receipt = output or spool_path
+    return PrintDispatchResult(
+        backend="command",
+        printer_name=printer_name,
+        printer_job_id=job_id,
+        status="accepted",
+        receipt=receipt[:1000],
+    )
+
+
+def _dispatch_print_cups(print_job: ContestPrintJob, document: str, *, printer_name: str, copies: int) -> PrintDispatchResult:
+    _, spool_path = _write_print_spool_file(print_job, document)
+    args = ["lp"]
+    if printer_name and printer_name != "default":
+        args.extend(["-d", printer_name])
+    if copies > 1:
+        args.extend(["-n", str(copies)])
+    args.extend(["-t", f"gayoj-{print_job.id}", spool_path])
+    output = _run_printer_command(args)
+    printer_job_id = _cups_job_id(output) or f"cups:{print_job.id}"
+    return PrintDispatchResult(
+        backend="cups",
+        printer_name=printer_name,
+        printer_job_id=printer_job_id,
+        status="accepted",
+        receipt=(output or spool_path)[:1000],
+    )
+
+
+def _dispatch_print_windows(print_job: ContestPrintJob, document: str, *, printer_name: str, copies: int) -> PrintDispatchResult:
+    _, spool_path = _write_print_spool_file(print_job, document)
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if not powershell:
+        raise PrintBackendError("PowerShell executable not found for Windows print backend")
+    printer_literal = "" if printer_name == "default" else printer_name
+    script = "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$path = {_powershell_quote(spool_path)}",
+            f"$printer = {_powershell_quote(printer_literal)}",
+            f"$copies = {copies}",
+            "$content = Get-Content -LiteralPath $path -Raw",
+            "for ($i = 0; $i -lt $copies; $i++) {",
+            "  if ([string]::IsNullOrWhiteSpace($printer)) {",
+            "    $content | Out-Printer",
+            "  } else {",
+            "    $content | Out-Printer -Name $printer",
+            "  }",
+            "}",
+            "$job = $null",
+            "if (-not [string]::IsNullOrWhiteSpace($printer)) {",
+            "  try {",
+            "    $job = Get-PrintJob -PrinterName $printer | Sort-Object SubmittedTime -Descending | Select-Object -First 1",
+            "  } catch { $job = $null }",
+            "}",
+            "if ($job) {",
+            "  Write-Output ('job_id=' + $job.ID + ';name=' + $job.Name + ';status=' + $job.JobStatus + ';printer=' + $printer)",
+            "} else {",
+            "  Write-Output ('accepted_by=Out-Printer;printer=' + $printer + ';copies=' + $copies)",
+            "}",
+        ]
+    )
+    output = _run_printer_command(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]
+    )
+    match = re.search(r"\bjob_id=([^;]+)", output)
+    printer_job_id = f"windows:{match.group(1)}" if match else f"windows:{print_job.id}"
+    return PrintDispatchResult(
+        backend="windows",
+        printer_name=printer_name,
+        printer_job_id=printer_job_id,
+        status="accepted",
+        receipt=(output or spool_path)[:1000],
+    )
+
+
+def _dispatch_print_system(print_job: ContestPrintJob, document: str, *, printer_name: str, copies: int) -> PrintDispatchResult:
+    if os.name == "nt":
+        return _dispatch_print_windows(print_job, document, printer_name=printer_name, copies=copies)
+    return _dispatch_print_cups(print_job, document, printer_name=printer_name, copies=copies)
+
+
+def dispatch_contest_print_job(
+    print_job: ContestPrintJob,
+    *,
+    printer_name: str | None = None,
+    copies: int = 1,
+) -> PrintDispatchResult:
+    backend = PRINT_BACKEND.strip().lower() or "file"
+    resolved_printer = (printer_name or PRINT_DEFAULT_PRINTER or "default").strip()
+    document = contest_print_document(print_job, copies=copies)
+    if backend == "file":
+        return _dispatch_print_file(print_job, document, printer_name=resolved_printer, copies=copies)
+    if backend == "command":
+        return _dispatch_print_command(print_job, document, printer_name=resolved_printer, copies=copies)
+    if backend == "cups":
+        return _dispatch_print_cups(print_job, document, printer_name=resolved_printer, copies=copies)
+    if backend == "windows":
+        return _dispatch_print_windows(print_job, document, printer_name=resolved_printer, copies=copies)
+    if backend == "system":
+        return _dispatch_print_system(print_job, document, printer_name=resolved_printer, copies=copies)
+    if backend == "disabled":
+        raise PrintBackendError("Physical printer backend is disabled")
+    raise PrintBackendError(f"Unsupported GAYOJ_PRINT_BACKEND: {backend}")
 
 
 def contest_submission_is_accepted(submission: Submission) -> bool:
