@@ -2714,6 +2714,52 @@ pre {
   gap: 8px;
 }
 
+.discussion-filter-panel,
+.discussion-filter,
+.discussion-pager {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.discussion-filter-panel {
+  justify-content: space-between;
+}
+
+.discussion-filter {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.discussion-filter label {
+  min-width: min(100%, 180px);
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.discussion-filter input,
+.discussion-filter select {
+  min-height: 38px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.discussion-pager {
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.discussion-pager span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .discuss-layout {
   display: grid;
   grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
@@ -2786,6 +2832,56 @@ pre {
 .notification-list {
   display: grid;
   gap: 10px;
+}
+
+.notification-status-panel {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.notification-status-panel > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.notification-status-panel svg {
+  flex: 0 0 auto;
+  color: var(--primary-strong);
+}
+
+.notification-status-panel span {
+  font-weight: 850;
+}
+
+.notification-status-panel b,
+.notification-status-panel p {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-status-panel p {
+  margin: 0;
+}
+
+.stream-live {
+  border-color: color-mix(in oklch, var(--success) 42%, var(--line));
+}
+
+.stream-fallback {
+  border-color: color-mix(in oklch, var(--warning) 42%, var(--line));
 }
 
 .notification-row {
@@ -3745,6 +3841,7 @@ pre {
 
   .page-heading,
   .toolbar-panel,
+  .discussion-filter-panel,
   .report-export-panel {
     align-items: stretch;
     flex-direction: column;
@@ -3757,6 +3854,19 @@ pre {
 
   .report-actions .secondary-action {
     flex: 1 1 120px;
+  }
+
+  .discussion-filter,
+  .discussion-pager,
+  .notification-status-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .discussion-filter label,
+  .discussion-filter .secondary-action,
+  .notification-status-panel > div {
+    width: 100%;
   }
 
   .audit-filter {
@@ -3788,6 +3898,7 @@ pre {
   .similarity-card,
   .similarity-pair,
   .similarity-meta-row,
+  .notification-row,
   .assignment-state-grid,
   .profile-metrics {
     grid-template-columns: 1fr;
