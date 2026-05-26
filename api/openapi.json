@@ -1152,7 +1152,27 @@
         "type": "object"
       },
       "Contest": {
+        "additionalProperties": false,
         "properties": {
+          "access_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "password",
+              "invite",
+              "team",
+              "manual"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
+          "access_unlocked_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Access Unlocked User Ids",
+            "type": "array"
+          },
           "end_at": {
             "format": "date-time",
             "title": "End At",
@@ -1199,6 +1219,13 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "participant_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant User Ids",
+            "type": "array"
           },
           "problem_ids": {
             "items": {
@@ -1266,6 +1293,13 @@
             "title": "Status",
             "type": "string"
           },
+          "team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -1290,6 +1324,61 @@
           "status"
         ],
         "title": "Contest",
+        "type": "object"
+      },
+      "ContestAccessRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "title": "ContestAccessRequest",
+        "type": "object"
+      },
+      "ContestAccessResponse": {
+        "properties": {
+          "access_mode": {
+            "enum": [
+              "open",
+              "password",
+              "invite",
+              "team",
+              "manual"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
+          "access_unlocked": {
+            "title": "Access Unlocked",
+            "type": "boolean"
+          },
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contest_id",
+          "access_mode",
+          "access_unlocked",
+          "message"
+        ],
+        "title": "ContestAccessResponse",
         "type": "object"
       },
       "ContestAnnouncement": {
@@ -1533,10 +1622,42 @@
       "ContestCreate": {
         "additionalProperties": false,
         "properties": {
+          "access_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Code"
+          },
+          "access_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "password",
+              "invite",
+              "team",
+              "manual"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
           "end_at": {
             "format": "date-time",
             "title": "End At",
             "type": "string"
+          },
+          "participant_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant User Ids",
+            "type": "array"
           },
           "problem_ids": {
             "items": {
@@ -1568,6 +1689,13 @@
             "title": "Start At",
             "type": "string"
           },
+          "team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -1592,7 +1720,32 @@
         "type": "object"
       },
       "ContestDetail": {
+        "additionalProperties": false,
         "properties": {
+          "access_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "password",
+              "invite",
+              "team",
+              "manual"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
+          "access_unlocked": {
+            "default": false,
+            "title": "Access Unlocked",
+            "type": "boolean"
+          },
+          "access_unlocked_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Access Unlocked User Ids",
+            "type": "array"
+          },
           "end_at": {
             "format": "date-time",
             "title": "End At",
@@ -1656,6 +1809,18 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "participant_count": {
+            "default": 0,
+            "title": "Participant Count",
+            "type": "integer"
+          },
+          "participant_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant User Ids",
+            "type": "array"
           },
           "problem_ids": {
             "items": {
@@ -1729,6 +1894,13 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -2759,10 +2931,42 @@
       "ContestUpdate": {
         "additionalProperties": false,
         "properties": {
+          "access_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Code"
+          },
+          "access_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "password",
+              "invite",
+              "team",
+              "manual"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
           "end_at": {
             "format": "date-time",
             "title": "End At",
             "type": "string"
+          },
+          "participant_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant User Ids",
+            "type": "array"
           },
           "problem_ids": {
             "items": {
@@ -2793,6 +2997,13 @@
             "format": "date-time",
             "title": "Start At",
             "type": "string"
+          },
+          "team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -9713,6 +9924,71 @@
           }
         },
         "summary": "Update Contest"
+      }
+    },
+    "/api/v1/contests/{contest_id}/access": {
+      "post": {
+        "operationId": "unlock_contest_access_api_v1_contests__contest_id__access_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlock Contest Access"
       }
     },
     "/api/v1/contests/{contest_id}/announcements": {

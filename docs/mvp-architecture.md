@@ -291,6 +291,14 @@
 - `sync-results` 会把每条结果的来源传回 API；服务端会校验题单来源是否仍授权该题，未授权则返回 `source_not_authorized`。
 - 同步拒绝项新增 `reason_code`，让 CLI、smoke 和后续前端能稳定区分策略拒绝、来源未授权、幂等冲突和非客观题。
 
+## P6-10 比赛可见性与访问控制
+
+- 比赛在 `visibility` 之外新增 `access_mode`，支持开放、口令、邀请码、队伍/班级和手动白名单；旧公开赛会按开放赛兼容读取。
+- 口令和邀请码只保存 `access_code_hash`，通过 `POST /api/v1/contests/{contest_id}/access` 解锁到 `access_unlocked_user_ids`，响应不返回明文或哈希。
+- 队伍赛通过 `team_ids` 校验成员，白名单赛通过 `participant_user_ids` 校验用户；比赛列表只向学生返回已可进入的比赛，管理员、裁判和比赛管理者仍可运维。
+- 比赛详情、题面、提交、Clarification、公告、打印、气球、封榜和赛后重测都复用统一访问校验与资源归属校验；外榜和实时外榜只公开 `visibility=public` 且 `access_mode=open` 的比赛。
+- 代码打印只读取已提交源码或本次请求体，不编译、不运行用户代码；普通比赛题面继续剔除 `judge_config`。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

@@ -507,6 +507,26 @@ The Web submissions page exposes the same controls to users with
 `submission:override`. Rejudge only places work back on the online judge queue;
 API, Web, and the offline CLI still do not compile, run, or locally judge code.
 
+## P6-10 Contest access control
+
+Contests keep the legacy `visibility` field and now add `access_mode`:
+`open`, `password`, `invite`, `team`, or `manual`. Password and invite contests
+store only `access_code_hash`; contest responses never return the raw code or
+hash. Team contests check `team_ids`, manual contests check
+`participant_user_ids`, and password/invite contests unlock a student through:
+
+```text
+POST /api/v1/contests/{contest_id}/access
+```
+
+Contest detail, problem statements, submissions, Clarification, announcements,
+printing, balloons, freeze/unfreeze, and rejudge routes all pass through the
+same contest access check. External and live boards expose only public open
+contests, while pure single-purpose pages keep their app-shell-free layout.
+Contest printing reads only submitted source or the current request body and
+does not execute user code. Ordinary contest problem payloads still omit
+`judge_config`.
+
 ## P5-01 Objective rule tests
 
 The objective rule regression suite lives in
