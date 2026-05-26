@@ -103,6 +103,7 @@ Runtime database code is centralized under `apps/api/storage`:
 
 - `database_config.py` reads MySQL and SQLite settings.
 - `database.py` owns all runtime SQL, connection creation, parameterized reads/writes, SQLite WAL/cache settings, and MySQL-to-SQLite fallback.
+- The database layer keeps version-aware payload caches, and `snapshot_repository.py` keeps an in-process parsed snapshot cache. Aggregated pages such as contest judge workbench therefore reuse one normalized snapshot across repeated repository calls until the underlying payload changes.
 
 MySQL is the default primary store (`GAYOJ_STORAGE_BACKEND=mysql`). If MySQL cannot be opened, the API falls back to SQLite at `apps/api/storage/gayoj.sqlite3`. The legacy `apps/api/storage/dev-db.json` file is treated only as a compatible seed snapshot for first database initialization; it is not used as the runtime write store.
 

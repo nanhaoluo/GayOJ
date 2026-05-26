@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from pathlib import Path
@@ -17,6 +18,8 @@ class SnapshotRepository(Store):
         self.path = seed_path or Path("<database-state>")
         self.database = database
         self._lock = threading.RLock()
+        self._cached_payload: str | None = None
+        self._cached_data: dict[str, Any] | None = None
         self._ensure_seeded()
 
     @classmethod
@@ -63,18 +66,33 @@ class SnapshotRepository(Store):
             payload = self.database.read_payload()
             if payload is None:
                 data = self._load_seed_data()
-            else:
-                data = json.loads(payload)
-                if not isinstance(data, dict):
-                    data = seed_data()
-            data, changed = self._normalize_data(data)
-            if changed or payload is None:
+                data, _changed = self._normalize_data(data)
                 self._write(data)
-            return data
+                return copy.deepcopy(data)
+            if self._cached_data is not None and self._cached_payload == payload:
+                return copy.deepcopy(self._cached_data)
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                data = seed_data()
+            if not isinstance(data, dict):
+                data = seed_data()
+            data, changed = self._normalize_data(data)
+            if changed:
+                self._write(data)
+                return copy.deepcopy(data)
+            self._cache_snapshot(payload, data)
+            return copy.deepcopy(data)
 
     def _write(self, data: dict[str, Any]) -> None:
         with self._lock:
-            self.database.write_payload(json.dumps(data, ensure_ascii=False, indent=2))
+            payload = json.dumps(data, ensure_ascii=False, indent=2)
+            self.database.write_payload(payload)
+            self._cache_snapshot(payload, data)
+
+    def _cache_snapshot(self, payload: str, data: dict[str, Any]) -> None:
+        self._cached_payload = payload
+        self._cached_data = copy.deepcopy(data)
 
 
 def create_snapshot_repository(settings: DatabaseSettings) -> SnapshotRepository:

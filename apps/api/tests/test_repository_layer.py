@@ -14,6 +14,23 @@ ROOT = Path(__file__).resolve().parents[3]
 DEV_DB = ROOT / "apps" / "api" / "storage" / "dev-db.json"
 
 
+class CountingStateDatabase:
+    label = "counting"
+
+    def __init__(self, payload: str | None = None):
+        self.payload = payload
+        self.reads = 0
+        self.writes: list[str] = []
+
+    def read_payload(self) -> str | None:
+        self.reads += 1
+        return self.payload
+
+    def write_payload(self, payload: str) -> None:
+        self.payload = payload
+        self.writes.append(payload)
+
+
 def sqlite_repository(tmp_path: Path, seed_path: Path | None = None, name: str = "gayoj-test.sqlite3") -> SnapshotRepository:
     return SnapshotRepository.sqlite(tmp_path / name, seed_path=seed_path)
 
@@ -229,4 +246,24 @@ def test_sqlite_repository_persists_updates_across_instances(tmp_path: Path) -> 
 
     assert config["site_name"] == "gayoj"
     assert second.get_system_config()["site_name"] == "SQLite gayoj"
+
+
+def test_snapshot_repository_reuses_parsed_snapshot_until_payload_changes() -> None:
+    database = CountingStateDatabase()
+    repository = SnapshotRepository(database)
+    database.reads = 0
+    database.writes.clear()
+
+    users = repository.list_users()
+    users[0].display_name = "mutated outside repository"
+
+    assert repository.get_user("u-student").display_name != "mutated outside repository"
+    assert database.reads == 2
+    assert database.writes == []
+
+    changed = seed_data()
+    changed["system_config"]["site_name"] = "Changed by database"
+    database.payload = json.dumps(changed, ensure_ascii=False)
+
+    assert repository.get_system_config()["site_name"] == "Changed by database"
 
