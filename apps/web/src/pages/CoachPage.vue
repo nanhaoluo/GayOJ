@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BarChart3, ClipboardCheck, Plus, UsersRound } from 'lucide-vue-next';
+import { Activity, BarChart3, ClipboardCheck, Filter, Plus, ShieldCheck, UsersRound } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BaseModal from '@/components/BaseModal.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
@@ -8,6 +8,8 @@ import type {
   AssignmentAnalytics,
   AssignmentProgressState,
   CoachAnalyticsResponse,
+  CoachSimilarityFinding,
+  CoachSimilarityResponse,
   ProblemSet,
   StudentAbilityProfile,
   TagMastery,
@@ -15,8 +17,10 @@ import type {
 } from '@/services/types';
 
 const data = ref<CoachAnalyticsResponse | null>(null);
+const similarity = ref<CoachSimilarityResponse | null>(null);
 const problemSets = ref<ProblemSet[]>([]);
 const error = ref('');
+const similarityError = ref('');
 const assignmentOpen = ref(false);
 const teamForm = reactive({ name: '', description: '' });
 const assignmentForm = reactive({
@@ -25,6 +29,11 @@ const assignmentForm = reactive({
   problem_set_id: '',
   team_id: '',
   due_at: '',
+});
+const similarityFilters = reactive({
+  problem_id: '',
+  contest_id: '',
+  threshold: 82,
 });
 
 const stateText: Record<AssignmentProgressState, string> = {
@@ -38,6 +47,7 @@ const visibleProfiles = computed(() => data.value?.student_profiles.slice(0, 6) 
 const topTags = computed(() => data.value?.tag_mastery.slice(0, 8) ?? []);
 const activityCells = computed(() => data.value?.activity_heatmap.slice(-21) ?? []);
 const heatmapMax = computed(() => Math.max(1, ...activityCells.value.map((item) => item.attempts)));
+const similarityFindings = computed(() => similarity.value?.findings ?? []);
 
 function percent(value: number): string {
   return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
@@ -55,14 +65,45 @@ function stateCount(item: AssignmentAnalytics, state: AssignmentProgressState): 
   return item.state_counts[state] ?? 0;
 }
 
+function studentTeams(item: CoachSimilarityFinding, side: 'a' | 'b'): string {
+  const student = side === 'a' ? item.student_a : item.student_b;
+  return student.team_names.length ? student.team_names.join('、') : student.school || '未分组';
+}
+
+function similarityMeta(item: CoachSimilarityFinding): string {
+  const contest = item.contest_title ? `${item.contest_title} · ` : '';
+  return `${contest}${item.language.toUpperCase()} · 共享 ${item.shared_token_count} 个 token`;
+}
+
+function similarityQuery(): string {
+  const params = new URLSearchParams({
+    threshold: String(similarityFilters.threshold / 100),
+    limit: '50',
+  });
+  if (similarityFilters.problem_id) params.set('problem_id', similarityFilters.problem_id);
+  if (similarityFilters.contest_id) params.set('contest_id', similarityFilters.contest_id);
+  return params.toString();
+}
+
+async function loadSimilarity() {
+  similarityError.value = '';
+  try {
+    similarity.value = await apiRequest<CoachSimilarityResponse>(`/coach/similarity?${similarityQuery()}`);
+  } catch (err) {
+    similarityError.value = err instanceof Error ? err.message : '加载相似提交失败。';
+  }
+}
+
 async function load() {
   try {
-    const [analytics, sets] = await Promise.all([
+    const [analytics, sets, similarityData] = await Promise.all([
       apiRequest<CoachAnalyticsResponse>('/coach/analytics'),
       apiRequest<ProblemSet[]>('/problem-sets', { auth: false }),
+      apiRequest<CoachSimilarityResponse>(`/coach/similarity?${similarityQuery()}`),
     ]);
     data.value = analytics;
     problemSets.value = sets;
+    similarity.value = similarityData;
     assignmentForm.problem_set_id ||= sets[0]?.id ?? '';
     assignmentForm.team_id ||= analytics.teams[0]?.id ?? '';
   } catch (err) {
@@ -128,6 +169,7 @@ onMounted(load);
         <span><Activity :size="15" />{{ data.active_students }} 名活跃</span>
         <span><ClipboardCheck :size="15" />{{ data.assignments.length }} 个作业</span>
         <span><BarChart3 :size="15" />{{ data.tag_mastery.length }} 个标签</span>
+        <span><ShieldCheck :size="15" />{{ similarity?.findings.length ?? 0 }} 组相似</span>
       </section>
 
       <section class="dashboard-grid coach-dashboard-grid">
@@ -241,6 +283,70 @@ onMounted(load);
               <strong>{{ item.solved }}</strong>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head coach-similarity-head">
+          <div>
+            <h2>防抄袭辅助</h2>
+            <p>仅展示相似提交元数据，源码与标准答案不在此处展示</p>
+          </div>
+          <form class="similarity-filter" @submit.prevent="loadSimilarity">
+            <label>
+              <span>题目</span>
+              <select v-model="similarityFilters.problem_id">
+                <option value="">全部题目</option>
+                <option v-for="problem in similarity?.problems" :key="problem.id" :value="problem.id">
+                  {{ problem.title }}（{{ problem.count }}）
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>比赛</span>
+              <select v-model="similarityFilters.contest_id">
+                <option value="">全部来源</option>
+                <option v-for="contest in similarity?.contests" :key="contest.id" :value="contest.id">
+                  {{ contest.title }}（{{ contest.count }}）
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>阈值 {{ similarityFilters.threshold }}%</span>
+              <input v-model.number="similarityFilters.threshold" min="50" max="100" step="1" type="range" />
+            </label>
+            <button class="secondary-action" type="submit"><Filter :size="16" />筛选</button>
+          </form>
+        </div>
+        <p v-if="similarityError" class="form-error">{{ similarityError }}</p>
+        <div v-if="similarity" class="similarity-summary">
+          <span>{{ similarity.scanned_submission_count }} 条代码提交</span>
+          <span>{{ similarity.candidate_pair_count }} 组候选对比</span>
+          <span>生成 {{ formatDate(similarity.generated_at) }}</span>
+        </div>
+        <div class="similarity-list">
+          <article v-for="item in similarityFindings" :key="`${item.submission_a_id}-${item.submission_b_id}`" class="similarity-card">
+            <div class="similarity-score">
+              <strong>{{ percent(item.similarity) }}</strong>
+              <span>相似度</span>
+            </div>
+            <div class="similarity-main">
+              <div class="similarity-title">
+                <strong>{{ item.problem_title }}</strong>
+                <span>{{ similarityMeta(item) }}</span>
+              </div>
+              <div class="similarity-pair">
+                <span>{{ item.student_a.display_name }} · {{ studentTeams(item, 'a') }}</span>
+                <span>{{ item.student_b.display_name }} · {{ studentTeams(item, 'b') }}</span>
+              </div>
+              <div class="similarity-meta-row">
+                <span>{{ item.submission_a_id }} · {{ formatDate(item.submitted_at_a) }}</span>
+                <span>{{ item.submission_b_id }} · {{ formatDate(item.submitted_at_b) }}</span>
+              </div>
+            </div>
+            <b class="status-pill">需复核</b>
+          </article>
+          <p v-if="similarityFindings.length === 0" class="empty-state">暂无达到阈值的相似提交。</p>
         </div>
       </section>
 

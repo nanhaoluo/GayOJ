@@ -1252,6 +1252,120 @@ p {
   margin-top: 14px;
 }
 
+.coach-similarity-head {
+  align-items: stretch;
+}
+
+.similarity-filter {
+  min-width: min(100%, 620px);
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(150px, 0.8fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.similarity-filter label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.similarity-filter select,
+.similarity-filter input[type='range'] {
+  min-width: 0;
+}
+
+.similarity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.similarity-summary span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.similarity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.similarity-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 95%, var(--surface-strong));
+}
+
+.similarity-score {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  background: color-mix(in oklch, white 72%, var(--warning));
+  color: color-mix(in oklch, var(--warning) 58%, black);
+}
+
+.similarity-score strong {
+  font-size: 20px;
+}
+
+.similarity-score span,
+.similarity-title span,
+.similarity-pair span,
+.similarity-meta-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.similarity-main,
+.similarity-title {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.similarity-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.similarity-pair,
+.similarity-meta-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.similarity-pair span,
+.similarity-meta-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .contest-row,
 .problem-short-list a,
 .problem-row {
@@ -3517,6 +3631,14 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .coach-similarity-head {
+    display: grid;
+  }
+
+  .similarity-filter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .problem-editor-grid {
     grid-template-columns: 1fr;
   }
@@ -3607,9 +3729,17 @@ pre {
 
   .profile-list,
   .tag-mastery-grid,
+  .similarity-filter,
+  .similarity-card,
+  .similarity-pair,
+  .similarity-meta-row,
   .assignment-state-grid,
   .profile-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .similarity-score {
+    justify-items: start;
   }
 
   .large-panel {

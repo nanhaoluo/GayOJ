@@ -44,6 +44,7 @@ from .models import (
     CompilerConfigUpdate,
     CompilerLanguage,
     CoachAnalyticsResponse,
+    CoachSimilarityResponse,
     Contest,
     ContestAnnouncement,
     ContestAnnouncementCreate,
@@ -136,7 +137,9 @@ from .rbac import role_has_permission, role_permission_matrix
 from .services import (
     build_offline_pack,
     build_coach_analytics,
+    build_coach_similarity,
     build_contest_balloon,
+    coach_scope,
     contest_submission_is_balloon_eligible,
     judge_objective,
     make_submission_id,
@@ -2990,6 +2993,72 @@ def coach_analytics(
         submissions=store.list_submissions(),
         now_value=now(),
     )
+
+
+@app.get("/api/v1/coach/similarity", response_model=CoachSimilarityResponse)
+def coach_similarity(
+    problem_id: str | None = Query(default=None, min_length=1, max_length=64),
+    contest_id: str | None = Query(default=None, min_length=1, max_length=64),
+    threshold: float = Query(default=0.82, ge=0.5, le=1.0),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(require_permissions("analytics:read")),
+    store: Repository = Depends(get_repository),
+) -> CoachSimilarityResponse:
+    users = store.list_users()
+    teams = store.list_teams()
+    assignments = store.list_assignments()
+    problem_sets = store.list_problem_sets()
+    scope = coach_scope(
+        coach=user,
+        users=users,
+        teams=teams,
+        assignments=assignments,
+        problem_sets=problem_sets,
+    )
+    scoped_problem_ids = set(scope["problem_ids"])
+    if problem_id and problem_id not in scoped_problem_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Problem is outside coach scope")
+    contests = store.list_contests()
+    if contest_id:
+        contest = next((item for item in contests if item.id == contest_id), None)
+        if not contest:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+        if (
+            contest.visibility != "public"
+            and not role_has_permission(user.role, "contest:manage")
+            and not role_has_permission(user.role, "judge:monitor")
+            and not role_has_permission(user.role, "clarification:read:all")
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+        if not scoped_problem_ids.intersection(contest.problem_ids):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Contest is outside coach scope")
+    response = build_coach_similarity(
+        coach=user,
+        users=users,
+        teams=teams,
+        assignments=assignments,
+        problem_sets=problem_sets,
+        problems=store.list_problems(),
+        contests=contests,
+        submissions=store.list_submissions(),
+        problem_id=problem_id,
+        contest_id=contest_id,
+        threshold=threshold,
+        limit=limit,
+        now_value=now(),
+    )
+    store.add_audit(
+        user.id,
+        "coach.similarity.list",
+        "coach:similarity",
+        {
+            "problem_id": problem_id,
+            "contest_id": contest_id,
+            "threshold": threshold,
+            "count": len(response.findings),
+        },
+    )
+    return response
 
 
 @app.post("/api/v1/teams", response_model=Team)

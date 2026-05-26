@@ -16,6 +16,10 @@ from .models import (
     AssignmentStudentStatus,
     ActivityHeatmapCell,
     CoachAnalyticsResponse,
+    CoachSimilarityFinding,
+    CoachSimilarityFilterOption,
+    CoachSimilarityResponse,
+    CoachSimilarityStudent,
     ContestBalloon,
     Contest,
     ObjectiveItemResult,
@@ -31,6 +35,10 @@ from .models import (
 
 
 PACK_SECRET = OFFLINE_PACK_SECRET
+CODE_SIMILARITY_TOKEN_PATTERN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|==|!=|<=|>=|&&|\|\||[{}()\[\];,.:+\-*/%<>=\"']"
+)
+CODE_SIMILARITY_COMMENT_PATTERN = re.compile(r"//.*?$|/\*.*?\*/|#.*?$", re.MULTILINE | re.DOTALL)
 
 
 def make_submission_id() -> str:
@@ -309,6 +317,222 @@ def build_coach_analytics(
             )
             for student in sorted(student_scope, key=lambda item: (item.display_name, item.id))
         ],
+    )
+
+
+def coach_scope(
+    *,
+    coach: User,
+    users: list[User],
+    teams: list[Team],
+    assignments: list[Assignment],
+    problem_sets: list[ProblemSet],
+) -> dict[str, Any]:
+    team_scope = [team for team in teams if team.owner_id == coach.id]
+    scoped_team_ids = {team.id for team in team_scope}
+    scoped_assignments = [
+        assignment
+        for assignment in assignments
+        if assignment.created_by == coach.id or (assignment.team_id is not None and assignment.team_id in scoped_team_ids)
+    ]
+    student_ids = {
+        member_id
+        for team in team_scope
+        for member_id in team.member_ids
+    }
+    students = [user for user in users if user.role == "student" and user.id in student_ids]
+    problem_set_by_id = {problem_set.id: problem_set for problem_set in problem_sets}
+    problem_ids = {
+        problem_id
+        for assignment in scoped_assignments
+        for problem_id in (problem_set_by_id.get(assignment.problem_set_id).problem_ids if problem_set_by_id.get(assignment.problem_set_id) else [])
+    }
+    return {
+        "teams": team_scope,
+        "assignments": scoped_assignments,
+        "students": students,
+        "student_ids": {student.id for student in students},
+        "problem_ids": problem_ids,
+    }
+
+
+def code_similarity_tokens(source_code: str) -> set[str]:
+    without_comments = CODE_SIMILARITY_COMMENT_PATTERN.sub(" ", source_code.lower())
+    tokens = CODE_SIMILARITY_TOKEN_PATTERN.findall(without_comments)
+    normalized: set[str] = set()
+    for token in tokens:
+        if not token.strip():
+            continue
+        if re.fullmatch(r"\d+(?:\.\d+)?", token):
+            normalized.add("<num>")
+        else:
+            normalized.add(token)
+    return normalized
+
+
+def code_token_similarity(tokens_a: set[str], tokens_b: set[str]) -> tuple[float, int]:
+    if not tokens_a or not tokens_b:
+        return 0.0, 0
+    shared = len(tokens_a & tokens_b)
+    smaller = min(len(tokens_a), len(tokens_b))
+    return shared / smaller if smaller else 0.0, shared
+
+
+def build_coach_similarity(
+    *,
+    coach: User,
+    users: list[User],
+    teams: list[Team],
+    assignments: list[Assignment],
+    problem_sets: list[ProblemSet],
+    problems: list[Problem],
+    contests: list[Contest],
+    submissions: list[Submission],
+    problem_id: str | None = None,
+    contest_id: str | None = None,
+    threshold: float = 0.82,
+    limit: int = 50,
+    now_value: datetime | None = None,
+) -> CoachSimilarityResponse:
+    current = ensure_utc_datetime(now_value) or datetime.now(timezone.utc)
+    scope = coach_scope(
+        coach=coach,
+        users=users,
+        teams=teams,
+        assignments=assignments,
+        problem_sets=problem_sets,
+    )
+    scoped_problem_ids: set[str] = set(scope["problem_ids"])
+    student_ids: set[str] = set(scope["student_ids"])
+    problem_by_id = {problem.id: problem for problem in problems}
+    contest_by_id = {contest.id: contest for contest in contests}
+    team_by_member: dict[str, list[Team]] = {}
+    for team in scope["teams"]:
+        for member_id in team.member_ids:
+            team_by_member.setdefault(member_id, []).append(team)
+    student_by_id = {student.id: student for student in scope["students"]}
+
+    scoped_submissions = [
+        submission
+        for submission in submissions
+        if submission.user_id in student_ids
+        and submission.problem_id in scoped_problem_ids
+        and submission.problem_type == "code"
+        and submission.source_code
+    ]
+
+    problem_counts: dict[str, int] = {}
+    contest_counts: dict[str, int] = {}
+    for submission in scoped_submissions:
+        problem_counts[submission.problem_id] = problem_counts.get(submission.problem_id, 0) + 1
+        if submission.contest_id:
+            contest_counts[submission.contest_id] = contest_counts.get(submission.contest_id, 0) + 1
+
+    if problem_id:
+        scoped_submissions = [submission for submission in scoped_submissions if submission.problem_id == problem_id]
+    if contest_id:
+        scoped_submissions = [submission for submission in scoped_submissions if submission.contest_id == contest_id]
+
+    token_by_submission_id = {
+        submission.id: code_similarity_tokens(submission.source_code or "")
+        for submission in scoped_submissions
+    }
+    candidate_pair_count = 0
+    findings: list[CoachSimilarityFinding] = []
+
+    grouped: dict[tuple[str, str | None, str], list[Submission]] = {}
+    for submission in scoped_submissions:
+        language = str(submission.language or "").strip().lower()
+        if not language:
+            continue
+        grouped.setdefault((submission.problem_id, submission.contest_id, language), []).append(submission)
+
+    def similarity_student(user_id: str) -> CoachSimilarityStudent:
+        student = student_by_id.get(user_id)
+        memberships = sorted(team_by_member.get(user_id, []), key=lambda team: (team.name, team.id))
+        return CoachSimilarityStudent(
+            user_id=user_id,
+            display_name=student.display_name if student else user_id,
+            school=student.school if student else "",
+            team_ids=[team.id for team in memberships],
+            team_names=[team.name for team in memberships],
+        )
+
+    for (group_problem_id, group_contest_id, language), group_submissions in grouped.items():
+        sorted_group = sorted(group_submissions, key=lambda item: (ensure_utc_datetime(item.created_at) or current, item.id))
+        for left_index, left in enumerate(sorted_group):
+            for right in sorted_group[left_index + 1 :]:
+                if left.user_id == right.user_id:
+                    continue
+                candidate_pair_count += 1
+                left_tokens = token_by_submission_id.get(left.id, set())
+                right_tokens = token_by_submission_id.get(right.id, set())
+                similarity, shared = code_token_similarity(left_tokens, right_tokens)
+                if similarity < threshold:
+                    continue
+                problem = problem_by_id.get(group_problem_id)
+                contest = contest_by_id.get(group_contest_id or "")
+                findings.append(
+                    CoachSimilarityFinding(
+                        problem_id=group_problem_id,
+                        problem_title=problem.title if problem else left.problem_title,
+                        contest_id=group_contest_id,
+                        contest_title=contest.title if contest else None,
+                        language=language,
+                        similarity=round(similarity, 4),
+                        shared_token_count=shared,
+                        token_count_a=len(left_tokens),
+                        token_count_b=len(right_tokens),
+                        submission_a_id=left.id,
+                        submission_b_id=right.id,
+                        submitted_at_a=ensure_utc_datetime(left.created_at) or current,
+                        submitted_at_b=ensure_utc_datetime(right.created_at) or current,
+                        status_a=left.status,
+                        status_b=right.status,
+                        student_a=similarity_student(left.user_id),
+                        student_b=similarity_student(right.user_id),
+                        reason="high_token_overlap",
+                    )
+                )
+
+    findings.sort(
+        key=lambda item: (
+            -item.similarity,
+            item.problem_title,
+            item.submitted_at_a,
+            item.submission_a_id,
+            item.submission_b_id,
+        )
+    )
+    limited_findings = findings[: max(1, limit)]
+
+    problem_options = [
+        CoachSimilarityFilterOption(
+            id=pid,
+            title=problem_by_id[pid].title if pid in problem_by_id else pid,
+            count=count,
+        )
+        for pid, count in sorted(problem_counts.items(), key=lambda item: (problem_by_id.get(item[0]).title if problem_by_id.get(item[0]) else item[0], item[0]))
+    ]
+    contest_options = [
+        CoachSimilarityFilterOption(
+            id=cid,
+            title=contest_by_id[cid].title if cid in contest_by_id else cid,
+            count=count,
+        )
+        for cid, count in sorted(contest_counts.items(), key=lambda item: (contest_by_id.get(item[0]).title if contest_by_id.get(item[0]) else item[0], item[0]))
+    ]
+    return CoachSimilarityResponse(
+        generated_at=current,
+        threshold=threshold,
+        limit=max(1, limit),
+        problem_id=problem_id,
+        contest_id=contest_id,
+        scanned_submission_count=len(scoped_submissions),
+        candidate_pair_count=candidate_pair_count,
+        findings=limited_findings,
+        problems=problem_options,
+        contests=contest_options,
     )
 
 
