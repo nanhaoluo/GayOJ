@@ -478,6 +478,17 @@
             ],
             "title": "Problem Id"
           },
+          "problem_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Key"
+          },
           "problem_title": {
             "anyOf": [
               {
@@ -1388,6 +1399,17 @@
           "problem_id": {
             "title": "Problem Id",
             "type": "string"
+          },
+          "problem_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Key"
           },
           "problem_title": {
             "title": "Problem Title",
