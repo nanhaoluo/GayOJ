@@ -291,6 +291,14 @@
 - `sync-results` 会把每条结果的来源传回 API；服务端会校验题单来源是否仍授权该题，未授权则返回 `source_not_authorized`。
 - 同步拒绝项新增 `reason_code`，让 CLI、smoke 和后续前端能稳定区分策略拒绝、来源未授权、幂等冲突和非客观题。
 
+## P6-09 报名、队伍与参赛名单
+
+- 比赛模型新增 `participation_mode`，支持 `open`、`individual` 和 `team`。开放赛保持训练赛低门槛；个人赛和队伍赛使用名单限制参赛。
+- 管理端可在比赛表单维护个人用户 ID 名单或队伍名单，并通过 `/api/v1/contests/{contest_id}/roster/lock` 锁定或解锁名单。名单锁定后，自助报名和管理端名单编辑都会返回 409。
+- 选手可通过 `/api/v1/contests/{contest_id}/register` 自助报名公开个人赛；队伍赛会按当前账号所在队伍加入队伍名单。
+- 比赛题面、提交、Clarification、提交状态和代码打印入口统一检查参赛资格。公开受限赛允许先打开比赛详情页完成报名，但题面和提交等资源仍在报名前不可访问。
+- 旧比赛数据通过存储迁移补齐报名字段，默认 `open`，不要求重建 `apps/api/storage/dev-db.json`。普通比赛题面继续不返回 `judge_config`，代码打印仍只读取提交源码或本次请求源码，不执行用户代码。
+
 ## 迁移到完整版本
 
 1. 增加 SQLAlchemy/SQLModel 或等价数据库仓储实现，替换当前 JSON 仓储适配器。

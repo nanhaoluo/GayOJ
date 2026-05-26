@@ -1200,6 +1200,16 @@
             "title": "Id",
             "type": "string"
           },
+          "participation_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "individual",
+              "team"
+            ],
+            "title": "Participation Mode",
+            "type": "string"
+          },
           "problem_ids": {
             "items": {
               "type": "string"
@@ -1212,6 +1222,20 @@
               "$ref": "#/components/schemas/ContestProblemLayoutItem"
             },
             "title": "Problem Layout",
+            "type": "array"
+          },
+          "registered_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered Team Ids",
+            "type": "array"
+          },
+          "registered_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered User Ids",
             "type": "array"
           },
           "rejudge_at": {
@@ -1241,6 +1265,34 @@
             "default": "",
             "title": "Rejudge Reason",
             "type": "string"
+          },
+          "roster_locked": {
+            "default": false,
+            "title": "Roster Locked",
+            "type": "boolean"
+          },
+          "roster_locked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked At"
+          },
+          "roster_locked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked By"
           },
           "rule": {
             "enum": [
@@ -1538,6 +1590,16 @@
             "title": "End At",
             "type": "string"
           },
+          "participation_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "individual",
+              "team"
+            ],
+            "title": "Participation Mode",
+            "type": "string"
+          },
           "problem_ids": {
             "items": {
               "type": "string"
@@ -1550,6 +1612,20 @@
               "$ref": "#/components/schemas/ContestProblemLayoutItem"
             },
             "title": "Problem Layout",
+            "type": "array"
+          },
+          "registered_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered Team Ids",
+            "type": "array"
+          },
+          "registered_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered User Ids",
             "type": "array"
           },
           "rule": {
@@ -1657,6 +1733,21 @@
             "title": "Id",
             "type": "string"
           },
+          "participant_user_count": {
+            "default": 0,
+            "title": "Participant User Count",
+            "type": "integer"
+          },
+          "participation_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "individual",
+              "team"
+            ],
+            "title": "Participation Mode",
+            "type": "string"
+          },
           "problem_ids": {
             "items": {
               "type": "string"
@@ -1676,6 +1767,30 @@
               "$ref": "#/components/schemas/ProblemSummary"
             },
             "title": "Problems",
+            "type": "array"
+          },
+          "registered_team_count": {
+            "default": 0,
+            "title": "Registered Team Count",
+            "type": "integer"
+          },
+          "registered_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered Team Ids",
+            "type": "array"
+          },
+          "registered_user_count": {
+            "default": 0,
+            "title": "Registered User Count",
+            "type": "integer"
+          },
+          "registered_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered User Ids",
             "type": "array"
           },
           "rejudge_at": {
@@ -1706,6 +1821,34 @@
             "title": "Rejudge Reason",
             "type": "string"
           },
+          "roster_locked": {
+            "default": false,
+            "title": "Roster Locked",
+            "type": "boolean"
+          },
+          "roster_locked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked At"
+          },
+          "roster_locked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked By"
+          },
           "rule": {
             "enum": [
               "ACM",
@@ -1715,6 +1858,18 @@
             ],
             "title": "Rule",
             "type": "string"
+          },
+          "self_registered": {
+            "default": false,
+            "title": "Self Registered",
+            "type": "boolean"
+          },
+          "self_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Self Team Ids",
+            "type": "array"
           },
           "start_at": {
             "format": "date-time",
@@ -2227,6 +2382,22 @@
         "title": "ContestProblemView",
         "type": "object"
       },
+      "ContestRegistrationResponse": {
+        "properties": {
+          "contest": {
+            "$ref": "#/components/schemas/ContestDetail"
+          },
+          "roster": {
+            "$ref": "#/components/schemas/ContestRosterResponse"
+          }
+        },
+        "required": [
+          "contest",
+          "roster"
+        ],
+        "title": "ContestRegistrationResponse",
+        "type": "object"
+      },
       "ContestRejudgeResponse": {
         "properties": {
           "contest_id": {
@@ -2312,6 +2483,111 @@
           "generated_at"
         ],
         "title": "ContestRollingResponse",
+        "type": "object"
+      },
+      "ContestRosterLockRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "locked": {
+            "default": true,
+            "title": "Locked",
+            "type": "boolean"
+          }
+        },
+        "title": "ContestRosterLockRequest",
+        "type": "object"
+      },
+      "ContestRosterResponse": {
+        "properties": {
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "participant_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant User Ids",
+            "type": "array"
+          },
+          "participation_mode": {
+            "enum": [
+              "open",
+              "individual",
+              "team"
+            ],
+            "title": "Participation Mode",
+            "type": "string"
+          },
+          "registered_teams": {
+            "items": {
+              "$ref": "#/components/schemas/Team"
+            },
+            "title": "Registered Teams",
+            "type": "array"
+          },
+          "registered_users": {
+            "items": {
+              "$ref": "#/components/schemas/PublicUser"
+            },
+            "title": "Registered Users",
+            "type": "array"
+          },
+          "roster_locked": {
+            "default": false,
+            "title": "Roster Locked",
+            "type": "boolean"
+          },
+          "roster_locked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked At"
+          },
+          "roster_locked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Locked By"
+          }
+        },
+        "required": [
+          "contest_id",
+          "participation_mode"
+        ],
+        "title": "ContestRosterResponse",
+        "type": "object"
+      },
+      "ContestRosterUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "registered_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered Team Ids",
+            "type": "array"
+          },
+          "registered_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered User Ids",
+            "type": "array"
+          }
+        },
+        "title": "ContestRosterUpdate",
         "type": "object"
       },
       "ContestSubmissionStatusResponse": {
@@ -2764,6 +3040,16 @@
             "title": "End At",
             "type": "string"
           },
+          "participation_mode": {
+            "default": "open",
+            "enum": [
+              "open",
+              "individual",
+              "team"
+            ],
+            "title": "Participation Mode",
+            "type": "string"
+          },
           "problem_ids": {
             "items": {
               "type": "string"
@@ -2776,6 +3062,20 @@
               "$ref": "#/components/schemas/ContestProblemLayoutItem"
             },
             "title": "Problem Layout",
+            "type": "array"
+          },
+          "registered_team_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered Team Ids",
+            "type": "array"
+          },
+          "registered_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Registered User Ids",
             "type": "array"
           },
           "rule": {
@@ -10359,6 +10659,61 @@
         "summary": "List Contest Problems"
       }
     },
+    "/api/v1/contests/{contest_id}/register": {
+      "post": {
+        "operationId": "register_contest_api_v1_contests__contest_id__register_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRegistrationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Contest"
+      }
+    },
     "/api/v1/contests/{contest_id}/rejudge": {
       "post": {
         "operationId": "rejudge_contest_api_v1_contests__contest_id__rejudge_post",
@@ -10477,6 +10832,189 @@
           }
         },
         "summary": "Rolling Contest Board"
+      }
+    },
+    "/api/v1/contests/{contest_id}/roster": {
+      "get": {
+        "operationId": "get_contest_roster_api_v1_contests__contest_id__roster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRosterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Contest Roster"
+      },
+      "put": {
+        "operationId": "update_contest_roster_api_v1_contests__contest_id__roster_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestRosterUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRosterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Contest Roster"
+      }
+    },
+    "/api/v1/contests/{contest_id}/roster/lock": {
+      "post": {
+        "operationId": "set_contest_roster_lock_api_v1_contests__contest_id__roster_lock_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestRosterLockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRosterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Contest Roster Lock"
       }
     },
     "/api/v1/contests/{contest_id}/standings": {
@@ -12965,6 +13503,54 @@
       }
     },
     "/api/v1/teams": {
+      "get": {
+        "operationId": "list_teams_api_v1_teams_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Team"
+                  },
+                  "title": "Response List Teams Api V1 Teams Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Teams"
+      },
       "post": {
         "operationId": "create_team_api_v1_teams_post",
         "parameters": [
