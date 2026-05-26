@@ -196,6 +196,179 @@ def test_contest_detail_respects_visibility_and_problem_scope(client: TestClient
     assert judge.status_code == 200
 
 
+def test_password_contest_requires_unlock_for_detail_resources_and_participation(client: TestClient, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/contests",
+        headers=auth_headers("judge"),
+        json={
+            "title": "Password Invitational",
+            "rule": "ACM",
+            "start_at": "2026-05-26T01:00:00Z",
+            "end_at": "2026-05-26T23:00:00Z",
+            "visibility": "public",
+            "access_mode": "password",
+            "access_code": "open-sesame",
+            "problem_ids": ["P1001", "P1003"],
+            "problem_layout": [
+                {"problem_id": "P1001", "problem_key": "A", "allowed_languages": []},
+                {"problem_id": "P1003", "problem_key": "B", "allowed_languages": []},
+            ],
+        },
+    )
+    assert created.status_code == 200, created.text
+    contest_id = created.json()["id"]
+    assert created.json()["access_mode"] == "password"
+    assert "access_code" not in created.json()
+    assert "access_code_hash" not in created.json()
+
+    anonymous_detail = client.get(f"/api/v1/contests/{contest_id}")
+    listed = client.get("/api/v1/contests", headers=auth_headers("alice"))
+    locked_detail = client.get(f"/api/v1/contests/{contest_id}", headers=auth_headers("alice"))
+    locked_problems = client.get(f"/api/v1/contests/{contest_id}/problems", headers=auth_headers("alice"))
+    locked_submit = client.post(
+        f"/api/v1/contests/{contest_id}/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    locked_clar = client.post(
+        f"/api/v1/contests/{contest_id}/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "Can I see this?"},
+    )
+    locked_print = client.post(
+        f"/api/v1/contests/{contest_id}/print",
+        headers=auth_headers("alice"),
+        json={"submission_id": "missing"},
+    )
+    wrong_unlock = client.post(
+        f"/api/v1/contests/{contest_id}/access",
+        headers=auth_headers("alice"),
+        json={"code": "wrong"},
+    )
+
+    assert anonymous_detail.status_code == 404
+    assert all(item["id"] != contest_id for item in listed.json())
+    assert locked_detail.status_code == 403
+    assert locked_problems.status_code == 403
+    assert locked_submit.status_code == 403
+    assert locked_clar.status_code == 403
+    assert locked_print.status_code == 403
+    assert wrong_unlock.status_code == 403
+
+    unlocked = client.post(
+        f"/api/v1/contests/{contest_id}/access",
+        headers=auth_headers("alice"),
+        json={"code": "open-sesame"},
+    )
+    assert unlocked.status_code == 200, unlocked.text
+    assert unlocked.json()["access_unlocked"] is True
+
+    detail = client.get(f"/api/v1/contests/{contest_id}", headers=auth_headers("alice"))
+    problems = client.get(f"/api/v1/contests/{contest_id}/problems", headers=auth_headers("alice"))
+    submitted = client.post(
+        f"/api/v1/contests/{contest_id}/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('locked print')\n"},
+    )
+    objective_submitted = client.post(
+        f"/api/v1/contests/{contest_id}/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "P1003", "answers": {"choice": "B"}},
+    )
+    asked = client.post(
+        f"/api/v1/contests/{contest_id}/clarifications",
+        headers=auth_headers("alice"),
+        json={"question": "Now visible", "problem_id": "P1003"},
+    )
+    printed = client.post(
+        f"/api/v1/contests/{contest_id}/print",
+        headers=auth_headers("alice"),
+        json={"submission_id": submitted.json()["id"]},
+    )
+
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["access_unlocked"] is True
+    assert "access_code_hash" not in detail.json()
+    assert problems.status_code == 200, problems.text
+    assert all("judge_config" not in item for item in problems.json())
+    assert submitted.status_code == 200, submitted.text
+    assert objective_submitted.status_code == 200, objective_submitted.text
+    assert asked.status_code == 200, asked.text
+    assert printed.status_code == 200, printed.text
+    assert printed.json()["source_kind"] == "submission"
+    assert "locked print" in printed.json()["source_code"]
+
+
+def test_team_and_manual_contests_limit_access_to_bound_resources(client: TestClient, auth_headers, store) -> None:
+    coach = store.get_user("u-coach")
+    assert coach is not None
+    coach.role = "student"
+    store.update_user(coach)
+    team = Team(
+        id="T-ACCESS",
+        name="Access Team",
+        description="team access",
+        invite_code="ACCESS",
+        owner_id="u-judge",
+        member_ids=["u-student"],
+        created_at=datetime.now(timezone.utc),
+    )
+    store.add_team(team)
+
+    team_created = client.post(
+        "/api/v1/contests",
+        headers=auth_headers("judge"),
+        json={
+            "title": "Team Locked",
+            "rule": "OI",
+            "start_at": "2026-05-26T01:00:00Z",
+            "end_at": "2026-05-26T23:00:00Z",
+            "visibility": "private",
+            "access_mode": "team",
+            "team_ids": ["T-ACCESS"],
+            "problem_ids": ["P1003"],
+            "problem_layout": [{"problem_id": "P1003", "problem_key": "A", "allowed_languages": []}],
+        },
+    )
+    manual_created = client.post(
+        "/api/v1/contests",
+        headers=auth_headers("judge"),
+        json={
+            "title": "Manual Locked",
+            "rule": "CF",
+            "start_at": "2026-05-26T01:00:00Z",
+            "end_at": "2026-05-26T23:00:00Z",
+            "visibility": "private",
+            "access_mode": "manual",
+            "participant_user_ids": ["u-coach"],
+            "problem_ids": ["P1003"],
+            "problem_layout": [{"problem_id": "P1003", "problem_key": "A", "allowed_languages": []}],
+        },
+    )
+    assert team_created.status_code == 200, team_created.text
+    assert manual_created.status_code == 200, manual_created.text
+    team_id = team_created.json()["id"]
+    manual_id = manual_created.json()["id"]
+
+    team_member = client.get(f"/api/v1/contests/{team_id}/problems", headers=auth_headers("alice"))
+    team_outsider = client.get(f"/api/v1/contests/{team_id}/problems", headers=auth_headers("coach"))
+    manual_member = client.get(f"/api/v1/contests/{manual_id}/problems", headers=auth_headers("coach"))
+    manual_outsider = client.get(f"/api/v1/contests/{manual_id}/problems", headers=auth_headers("alice"))
+    judge_team = client.get(f"/api/v1/contests/{team_id}/problems", headers=auth_headers("judge"))
+    visible_to_alice = client.get("/api/v1/contests", headers=auth_headers("alice"))
+    visible_to_coach = client.get("/api/v1/contests", headers=auth_headers("coach"))
+
+    assert team_member.status_code == 200, team_member.text
+    assert team_outsider.status_code == 403
+    assert manual_member.status_code == 200, manual_member.text
+    assert manual_outsider.status_code == 403
+    assert judge_team.status_code == 200, judge_team.text
+    assert any(item["id"] == team_id for item in visible_to_alice.json())
+    assert all(item["id"] != manual_id for item in visible_to_alice.json())
+    assert any(item["id"] == manual_id for item in visible_to_coach.json())
+    assert all("access_code_hash" not in item for item in visible_to_coach.json())
+
+
 def test_contest_problem_list_hides_non_visible_problem_and_unknown_problem(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     problem = store.get_problem("P1003")

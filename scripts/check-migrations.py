@@ -188,6 +188,16 @@ def main() -> int:
         fail("problem_versions must store snapshots as JSONB")
     if "unique (problem_id, version)" not in problem_versions_block:
         fail("problem_versions must keep per-problem version numbers unique")
+    contests_block = table_block(combined, "contests").lower()
+    for token in [
+        "access_mode text",
+        "access_code_hash text",
+        "team_ids jsonb",
+        "participant_user_ids jsonb",
+        "access_unlocked_user_ids jsonb",
+    ]:
+        if token not in contests_block and token not in normalized:
+            fail(f"contests table must include {token}")
     contest_announcements_block = table_block(combined, "contest_announcements").lower()
     if "contest_id text not null references contests(id) on delete cascade" not in contest_announcements_block:
         fail("contest_announcements must reference contests with cascade delete")
@@ -261,6 +271,11 @@ def main() -> int:
         "judge_queue_jobs",
         "submissions",
         "contest_announcements",
+        "access_mode",
+        "access_code_hash",
+        "team_ids",
+        "participant_user_ids",
+        "access_unlocked_user_ids",
         "source_code",
         "offline_result_key",
         "user_roles",
@@ -303,6 +318,9 @@ def main() -> int:
     for token in ["_migrate_discussions", "solution_category", "liked_by", "bookmarked_by"]:
         if token not in store_source:
             fail(f"P8-02 snapshot store must preserve solution reactions via {token}")
+    for token in ["access_mode", "access_code_hash", "access_unlocked_user_ids"]:
+        if token not in store_source:
+            fail(f"P6-10 snapshot store must preserve contest access control via {token}")
 
     print(f"migration check passed: {len(files)} file(s)")
     return 0
