@@ -1287,14 +1287,53 @@ class Discussion(BaseModel):
 
 
 class DiscussionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: DiscussionType = "general"
-    target_id: str | None = None
-    title: str
-    content: str
+    target_id: str | None = Field(default=None, max_length=64)
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("target_id", "title", "content", mode="before")
+    @classmethod
+    def strip_discussion_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        text = str(value).strip()
+        return text or None
 
 
 class DiscussionReplyCreate(BaseModel):
-    content: str
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def strip_reply_text(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+
+class DiscussionListResponse(BaseModel):
+    items: list[Discussion]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+
+class NotificationStreamItem(BaseModel):
+    id: str
+    title: str
+    type: Literal["judge", "contest", "reply", "system", "assignment"]
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationStreamEvent(BaseModel):
+    event: Literal["snapshot", "update", "heartbeat"] = "snapshot"
+    unread_count: int = Field(ge=0)
+    latest: NotificationStreamItem | None = None
+    generated_at: datetime
 
 
 class Notification(BaseModel):

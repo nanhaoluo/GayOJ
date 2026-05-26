@@ -110,6 +110,13 @@ export async function apiDownload(path: string, options: RequestOptions = {}): P
   };
 }
 
+export function apiStreamUrl(path: string): string {
+  const token = getStoredAuthToken();
+  const separator = path.includes('?') ? '&' : '?';
+  const tokenQuery = token ? `${separator}token=${encodeURIComponent(token)}` : '';
+  return `${API_BASE}${path}${tokenQuery}`;
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '-';
   return new Intl.DateTimeFormat('zh-CN', {

@@ -2693,14 +2693,18 @@
         "type": "object"
       },
       "DiscussionCreate": {
+        "additionalProperties": false,
         "properties": {
           "content": {
+            "maxLength": 8000,
+            "minLength": 1,
             "title": "Content",
             "type": "string"
           },
           "target_id": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "type": "string"
               },
               {
@@ -2710,6 +2714,8 @@
             "title": "Target Id"
           },
           "title": {
+            "maxLength": 160,
+            "minLength": 1,
             "title": "Title",
             "type": "string"
           },
@@ -2732,9 +2738,46 @@
         "title": "DiscussionCreate",
         "type": "object"
       },
+      "DiscussionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Discussion"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "DiscussionListResponse",
+        "type": "object"
+      },
       "DiscussionReplyCreate": {
+        "additionalProperties": false,
         "properties": {
           "content": {
+            "maxLength": 4000,
+            "minLength": 1,
             "title": "Content",
             "type": "string"
           }
@@ -3295,6 +3338,87 @@
           "created_at"
         ],
         "title": "Notification",
+        "type": "object"
+      },
+      "NotificationStreamEvent": {
+        "properties": {
+          "event": {
+            "default": "snapshot",
+            "enum": [
+              "snapshot",
+              "update",
+              "heartbeat"
+            ],
+            "title": "Event",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationStreamItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unread_count": {
+            "minimum": 0.0,
+            "title": "Unread Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread_count",
+          "generated_at"
+        ],
+        "title": "NotificationStreamEvent",
+        "type": "object"
+      },
+      "NotificationStreamItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_read": {
+            "title": "Is Read",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "judge",
+              "contest",
+              "reply",
+              "system",
+              "assignment"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "type",
+          "is_read",
+          "created_at"
+        ],
+        "title": "NotificationStreamItem",
         "type": "object"
       },
       "ObjectiveItemResult": {
@@ -10275,6 +10399,56 @@
               "title": "Target Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 120,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -10282,11 +10456,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Discussion"
-                  },
-                  "title": "Response List Discussions Api V1 Discussions Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/DiscussionListResponse"
                 }
               }
             },
@@ -10371,6 +10541,22 @@
             "schema": {
               "title": "Discussion Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -11009,6 +11195,52 @@
           }
         },
         "summary": "List Notifications"
+      }
+    },
+    "/api/v1/notifications/stream": {
+      "get": {
+        "operationId": "notification_stream_api_v1_notifications_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "minLength": 1,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationStreamEvent"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notification Stream"
       }
     },
     "/api/v1/notifications/{notification_id}/read": {

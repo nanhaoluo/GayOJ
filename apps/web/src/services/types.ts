@@ -497,6 +497,13 @@ export interface Discussion {
   updated_at: string;
 }
 
+export interface DiscussionListResponse {
+  items: Discussion[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface NotificationItem {
   id: string;
   user_id: string;
@@ -505,6 +512,21 @@ export interface NotificationItem {
   type: 'judge' | 'contest' | 'reply' | 'system' | 'assignment';
   is_read: boolean;
   created_at: string;
+}
+
+export interface NotificationStreamItem {
+  id: string;
+  title: string;
+  type: NotificationItem['type'];
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationStreamEvent {
+  event: 'snapshot' | 'update' | 'heartbeat';
+  unread_count: number;
+  latest: NotificationStreamItem | null;
+  generated_at: string;
 }
 
 export interface Clarification {

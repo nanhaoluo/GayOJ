@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { MessageSquarePlus, Send } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, MessageSquarePlus, Search, Send } from 'lucide-vue-next';
 import { onMounted, reactive, ref } from 'vue';
 import { apiRequest, formatDate } from '@/services/api';
-import type { Discussion } from '@/services/types';
+import type { Discussion, DiscussionListResponse } from '@/services/types';
 
 const discussions = ref<Discussion[]>([]);
 const selected = ref<Discussion | null>(null);
 const error = ref('');
+const loading = ref(false);
 const formOpen = ref(false);
 const form = reactive({
   type: 'general',
@@ -15,10 +16,45 @@ const form = reactive({
   content: '',
 });
 const reply = ref('');
+const filters = reactive({
+  type: '',
+  q: '',
+  limit: 10,
+  offset: 0,
+});
+const total = ref(0);
 
 async function load() {
-  discussions.value = await apiRequest<Discussion[]>('/discussions', { auth: false });
-  selected.value = selected.value ? discussions.value.find((item) => item.id === selected.value?.id) ?? null : discussions.value[0] ?? null;
+  loading.value = true;
+  error.value = '';
+  try {
+    const params = new URLSearchParams({
+      limit: String(filters.limit),
+      offset: String(filters.offset),
+    });
+    if (filters.type) params.set('type', filters.type);
+    if (filters.q.trim()) params.set('q', filters.q.trim());
+    const payload = await apiRequest<DiscussionListResponse>(`/discussions?${params.toString()}`, { auth: false });
+    discussions.value = payload.items;
+    total.value = payload.total;
+    selected.value = selected.value ? discussions.value.find((item) => item.id === selected.value?.id) ?? null : discussions.value[0] ?? null;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载讨论失败。';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function applyFilters() {
+  filters.offset = 0;
+  await load();
+}
+
+async function page(delta: number) {
+  const next = filters.offset + delta * filters.limit;
+  if (next < 0 || next >= total.value) return;
+  filters.offset = next;
+  await load();
 }
 
 async function createDiscussion() {
@@ -69,6 +105,35 @@ onMounted(load);
       <button class="primary-action" @click="formOpen = !formOpen"><MessageSquarePlus :size="18" />发布</button>
     </section>
 
+    <section class="toolbar-panel discussion-filter-panel">
+      <form class="discussion-filter" @submit.prevent="applyFilters">
+        <label>
+          <span>类型</span>
+          <select v-model="filters.type">
+            <option value="">全部</option>
+            <option value="general">综合讨论</option>
+            <option value="problem">题目讨论</option>
+            <option value="contest">比赛讨论</option>
+            <option value="solution">题解</option>
+          </select>
+        </label>
+        <label>
+          <span>搜索</span>
+          <input v-model="filters.q" placeholder="标题、作者、内容" />
+        </label>
+        <button class="secondary-action" type="submit"><Search :size="16" />搜索</button>
+      </form>
+      <div class="discussion-pager">
+        <span>{{ total }} 条</span>
+        <button class="icon-button" type="button" :disabled="filters.offset === 0" aria-label="上一页" @click="page(-1)">
+          <ChevronLeft :size="17" />
+        </button>
+        <button class="icon-button" type="button" :disabled="filters.offset + filters.limit >= total" aria-label="下一页" @click="page(1)">
+          <ChevronRight :size="17" />
+        </button>
+      </div>
+    </section>
+
     <section v-if="formOpen" class="panel form-panel">
       <form class="submit-form" @submit.prevent="createDiscussion">
         <label>标题<input v-model="form.title" required placeholder="讨论标题" /></label>
@@ -88,8 +153,11 @@ onMounted(load);
       <p v-if="error" class="form-error">{{ error }}</p>
     </section>
 
+    <p v-if="error && !formOpen" class="form-error">{{ error }}</p>
+
     <section class="discuss-layout">
       <aside class="panel discuss-list">
+        <p v-if="loading" class="empty-text">加载中。</p>
         <button
           v-for="item in discussions"
           :key="item.id"
@@ -100,6 +168,7 @@ onMounted(load);
           <strong>{{ item.title }}</strong>
           <span>{{ item.author_name }} · {{ item.type }} · {{ formatDate(item.updated_at) }}</span>
         </button>
+        <p v-if="!loading && discussions.length === 0" class="empty-text">暂无匹配讨论。</p>
       </aside>
 
       <article v-if="selected" class="panel discussion-detail">

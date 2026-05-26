@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import re
+import time
 from pathlib import PurePosixPath
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .auth import (
     create_token,
@@ -70,12 +71,14 @@ from .models import (
     ContestJudgeQueueSummary,
     Discussion,
     DiscussionCreate,
+    DiscussionListResponse,
     DiscussionReplyCreate,
     DEFAULT_STUDENT_SCHOOL,
     HealthResponse,
     LoginRequest,
     LoginResponse,
     Notification,
+    NotificationStreamEvent,
     OfflinePackResponse,
     OfflinePackLifecycle,
     OfflinePackStatusResponse,
@@ -144,8 +147,11 @@ from .services import (
     build_contest_balloon,
     coach_scope,
     contest_submission_is_balloon_eligible,
+    discussion_matches_query,
     judge_objective,
     make_submission_id,
+    notification_stream_event,
+    paginate_discussions,
     reconcile_contest_balloon,
     refresh_contest_balloon_for_submission,
     safe_print_source,
@@ -764,6 +770,15 @@ def require_judge_node_token(x_judge_node_token: str | None = Header(default=Non
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid judge node token")
 
 
+def user_from_token_param(token: str, store: Repository) -> User:
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    from .auth import decode_token, require_active_user
+
+    payload = decode_token(token)
+    return require_active_user(store.get_user(str(payload["sub"])))
+
+
 def is_login_locked(user: User, current: datetime) -> bool:
     locked_until = auth_datetime(user.locked_until)
     return bool(locked_until and locked_until > current)
@@ -856,6 +871,48 @@ def clarification_payload_for_user(clarification: Clarification, user: User) -> 
         payload.broadcast = False
         payload.broadcast_at = None
     return payload
+
+
+def discussion_visible_to_user(discussion: Discussion, user: User | None, store: Repository) -> bool:
+    if user and (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "problem:edit:all")):
+        return True
+    if discussion.type in {"general", "solution"} and not discussion.target_id:
+        return True
+    if discussion.type in {"problem", "solution"} and discussion.target_id:
+        problem = store.get_problem(discussion.target_id)
+        if not problem or not problem.visible:
+            return bool(user and problem and can_edit_problem(user, problem))
+        return True
+    if discussion.type == "contest" and discussion.target_id:
+        contest = store.get_contest(discussion.target_id)
+        if not contest:
+            return False
+        if contest.visibility == "public":
+            return True
+        return bool(user and (role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")))
+    return False
+
+
+def ensure_discussion_target_visible(payload: DiscussionCreate, user: User, store: Repository) -> None:
+    target_id = payload.target_id
+    if not target_id:
+        return
+    if payload.type in {"problem", "solution"}:
+        problem = store.get_problem(target_id)
+        if not problem or not problem.visible:
+            if not (problem and can_edit_problem(user, problem)):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discussion target is not visible")
+        return
+    if payload.type == "contest":
+        contest = store.get_contest(target_id)
+        if not contest:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+        if contest.visibility != "public" and not (
+            role_has_permission(user.role, "contest:manage") or role_has_permission(user.role, "judge:monitor")
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discussion target is not visible")
+        return
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target is not supported for this discussion type")
 
 
 def contest_judge_queue_summary(contest: Contest, store: Repository, *, limit: int = 10) -> ContestJudgeQueueSummary:
@@ -3683,18 +3740,24 @@ def update_problem_set_offline_policy(
     return problem_set_detail(updated, store)
 
 
-@app.get("/api/v1/discussions", response_model=list[Discussion])
+@app.get("/api/v1/discussions", response_model=DiscussionListResponse)
 def list_discussions(
-    type: str = "",
-    target_id: str = "",
+    type: str = Query(default=""),
+    target_id: str = Query(default=""),
+    q: str = Query(default="", max_length=120),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User | None = Depends(get_optional_user),
     store: Repository = Depends(get_repository),
-) -> list[Discussion]:
-    items = store.list_discussions()
+) -> DiscussionListResponse:
+    items = [item for item in store.list_discussions() if discussion_visible_to_user(item, user, store)]
     if type:
         items = [d for d in items if d.type == type]
     if target_id:
         items = [d for d in items if d.target_id == target_id]
-    return items
+    if q:
+        items = [d for d in items if discussion_matches_query(d, q)]
+    return paginate_discussions(items, limit=limit, offset=offset)
 
 
 @app.post("/api/v1/discussions", response_model=Discussion)
@@ -3703,6 +3766,7 @@ def create_discussion(
     user: User = Depends(require_permissions("discussion:write")),
     store: Repository = Depends(get_repository),
 ) -> Discussion:
+    ensure_discussion_target_visible(payload, user, store)
     discussion = Discussion(
         id=f"D{1000 + len(store.list_discussions()) + 1}",
         author_id=user.id,
@@ -3717,9 +3781,13 @@ def create_discussion(
 
 
 @app.get("/api/v1/discussions/{discussion_id}", response_model=Discussion)
-def get_discussion(discussion_id: str, store: Repository = Depends(get_repository)) -> Discussion:
+def get_discussion(
+    discussion_id: str,
+    user: User | None = Depends(get_optional_user),
+    store: Repository = Depends(get_repository),
+) -> Discussion:
     discussion = store.get_discussion(discussion_id)
-    if not discussion:
+    if not discussion or not discussion_visible_to_user(discussion, user, store):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discussion not found")
     return discussion
 
@@ -3732,7 +3800,7 @@ def reply_discussion(
     store: Repository = Depends(get_repository),
 ) -> Discussion:
     discussion = store.get_discussion(discussion_id)
-    if not discussion:
+    if not discussion or not discussion_visible_to_user(discussion, user, store):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discussion not found")
     discussion.replies.append(
         {
@@ -3749,6 +3817,40 @@ def reply_discussion(
         add_notification(store, discussion.author_id, "讨论收到新回复", discussion.title, "reply")
     store.add_audit(user.id, "discussion.reply", f"discussion:{discussion.id}")
     return discussion
+
+
+@app.get(
+    "/api/v1/notifications/stream",
+    response_model=NotificationStreamEvent,
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
+def notification_stream(
+    token: str = Query(default="", min_length=1),
+    store: Repository = Depends(get_repository),
+) -> StreamingResponse:
+    user = user_from_token_param(token, store)
+    if not role_has_permission(user.role, "notification:read"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+    def events():
+        previous_signature = ""
+        for index in range(6):
+            notifications = store.list_notifications(user.id)
+            event = notification_stream_event(
+                notifications,
+                event="snapshot" if index == 0 else "update",
+                generated_at=now(),
+            )
+            signature = json.dumps(event.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
+            if index == 0 or signature != previous_signature:
+                previous_signature = signature
+                yield f"event: {event.event}\ndata: {event.model_dump_json()}\n\n"
+            else:
+                heartbeat = notification_stream_event([], event="heartbeat", generated_at=now())
+                yield f"event: heartbeat\ndata: {heartbeat.model_dump_json()}\n\n"
+            time.sleep(1)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.get("/api/v1/notifications", response_model=list[Notification])
