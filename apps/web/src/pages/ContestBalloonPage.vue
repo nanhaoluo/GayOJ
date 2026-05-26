@@ -15,6 +15,10 @@ const updatingId = ref('');
 const pending = computed(() => data.value.filter((item) => !item.released));
 const released = computed(() => data.value.filter((item) => item.released));
 
+function balloonProblemTitle(item: ContestBalloon): string {
+  return `${item.problem_key || item.problem_id} · ${item.problem_title}`;
+}
+
 async function load() {
   error.value = '';
   try {
@@ -70,7 +74,7 @@ onMounted(load);
             <div class="balloon-card-main">
               <div class="balloon-card-title">
                 <strong>{{ item.display_name }}</strong>
-                <span>{{ item.problem_id }} · {{ item.problem_title }}</span>
+                <span>{{ balloonProblemTitle(item) }}</span>
               </div>
               <div class="balloon-card-meta">
                 <StatusBadge :status="item.status" />
@@ -98,7 +102,7 @@ onMounted(load);
             <div class="balloon-card-main">
               <div class="balloon-card-title">
                 <strong>{{ item.display_name }}</strong>
-                <span>{{ item.problem_id }} · {{ item.problem_title }}</span>
+                <span>{{ balloonProblemTitle(item) }}</span>
               </div>
               <div class="balloon-card-meta">
                 <StatusBadge status="completed" />

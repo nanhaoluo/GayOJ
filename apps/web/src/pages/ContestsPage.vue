@@ -180,6 +180,20 @@ function updateProblemKey(problemId: string, value: string) {
   );
 }
 
+function updateDisplayTitle(problemId: string, value: string) {
+  const title = value.trim();
+  contestForm.problem_layout = contestForm.problem_layout.map((item) =>
+    item.problem_id === problemId ? { ...item, display_title: title || null } : item,
+  );
+}
+
+function updateProblemScore(problemId: string, value: string) {
+  const score = value === '' ? null : Number(value);
+  contestForm.problem_layout = contestForm.problem_layout.map((item) =>
+    item.problem_id === problemId ? { ...item, score: Number.isFinite(score) ? score : null } : item,
+  );
+}
+
 function toggleAllowedLanguage(problemId: string, language: CompilerLanguage['code']) {
   contestForm.problem_layout = contestForm.problem_layout.map((item) => {
     if (item.problem_id !== problemId) return item;
@@ -481,6 +495,26 @@ onMounted(load);
                     :value="item.problem_key"
                     maxlength="16"
                     @input="updateProblemKey(item.problem_id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+                <label>
+                  显示标题
+                  <input
+                    :value="item.display_title ?? ''"
+                    maxlength="120"
+                    placeholder="默认使用原题标题"
+                    @input="updateDisplayTitle(item.problem_id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+                <label>
+                  分值
+                  <input
+                    :value="item.score ?? ''"
+                    type="number"
+                    min="1"
+                    max="10000"
+                    placeholder="默认 100"
+                    @input="updateProblemScore(item.problem_id, ($event.target as HTMLInputElement).value)"
                   />
                 </label>
                 <div class="contest-layout-actions">
