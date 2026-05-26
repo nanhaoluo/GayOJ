@@ -24,6 +24,15 @@ const canPublishAnnouncements = computed(() => {
   return permissions.includes('contest:manage') || permissions.includes('judge:monitor');
 });
 
+function clarificationTitle(item: ContestJudgeMonitor['clarifications'][number]): string {
+  if (!item.problem_id) return '全局问题';
+  return `${item.problem_key || item.problem_id} · ${item.problem_title || '比赛题目'}`;
+}
+
+function balloonProblemTitle(item: ContestJudgeMonitor['balloons'][number]): string {
+  return `${item.problem_key || item.problem_id} · ${item.problem_title}`;
+}
+
 async function load() {
   error.value = '';
   try {
@@ -224,7 +233,7 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.clarifications" :key="item.id" class="monitor-list-row">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.problem_title || item.problem_id || '全局问题' }}</strong>
+                  <strong>{{ clarificationTitle(item) }}</strong>
                   <span>{{ item.user_display_name || '匿名选手' }} · {{ formatDate(item.created_at) }}</span>
                   <p>{{ item.question }}</p>
                 </div>
@@ -263,8 +272,8 @@ onMounted(load);
             <div class="monitor-list">
               <div v-for="item in data.balloons" :key="item.submission_id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
-                  <strong>{{ item.display_name }} · {{ item.problem_id }}</strong>
-                  <span>{{ item.problem_title }} · {{ formatDate(item.judged_at) }}</span>
+                  <strong>{{ item.display_name }} · {{ item.problem_key || item.problem_id }}</strong>
+                  <span>{{ balloonProblemTitle(item) }} · {{ formatDate(item.judged_at) }}</span>
                 </div>
                 <StatusBadge :status="item.released ? 'completed' : 'pending'" />
               </div>

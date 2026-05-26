@@ -83,7 +83,7 @@ async function registerContest() {
 }
 
 async function openProblem(problem: ContestProblemDetail) {
-  await router.push(`/contests/${route.params.id}/p/${problem.id}`);
+  await router.push(`/contests/${route.params.id}/p/${problem.problem_key || problem.id}`);
 }
 
 async function openStandings() {

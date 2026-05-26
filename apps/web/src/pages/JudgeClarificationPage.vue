@@ -66,6 +66,11 @@ function clarificationScope(item: Clarification): string {
   return '私有';
 }
 
+function clarificationTitle(item: Clarification): string {
+  if (!item.problem_id) return '全局问题';
+  return `${item.problem_key || item.problem_id} · ${item.problem_title || '比赛题目'}`;
+}
+
 onMounted(load);
 </script>
 
@@ -101,7 +106,7 @@ onMounted(load);
         <article v-for="item in clarifications" :key="item.id" class="clarification-card judge-clar-card">
           <div class="clarification-card-head">
             <div class="clarification-card-title">
-              <strong>{{ item.problem_title || item.problem_id || '全局问题' }}</strong>
+              <strong>{{ clarificationTitle(item) }}</strong>
               <span>{{ item.user_display_name || '匿名选手' }}</span>
             </div>
             <div class="clarification-meta">

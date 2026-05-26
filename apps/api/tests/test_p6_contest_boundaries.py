@@ -102,6 +102,95 @@ def test_contest_create_returns_layout_and_allows_non_public_problem_reference(c
     assert "judge_config" not in problem_payload[1]
 
 
+def test_contest_problem_aliases_drive_submit_clarification_print_and_rejudge(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    current = datetime.now(timezone.utc)
+    contest.start_at = current - timedelta(hours=2)
+    contest.end_at = current + timedelta(hours=1)
+    contest.problem_ids = ["P1001", "P1002"]
+    contest.problem_layout = [
+        ContestProblemLayoutItem(
+            problem_id="P1001",
+            problem_key="ALPHA",
+            display_title="Contest Alpha",
+            score=300,
+            allowed_languages=["python"],
+        ),
+        ContestProblemLayoutItem(
+            problem_id="P1002",
+            problem_key="BETA",
+            display_title="Contest Beta",
+            score=200,
+            allowed_languages=[],
+        ),
+    ]
+    store.update_contest(contest)
+
+    problems = client.get("/api/v1/contests/C1001/problems", headers=auth_headers("alice"))
+    assert problems.status_code == 200, problems.text
+    problem_payload = problems.json()
+    assert problem_payload[0]["id"] == "P1001"
+    assert problem_payload[0]["problem_key"] == "ALPHA"
+    assert problem_payload[0]["title"] == "Contest Alpha"
+    assert problem_payload[0]["display_title"] == "Contest Alpha"
+    assert problem_payload[0]["score"] == 300
+    assert problem_payload[0]["allowed_languages"] == ["python"]
+    assert all("judge_config" not in item for item in problem_payload)
+
+    submitted = client.post(
+        "/api/v1/contests/C1001/submit",
+        headers=auth_headers("alice"),
+        json={"problem_id": "alpha", "language": "python", "source_code": "print('alias submit')\n"},
+    )
+    assert submitted.status_code == 200, submitted.text
+    submit_payload = submitted.json()
+    assert submit_payload["problem_id"] == "P1001"
+    assert submit_payload["problem_title"] == "Contest Alpha"
+    assert submit_payload["contest_id"] == "C1001"
+    stored_submission = store.get_submission(submit_payload["id"])
+    assert stored_submission is not None
+    assert stored_submission.problem_id == "P1001"
+    assert stored_submission.problem_title == "A+B Problem"
+
+    clarification = client.post(
+        "/api/v1/contests/C1001/clarifications",
+        headers=auth_headers("alice"),
+        json={"problem_id": "ALPHA", "question": "Can we use the contest alias?"},
+    )
+    assert clarification.status_code == 200, clarification.text
+    clarification_payload = clarification.json()
+    assert clarification_payload["problem_id"] == "P1001"
+    assert clarification_payload["problem_key"] == "ALPHA"
+    assert clarification_payload["problem_title"] == "Contest Alpha"
+
+    print_job = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("judge"),
+        json={"problem_id": "ALPHA", "language": "python", "source_code": "print('adhoc alias')\n"},
+    )
+    assert print_job.status_code == 200, print_job.text
+    assert print_job.json()["problem_id"] == "P1001"
+    assert print_job.json()["problem_key"] == "ALPHA"
+    assert print_job.json()["problem_title"] == "Contest Alpha"
+
+    contest.end_at = current - timedelta(minutes=1)
+    store.update_contest(contest)
+    rejudge = client.post(
+        "/api/v1/contests/C1001/rejudge",
+        headers=auth_headers("judge"),
+        json={"problem_id": "ALPHA", "statuses": ["queued"], "reason": "alias scoped rejudge"},
+    )
+    assert rejudge.status_code == 200, rejudge.text
+    rejudge_payload = rejudge.json()
+    assert rejudge_payload["requeued_count"] == 1
+    assert rejudge_payload["requeued"][0]["problem_id"] == "P1001"
+    logs, total = store.list_audit_logs(action="contest.rejudge")
+    assert total == 1
+    assert logs[0].metadata["problem_id"] == "P1001"
+    assert logs[0].metadata["problem_ref"] == "ALPHA"
+
+
 def test_contest_update_preserves_freeze_state_and_reorders_layout(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
@@ -238,6 +327,7 @@ def test_contest_submit_routes_keep_code_queue_only_and_objective_scored(client:
     item = next(entry for entry in balloons.json() if entry["submission_id"] == objective_body["id"])
     assert item["eligible"] is True
     assert item["released"] is False
+    assert item["problem_key"] == "3"
     assert item["first_ac"] is True
 
 

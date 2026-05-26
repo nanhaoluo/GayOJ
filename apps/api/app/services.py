@@ -1114,6 +1114,8 @@ def build_contest_balloon(
     *,
     display_name: str,
     first_ac: bool,
+    problem_key: str | None = None,
+    problem_title: str | None = None,
     released: bool = False,
     released_at: datetime | None = None,
     released_by: str | None = None,
@@ -1124,7 +1126,8 @@ def build_contest_balloon(
         user_id=submission.user_id,
         display_name=display_name,
         problem_id=submission.problem_id,
-        problem_title=submission.problem_title,
+        problem_key=problem_key,
+        problem_title=problem_title or submission.problem_title,
         eligible=contest_submission_is_balloon_eligible(contest, submission),
         first_ac=first_ac,
         status=submission.status,
@@ -1137,11 +1140,23 @@ def build_contest_balloon(
     )
 
 
+def contest_problem_layout_meta(contest: Contest, problem_id: str) -> tuple[str | None, str | None, int | None]:
+    for item in contest.problem_layout:
+        if item.problem_id == problem_id:
+            return item.problem_key, item.display_title, item.score
+    for index, item_id in enumerate(contest.problem_ids, start=1):
+        if item_id == problem_id:
+            return str(index), None, None
+    return None, None, None
+
+
 def reconcile_contest_balloon(
     contest: Contest,
     submission: Submission,
     *,
     display_name: str,
+    problem_key: str | None = None,
+    problem_title: str | None = None,
     prior: dict[str, Any] | None = None,
     siblings: list[Submission] | None = None,
 ) -> ContestBalloon | None:
@@ -1149,6 +1164,9 @@ def reconcile_contest_balloon(
         siblings = []
     if not contest_submission_is_balloon_eligible(contest, submission):
         return None
+    layout_key, layout_title, _layout_score = contest_problem_layout_meta(contest, submission.problem_id)
+    problem_key = problem_key or layout_key
+    problem_title = problem_title or layout_title
     submission_time = contest_submission_effective_time(submission)
     earlier_accepted = [
         item
@@ -1172,6 +1190,8 @@ def reconcile_contest_balloon(
         contest,
         submission,
         display_name=display_name,
+        problem_key=problem_key,
+        problem_title=problem_title,
         first_ac=not any(
             item.id != submission.id
             and item.problem_id == submission.problem_id
@@ -1229,10 +1249,13 @@ def refresh_contest_balloon_for_submission(store: Any, submission: Submission) -
         key=lambda item: (contest_submission_effective_time(item), str(item.id)),
     )
     prior = existing[0] if existing else None
+    layout_key, layout_title, _layout_score = contest_problem_layout_meta(contest, candidate.problem_id)
     balloon = reconcile_contest_balloon(
         contest,
         candidate,
         display_name=user.display_name if user else submission.user_id,
+        problem_key=str((prior or {}).get("problem_key") or "") or layout_key,
+        problem_title=layout_title or str((prior or {}).get("problem_title") or "") or None,
         prior=prior,
         siblings=siblings,
     )
