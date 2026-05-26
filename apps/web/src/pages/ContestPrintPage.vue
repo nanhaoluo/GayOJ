@@ -56,6 +56,8 @@ async function submitPrintJob() {
       }),
     });
     submissionId.value = '';
+    problemId.value = '';
+    language.value = '';
     sourceCode.value = '';
     await refreshJobs();
   } catch (err) {
@@ -70,7 +72,7 @@ async function openPrintJob(job: ContestPrintJobSummary) {
   try {
     selectedJob.value = await apiRequest<ContestPrintResponse>(`/contests/${contestId()}/print/${job.id}`);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '读取打印单失败';
+    error.value = err instanceof Error ? err.message : '源码读取失败';
   }
 }
 
@@ -94,14 +96,17 @@ function printPreview() {
   window.print();
 }
 
-onMounted(refreshJobs);
+onMounted(() => {
+  void refreshJobs();
+});
 </script>
 
 <template>
   <div class="pure-page">
     <header class="pure-toolbar">
       <button class="secondary-action" type="button" @click="router.back()"><ArrowLeft :size="16" />返回</button>
-      <button class="secondary-action" type="button" @click="refreshJobs" :disabled="loading"><RefreshCw :size="16" />刷新</button>
+      <button class="secondary-action" type="button" :disabled="loading" @click="refreshJobs"><RefreshCw :size="16" />刷新</button>
+      <button v-if="selectedJob" class="secondary-action" type="button" @click="printPreview"><Printer :size="16" />打印预览</button>
     </header>
 
     <section class="pure-content print-desk">
@@ -113,7 +118,7 @@ onMounted(refreshJobs);
       <form class="print-request-panel" @submit.prevent="submitPrintJob">
         <div class="inline-form">
           <input v-model="submissionId" placeholder="提交 ID" />
-          <input v-model="problemId" placeholder="题目 ID（手工源码时必填）" />
+          <input v-model="problemId" placeholder="题目 ID 或比赛题号" />
           <input v-model="language" placeholder="语言" />
         </div>
         <textarea v-model="sourceCode" class="pure-textarea" placeholder="或输入本次请求要打印的源码"></textarea>
@@ -147,12 +152,13 @@ onMounted(refreshJobs);
                 </button>
                 <button
                   v-if="canProcessPrint"
-                  class="secondary-action compact"
+                  class="icon-action"
                   type="button"
                   :disabled="updatingId === item.id"
+                  title="标记已打印"
                   @click="updatePrintJob(item, 'printed')"
                 >
-                  <CheckCircle2 :size="14" />已打印
+                  <CheckCircle2 :size="16" />
                 </button>
                 <button
                   v-if="canProcessPrint"

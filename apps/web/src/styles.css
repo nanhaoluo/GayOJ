@@ -191,8 +191,7 @@ a {
 }
 
 .print-request-panel,
-.print-preview-panel,
-.print-job-meta {
+.print-preview-panel {
   display: grid;
   gap: 12px;
 }
@@ -204,20 +203,28 @@ a {
 }
 
 .print-job-row {
-  align-items: start;
+  align-items: center;
 }
 
 .print-job-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: white;
 }
 
+.print-job-meta strong,
+.print-job-meta span {
+  min-width: 0;
+}
+
 .print-job-meta span {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 650;
 }
 
 .pure-textarea {
@@ -4229,6 +4236,15 @@ pre {
 
   .contest-submissions-layout {
     grid-template-columns: 1fr;
+  }
+
+  .print-desk-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .print-job-meta {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .contest-manage-table,

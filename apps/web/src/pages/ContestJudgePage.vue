@@ -279,16 +279,16 @@ onMounted(load);
                 <p>只展示当前比赛的打印工单。</p>
               </div>
               <button class="secondary-action compact" type="button" @click="openPrintDesk">
-                <Printer :size="14" />打开
+                <Printer :size="14" />打印台
               </button>
             </div>
             <div class="monitor-list">
               <div v-for="item in data.print_jobs" :key="item.id" class="monitor-list-row compact">
                 <div class="monitor-feed-main">
                   <strong>{{ item.problem_key || item.problem_id }} · {{ item.user_display_name || item.user_id }}</strong>
-                  <span>{{ item.source_kind }} · {{ item.line_count }} 行 · {{ formatDate(item.requested_at) }}</span>
+                  <span>{{ item.line_count }} 行 · {{ item.source_kind === 'submission' ? '已提交源码' : '本次请求源码' }} · {{ formatDate(item.requested_at) }}</span>
                 </div>
-                <StatusBadge :status="item.status" />
+                <StatusBadge :status="item.status === 'pending' ? 'pending' : 'completed'" />
               </div>
               <p v-if="data.print_jobs.length === 0" class="empty-text">当前比赛还没有打印申请。</p>
             </div>
