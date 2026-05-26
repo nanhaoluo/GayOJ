@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { ArrowRight, FileCode2, FileQuestion, MessageSquare, Printer, Trophy } from 'lucide-vue-next';
+import { ArrowRight, Bell, FileCode2, FileQuestion, MessageSquare, Printer, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProblemTypeIcon from '@/components/ProblemTypeIcon.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { apiRequest, formatDate, problemTypeLabel } from '@/services/api';
-import type { Contest, ProblemDetail } from '@/services/types';
+import type { Contest, ContestAnnouncement, ProblemDetail } from '@/services/types';
 import { authState } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
 const contest = ref<Contest | null>(null);
+const announcements = ref<ContestAnnouncement[]>([]);
 const problems = ref<ProblemDetail[]>([]);
 const error = ref('');
 
@@ -32,6 +33,7 @@ async function load() {
   error.value = '';
   try {
     contest.value = await apiRequest<Contest>(`/contests/${route.params.id}`);
+    announcements.value = await apiRequest<ContestAnnouncement[]>(`/contests/${route.params.id}/announcements`);
     problems.value = await apiRequest<ProblemDetail[]>(`/contests/${route.params.id}/problems`);
   } catch (err) {
     error.value = err instanceof Error ? err.message : '比赛加载失败';
@@ -122,25 +124,45 @@ onMounted(load);
       </article>
 
       <aside class="panel contest-home-side">
-        <h2>比赛信息</h2>
-        <div class="contest-home-facts">
-          <div class="contest-home-fact">
-            <small>赛制</small>
-            <strong>{{ contest.rule }}</strong>
+        <section class="contest-announcement-panel">
+          <div class="contest-side-head">
+            <h2>比赛公告</h2>
+            <span>{{ announcements.length }}</span>
           </div>
-          <div class="contest-home-fact">
-            <small>题量</small>
-            <strong>{{ problems.length }}</strong>
+          <div class="contest-announcement-list">
+            <article v-for="item in announcements" :key="item.id" class="contest-announcement-card">
+              <div class="contest-announcement-title">
+                <Bell :size="15" />
+                <strong>{{ item.title }}</strong>
+              </div>
+              <p>{{ item.content }}</p>
+              <small>{{ item.created_by_name }} · {{ formatDate(item.created_at) }}</small>
+            </article>
+            <p v-if="announcements.length === 0" class="empty-text">当前比赛暂无公告。</p>
           </div>
-          <div class="contest-home-fact">
-            <small>状态</small>
-            <strong>{{ contest.freeze_active ? '封榜中' : contest.status }}</strong>
+        </section>
+
+        <section class="contest-home-info">
+          <h2>比赛信息</h2>
+          <div class="contest-home-facts">
+            <div class="contest-home-fact">
+              <small>赛制</small>
+              <strong>{{ contest.rule }}</strong>
+            </div>
+            <div class="contest-home-fact">
+              <small>题量</small>
+              <strong>{{ problems.length }}</strong>
+            </div>
+            <div class="contest-home-fact">
+              <small>状态</small>
+              <strong>{{ contest.freeze_active ? '封榜中' : contest.status }}</strong>
+            </div>
           </div>
-        </div>
-        <div class="contest-home-notes">
-          <p><FileCode2 :size="16" />代码题走在线评测队列。</p>
-          <p><FileQuestion :size="16" />客观题比赛内即时判分。</p>
-        </div>
+          <div class="contest-home-notes">
+            <p><FileCode2 :size="16" />代码题走在线评测队列。</p>
+            <p><FileQuestion :size="16" />客观题在比赛内即时判分。</p>
+          </div>
+        </section>
       </aside>
     </section>
   </div>

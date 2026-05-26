@@ -391,6 +391,7 @@ export interface ContestJudgeMonitor {
   last_submissions: Submission[];
   judge_nodes: JudgeNode[];
   clarifications: Clarification[];
+  announcements: ContestAnnouncement[];
   balloons: ContestBalloon[];
 }
 
@@ -467,6 +468,16 @@ export interface Clarification {
   answered_by_name: string | null;
   answered_at: string | null;
   broadcast_at: string | null;
+  created_at: string;
+}
+
+export interface ContestAnnouncement {
+  id: string;
+  contest_id: string;
+  title: string;
+  content: string;
+  created_by: string;
+  created_by_name: string;
   created_at: string;
 }
 

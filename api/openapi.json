@@ -843,6 +843,73 @@
         "title": "Contest",
         "type": "object"
       },
+      "ContestAnnouncement": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_by_name": {
+            "title": "Created By Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "contest_id",
+          "title",
+          "content",
+          "created_by",
+          "created_by_name",
+          "created_at"
+        ],
+        "title": "ContestAnnouncement",
+        "type": "object"
+      },
+      "ContestAnnouncementCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "ContestAnnouncementCreate",
+        "type": "object"
+      },
       "ContestBalloon": {
         "properties": {
           "contest_id": {
@@ -1205,6 +1272,13 @@
       },
       "ContestJudgeMonitorResponse": {
         "properties": {
+          "announcements": {
+            "items": {
+              "$ref": "#/components/schemas/ContestAnnouncement"
+            },
+            "title": "Announcements",
+            "type": "array"
+          },
           "balloons": {
             "items": {
               "$ref": "#/components/schemas/ContestBalloon"
@@ -7878,6 +7952,128 @@
           }
         },
         "summary": "Get Contest"
+      }
+    },
+    "/api/v1/contests/{contest_id}/announcements": {
+      "get": {
+        "operationId": "list_contest_announcements_api_v1_contests__contest_id__announcements_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContestAnnouncement"
+                  },
+                  "title": "Response List Contest Announcements Api V1 Contests  Contest Id  Announcements Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Contest Announcements"
+      },
+      "post": {
+        "operationId": "create_contest_announcement_api_v1_contests__contest_id__announcements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contest_id",
+            "required": true,
+            "schema": {
+              "title": "Contest Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestAnnouncementCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestAnnouncement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Contest Announcement"
       }
     },
     "/api/v1/contests/{contest_id}/balloons": {
