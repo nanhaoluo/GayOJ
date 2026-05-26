@@ -734,6 +734,7 @@ class Clarification(BaseModel):
     user_id: str
     user_display_name: str = ""
     problem_id: str | None = None
+    problem_key: str | None = None
     problem_title: str | None = None
     question: str
     answer: str | None = None
@@ -949,6 +950,7 @@ class ContestBalloon(BaseModel):
     user_id: str
     display_name: str
     problem_id: str
+    problem_key: str | None = None
     problem_title: str
     eligible: bool = False
     first_ac: bool = False
