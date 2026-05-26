@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Lock, LockOpen, MessageSquare, Trophy } from 'lucide-vue-next';
+import { ClipboardList, Lock, LockOpen, MessageSquare, Trophy } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -25,6 +25,10 @@ async function openStandings(id: string) {
 
 async function openClarifications(id: string) {
   await router.push(`/contests/${id}/clar`);
+}
+
+async function openSubmissions(id: string) {
+  await router.push(`/contests/${id}/submissions`);
 }
 
 async function freezeContest(contest: Contest) {
@@ -107,6 +111,9 @@ onMounted(load);
           </button>
           <button class="secondary-action" type="button" @click="openStandings(contest.id)">
             <Trophy :size="16" />榜单
+          </button>
+          <button class="secondary-action" type="button" @click="openSubmissions(contest.id)">
+            <ClipboardList :size="16" />提交
           </button>
           <button class="secondary-action" type="button" @click="openClarifications(contest.id)">
             <MessageSquare :size="16" />提问

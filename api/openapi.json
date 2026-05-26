@@ -663,6 +663,13 @@
             "title": "Problem Ids",
             "type": "array"
           },
+          "problem_layout": {
+            "items": {
+              "$ref": "#/components/schemas/ContestProblemLayoutItem"
+            },
+            "title": "Problem Layout",
+            "type": "array"
+          },
           "rejudge_at": {
             "anyOf": [
               {
@@ -859,6 +866,13 @@
             "title": "Problem Ids",
             "type": "array"
           },
+          "problem_layout": {
+            "items": {
+              "$ref": "#/components/schemas/ContestProblemLayoutItem"
+            },
+            "title": "Problem Layout",
+            "type": "array"
+          },
           "rule": {
             "default": "ACM",
             "enum": [
@@ -969,6 +983,13 @@
               "type": "string"
             },
             "title": "Problem Ids",
+            "type": "array"
+          },
+          "problem_layout": {
+            "items": {
+              "$ref": "#/components/schemas/ContestProblemLayoutItem"
+            },
+            "title": "Problem Layout",
             "type": "array"
           },
           "problems": {
@@ -1192,6 +1213,390 @@
         "title": "ContestPrintResponse",
         "type": "object"
       },
+      "ContestProblemLayoutItem": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_languages": {
+            "items": {
+              "enum": [
+                "c",
+                "cpp",
+                "java",
+                "python"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Languages",
+            "type": "array"
+          },
+          "problem_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_key": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Problem Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_id",
+          "problem_key"
+        ],
+        "title": "ContestProblemLayoutItem",
+        "type": "object"
+      },
+      "ContestProblemView": {
+        "properties": {
+          "allowed_languages": {
+            "items": {
+              "enum": [
+                "c",
+                "cpp",
+                "java",
+                "python"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Languages",
+            "type": "array"
+          },
+          "problem_id": {
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_key": {
+            "title": "Problem Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_id",
+          "problem_key",
+          "title",
+          "type"
+        ],
+        "title": "ContestProblemView",
+        "type": "object"
+      },
+      "ContestSubmissionStatusResponse": {
+        "properties": {
+          "can_submit": {
+            "title": "Can Submit",
+            "type": "boolean"
+          },
+          "can_view_all": {
+            "title": "Can View All",
+            "type": "boolean"
+          },
+          "contest_id": {
+            "title": "Contest Id",
+            "type": "string"
+          },
+          "contest_title": {
+            "title": "Contest Title",
+            "type": "string"
+          },
+          "now": {
+            "format": "date-time",
+            "title": "Now",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ContestProblemView"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "rule": {
+            "enum": [
+              "ACM",
+              "OI",
+              "IOI",
+              "CF"
+            ],
+            "title": "Rule",
+            "type": "string"
+          },
+          "show_team_view": {
+            "title": "Show Team View",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "scheduled",
+              "running",
+              "ended"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submissions": {
+            "items": {
+              "$ref": "#/components/schemas/ContestSubmissionView"
+            },
+            "title": "Submissions",
+            "type": "array"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/ContestTeamSubmissionSummary"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contest_id",
+          "contest_title",
+          "rule",
+          "now",
+          "can_submit",
+          "status",
+          "can_view_all",
+          "show_team_view"
+        ],
+        "title": "ContestSubmissionStatusResponse",
+        "type": "object"
+      },
+      "ContestSubmissionView": {
+        "properties": {
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "can_view_source": {
+            "default": false,
+            "title": "Can View Source",
+            "type": "boolean"
+          },
+          "contest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contest Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "judged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judged At"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "max_score": {
+            "title": "Max Score",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "offline_pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offline Pack Id"
+          },
+          "offline_result_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offline Result Key"
+          },
+          "problem_id": {
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_key": {
+            "title": "Problem Key",
+            "type": "string"
+          },
+          "problem_title": {
+            "title": "Problem Title",
+            "type": "string"
+          },
+          "problem_type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Problem Type",
+            "type": "string"
+          },
+          "queue_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Job Id"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          },
+          "source_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Code"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "judging",
+              "accepted",
+              "wrong_answer",
+              "time_limit_exceeded",
+              "memory_limit_exceeded",
+              "output_limit_exceeded",
+              "compile_error",
+              "runtime_error",
+              "system_error",
+              "manual_override"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "problem_id",
+          "problem_title",
+          "problem_type",
+          "status",
+          "score",
+          "max_score",
+          "created_at",
+          "problem_key"
+        ],
+        "title": "ContestSubmissionView",
+        "type": "object"
+      },
       "ContestSubmitRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1248,6 +1653,77 @@
           "problem_id"
         ],
         "title": "ContestSubmitRequest",
+        "type": "object"
+      },
+      "ContestTeamSubmissionSummary": {
+        "properties": {
+          "accepted_count": {
+            "default": 0,
+            "title": "Accepted Count",
+            "type": "integer"
+          },
+          "latest_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "judging",
+                  "accepted",
+                  "wrong_answer",
+                  "time_limit_exceeded",
+                  "memory_limit_exceeded",
+                  "output_limit_exceeded",
+                  "compile_error",
+                  "runtime_error",
+                  "system_error",
+                  "manual_override"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Status"
+          },
+          "latest_submission_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Submission At"
+          },
+          "member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "submission_count": {
+            "default": 0,
+            "title": "Submission Count",
+            "type": "integer"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "team_name"
+        ],
+        "title": "ContestTeamSubmissionSummary",
         "type": "object"
       },
       "ContestUnfreezeRequest": {
@@ -8196,11 +8672,7 @@
             "content": {
               "application/json; charset=utf-8": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SubmissionReview"
-                  },
-                  "title": "Response List Contest Submissions Api V1 Contests  Contest Id  Submissions Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ContestSubmissionStatusResponse"
                 }
               }
             },

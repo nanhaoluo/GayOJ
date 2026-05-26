@@ -9,6 +9,7 @@ import ContestClarificationPage from './pages/ContestClarificationPage.vue';
 import ContestJudgePage from './pages/ContestJudgePage.vue';
 import ContestPrintPage from './pages/ContestPrintPage.vue';
 import ContestStandingsPage from './pages/ContestStandingsPage.vue';
+import ContestSubmissionsPage from './pages/ContestSubmissionsPage.vue';
 import DashboardPage from './pages/DashboardPage.vue';
 import DiscussPage from './pages/DiscussPage.vue';
 import JudgePage from './pages/JudgePage.vue';
@@ -32,6 +33,7 @@ const router = createRouter({
     { path: '/problem-sets', component: ProblemSetsPage },
     { path: '/contests', component: ContestsPage },
     { path: '/contests/:id/standings', component: ContestStandingsPage, meta: { pure: true } },
+    { path: '/contests/:id/submissions', component: ContestSubmissionsPage, meta: { pure: true } },
     { path: '/contests/:id/clar', component: ContestClarificationPage, meta: { pure: true } },
     { path: '/judge/monitor/:id', component: ContestJudgePage, meta: { pure: true } },
     { path: '/judge/balloons/:id', component: ContestBalloonPage, meta: { pure: true } },
