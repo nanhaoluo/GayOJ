@@ -959,6 +959,43 @@ def test_contest_print_requires_problem_scope_and_writes_audit(client: TestClien
     assert update_logs[0].metadata["status"] == "printed"
 
 
+def test_contest_print_update_rejects_job_from_other_contest(client: TestClient, auth_headers, store) -> None:
+    from app.db import now
+    from app.models import Contest
+
+    other_contest = Contest(
+        id="C2001",
+        title="Other Print Contest",
+        rule="ACM",
+        start_at=now() - timedelta(hours=1),
+        end_at=now() + timedelta(hours=1),
+        problem_ids=["P1001"],
+        problem_layout=[ContestProblemLayoutItem(problem_id="P1001", problem_key="A")],
+        status="running",
+        visibility="public",
+    )
+    store.add_contest(other_contest)
+
+    printed = client.post(
+        "/api/v1/contests/C1001/print",
+        headers=auth_headers("judge"),
+        json={"problem_id": "P1001", "language": "python", "source_code": "print('scoped')\n"},
+    )
+    assert printed.status_code == 200, printed.text
+    job_id = printed.json()["id"]
+
+    wrong_contest_detail = client.get(f"/api/v1/contests/C2001/print/{job_id}", headers=auth_headers("judge"))
+    wrong_contest_update = client.patch(
+        f"/api/v1/contests/C2001/print/{job_id}",
+        headers=auth_headers("judge"),
+        json={"status": "printed"},
+    )
+
+    assert wrong_contest_detail.status_code == 404
+    assert wrong_contest_update.status_code == 404
+    assert store.get_contest_print_job(job_id).status == "pending"
+
+
 def test_contest_freeze_and_rejudge_require_manage_permission(client: TestClient, auth_headers, store) -> None:
     contest = store.get_contest("C1001")
     assert contest is not None
