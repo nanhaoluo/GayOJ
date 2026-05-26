@@ -2998,7 +2998,20 @@ def coach_analytics(
     )
 
 
-@app.get("/api/v1/coach/reports/export")
+@app.get(
+    "/api/v1/coach/reports/export",
+    responses={
+        200: {
+            "description": "Coach report export file",
+            "content": {
+                "text/csv": {"schema": {"type": "string", "format": "binary"}},
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                    "schema": {"type": "string", "format": "binary"}
+                },
+            },
+        }
+    },
+)
 def coach_report_export(
     format: CoachReportFormat = Query(default="csv"),
     user: User = Depends(require_permissions("analytics:read")),
