@@ -22,6 +22,15 @@
 - `npm run build:web`：通过。
 - `npm run check:api`：277 passed。
 
+最终合入 `main` 后复验：
+
+- `py -3.12 -m pytest apps/api/tests/test_p6_contest_boundaries.py -q`：61 passed。
+- `npm run check:openapi`：通过。
+- `npm run check:migrations`：通过。
+- `npm run typecheck`：通过。
+- `npm run build:web`：通过。
+- `npm run check:api`：279 passed。
+
 ## 边界确认
 
 - 比赛题面、提交、Clarification、打印、封榜、重测均保留权限校验和比赛资源归属校验。
