@@ -572,6 +572,87 @@ export interface Team {
   created_at: string;
 }
 
+export type AssignmentProgressState = 'not_started' | 'in_progress' | 'overdue' | 'completed';
+
+export interface AssignmentStudentStatus {
+  user_id: string;
+  display_name: string;
+  school: string;
+  status: AssignmentProgressState;
+  solved_count: number;
+  problem_count: number;
+  completion: number;
+  last_submission_at: string | null;
+}
+
+export interface AssignmentAnalytics {
+  id: string;
+  title: string;
+  description: string;
+  problem_set_id: string;
+  team_id: string | null;
+  due_at: string;
+  created_by: string;
+  created_at: string;
+  problem_set_title: string;
+  problem_count: number;
+  student_count: number;
+  completed_count: number;
+  completion: number;
+  status: AssignmentProgressState;
+  state_counts: Record<AssignmentProgressState, number>;
+  students: AssignmentStudentStatus[];
+}
+
+export interface TagMastery {
+  tag: string;
+  attempts: number;
+  accepted: number;
+  solved: number;
+  student_count: number;
+  accuracy: number;
+}
+
+export interface ProblemTypeMastery {
+  problem_type: ProblemType;
+  attempts: number;
+  accepted: number;
+  solved: number;
+  accuracy: number;
+}
+
+export interface ActivityHeatmapCell {
+  date: string;
+  attempts: number;
+  accepted: number;
+  active_students: number;
+}
+
+export interface StudentAbilityProfile {
+  user_id: string;
+  display_name: string;
+  school: string;
+  attempts: number;
+  accepted: number;
+  solved: number;
+  accuracy: number;
+  last_submission_at: string | null;
+  tag_mastery: TagMastery[];
+  type_mastery: ProblemTypeMastery[];
+  heatmap: ActivityHeatmapCell[];
+}
+
+export interface CoachAnalyticsResponse {
+  class_size: number;
+  active_students: number;
+  assignments: AssignmentAnalytics[];
+  teams: Team[];
+  tag_mastery: TagMastery[];
+  type_mastery: ProblemTypeMastery[];
+  activity_heatmap: ActivityHeatmapCell[];
+  student_profiles: StudentAbilityProfile[];
+}
+
 export interface SystemConfig {
   site_name: string;
   registration_enabled: boolean;

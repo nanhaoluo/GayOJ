@@ -9,7 +9,25 @@ from typing import Any
 from uuid import uuid4
 
 from .config import OFFLINE_PACK_SECRET, OFFLINE_PACK_TTL_HOURS
-from .models import ContestBalloon, Contest, ObjectiveItemResult, Problem, Submission, User
+from .models import (
+    Assignment,
+    AssignmentAnalytics,
+    AssignmentProgressState,
+    AssignmentStudentStatus,
+    ActivityHeatmapCell,
+    CoachAnalyticsResponse,
+    ContestBalloon,
+    Contest,
+    ObjectiveItemResult,
+    Problem,
+    ProblemTypeMastery,
+    ProblemSet,
+    StudentAbilityProfile,
+    Submission,
+    TagMastery,
+    Team,
+    User,
+)
 
 
 PACK_SECRET = OFFLINE_PACK_SECRET
@@ -17,6 +35,281 @@ PACK_SECRET = OFFLINE_PACK_SECRET
 
 def make_submission_id() -> str:
     return f"S{uuid4().hex[:10].upper()}"
+
+
+def ensure_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def assignment_student_state(
+    *,
+    problem_ids: set[str],
+    solved_ids: set[str],
+    due_at: datetime,
+    now_value: datetime,
+) -> AssignmentProgressState:
+    if problem_ids and problem_ids.issubset(solved_ids):
+        return "completed"
+    if solved_ids:
+        return "overdue" if now_value > due_at else "in_progress"
+    return "overdue" if now_value > due_at else "not_started"
+
+
+def submission_is_full_score(submission: Submission) -> bool:
+    return submission.status in {"accepted", "manual_override"} and submission.score >= submission.max_score
+
+
+def mastery_accuracy(accepted: int, attempts: int) -> float:
+    return accepted / attempts if attempts else 0.0
+
+
+def build_activity_heatmap(submissions: list[Submission]) -> list[ActivityHeatmapCell]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        submitted_at = ensure_utc_datetime(submission.judged_at) or ensure_utc_datetime(submission.created_at)
+        if submitted_at is None:
+            continue
+        key = submitted_at.date().isoformat()
+        bucket = buckets.setdefault(key, {"attempts": 0, "accepted": 0, "students": set()})
+        bucket["attempts"] += 1
+        bucket["students"].add(submission.user_id)
+        if submission_is_full_score(submission):
+            bucket["accepted"] += 1
+    return [
+        ActivityHeatmapCell(
+            date=date,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            active_students=len(value["students"]),
+        )
+        for date, value in sorted(buckets.items())
+    ]
+
+
+def build_tag_mastery(
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> list[TagMastery]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        problem = problem_by_id.get(submission.problem_id)
+        if not problem:
+            continue
+        accepted = submission_is_full_score(submission)
+        for tag in problem.tags:
+            bucket = buckets.setdefault(tag, {"attempts": 0, "accepted": 0, "solved": set(), "students": set()})
+            bucket["attempts"] += 1
+            bucket["students"].add(submission.user_id)
+            if accepted:
+                bucket["accepted"] += 1
+                bucket["solved"].add(submission.problem_id)
+    return [
+        TagMastery(
+            tag=tag,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            solved=len(value["solved"]),
+            student_count=len(value["students"]),
+            accuracy=mastery_accuracy(value["accepted"], value["attempts"]),
+        )
+        for tag, value in sorted(buckets.items(), key=lambda item: (-item[1]["attempts"], item[0]))
+    ]
+
+
+def build_type_mastery(
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> list[ProblemTypeMastery]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for submission in submissions:
+        problem = problem_by_id.get(submission.problem_id)
+        problem_type = problem.type if problem else submission.problem_type
+        bucket = buckets.setdefault(str(problem_type), {"attempts": 0, "accepted": 0, "solved": set()})
+        bucket["attempts"] += 1
+        if submission_is_full_score(submission):
+            bucket["accepted"] += 1
+            bucket["solved"].add(submission.problem_id)
+    return [
+        ProblemTypeMastery(
+            problem_type=problem_type,
+            attempts=value["attempts"],
+            accepted=value["accepted"],
+            solved=len(value["solved"]),
+            accuracy=mastery_accuracy(value["accepted"], value["attempts"]),
+        )
+        for problem_type, value in sorted(buckets.items())
+    ]
+
+
+def build_student_ability_profile(
+    student: User,
+    submissions: list[Submission],
+    problem_by_id: dict[str, Problem],
+) -> StudentAbilityProfile:
+    sorted_submissions = sorted(
+        submissions,
+        key=lambda item: ensure_utc_datetime(item.judged_at) or ensure_utc_datetime(item.created_at) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    accepted_submissions = [submission for submission in sorted_submissions if submission_is_full_score(submission)]
+    last_submission_at = None
+    if sorted_submissions:
+        last = sorted_submissions[-1]
+        last_submission_at = ensure_utc_datetime(last.judged_at) or ensure_utc_datetime(last.created_at)
+    return StudentAbilityProfile(
+        user_id=student.id,
+        display_name=student.display_name,
+        school=student.school,
+        attempts=len(sorted_submissions),
+        accepted=len(accepted_submissions),
+        solved=len({submission.problem_id for submission in accepted_submissions}),
+        accuracy=mastery_accuracy(len(accepted_submissions), len(sorted_submissions)),
+        last_submission_at=last_submission_at,
+        tag_mastery=build_tag_mastery(sorted_submissions, problem_by_id),
+        type_mastery=build_type_mastery(sorted_submissions, problem_by_id),
+        heatmap=build_activity_heatmap(sorted_submissions),
+    )
+
+
+def build_coach_analytics(
+    *,
+    coach: User,
+    users: list[User],
+    teams: list[Team],
+    assignments: list[Assignment],
+    problem_sets: list[ProblemSet],
+    problems: list[Problem],
+    submissions: list[Submission],
+    now_value: datetime | None = None,
+) -> CoachAnalyticsResponse:
+    current = ensure_utc_datetime(now_value) or datetime.now(timezone.utc)
+    team_scope = [team for team in teams if team.owner_id == coach.id]
+    team_by_id = {team.id: team for team in team_scope}
+    scoped_team_ids = set(team_by_id)
+    scoped_assignments = [
+        assignment
+        for assignment in assignments
+        if assignment.created_by == coach.id or (assignment.team_id is not None and assignment.team_id in scoped_team_ids)
+    ]
+    student_scope_ids = {
+        member_id
+        for team in team_scope
+        for member_id in team.member_ids
+    }
+    student_scope = [
+        user
+        for user in users
+        if user.role == "student" and user.id in student_scope_ids
+    ]
+    student_by_id = {student.id: student for student in student_scope}
+    problem_by_id = {problem.id: problem for problem in problems}
+    problem_set_by_id = {problem_set.id: problem_set for problem_set in problem_sets}
+    scoped_problem_ids = {
+        problem_id
+        for assignment in scoped_assignments
+        for problem_id in (problem_set_by_id.get(assignment.problem_set_id).problem_ids if problem_set_by_id.get(assignment.problem_set_id) else [])
+    }
+    scoped_submissions = [
+        submission
+        for submission in submissions
+        if submission.user_id in student_by_id and submission.problem_id in scoped_problem_ids
+    ]
+
+    solved_by_student: dict[str, set[str]] = {}
+    latest_submission_at: dict[str, datetime] = {}
+    for submission in scoped_submissions:
+        judged_at = ensure_utc_datetime(submission.judged_at) or ensure_utc_datetime(submission.created_at)
+        if judged_at is not None:
+            previous = latest_submission_at.get(submission.user_id)
+            if previous is None or judged_at > previous:
+                latest_submission_at[submission.user_id] = judged_at
+        if submission_is_full_score(submission):
+            solved_by_student.setdefault(submission.user_id, set()).add(submission.problem_id)
+
+    assignment_cards: list[AssignmentAnalytics] = []
+    for assignment in sorted(scoped_assignments, key=lambda item: (ensure_utc_datetime(item.due_at) or current, item.id)):
+        problem_set = problem_set_by_id.get(assignment.problem_set_id)
+        problem_ids = set(problem_set.problem_ids if problem_set else [])
+        members = (
+            [student_by_id[member_id] for member_id in team_by_id.get(assignment.team_id, Team(id="", name="", invite_code="", owner_id="", created_at=current)).member_ids if member_id in student_by_id]
+            if assignment.team_id
+            else student_scope
+        )
+        student_states: list[AssignmentStudentStatus] = []
+        state_counts: dict[AssignmentProgressState, int] = {
+            "not_started": 0,
+            "in_progress": 0,
+            "overdue": 0,
+            "completed": 0,
+        }
+        completed_count = 0
+        for student in sorted(members, key=lambda item: (item.display_name, item.id)):
+            solved_ids = solved_by_student.get(student.id, set()) & problem_ids
+            state = assignment_student_state(
+                problem_ids=problem_ids,
+                solved_ids=solved_ids,
+                due_at=ensure_utc_datetime(assignment.due_at) or current,
+                now_value=current,
+            )
+            completion = (len(solved_ids) / len(problem_ids)) if problem_ids else 0.0
+            if state == "completed":
+                completed_count += 1
+            state_counts[state] += 1
+            student_states.append(
+                AssignmentStudentStatus(
+                    user_id=student.id,
+                    display_name=student.display_name,
+                    school=student.school,
+                    status=state,
+                    solved_count=len(solved_ids),
+                    problem_count=len(problem_ids),
+                    completion=completion,
+                    last_submission_at=latest_submission_at.get(student.id),
+                )
+            )
+        overall_state: AssignmentProgressState
+        if student_states and completed_count == len(student_states):
+            overall_state = "completed"
+        elif ensure_utc_datetime(assignment.due_at) and current > (ensure_utc_datetime(assignment.due_at) or current):
+            overall_state = "overdue"
+        elif any(item.status == "in_progress" for item in student_states):
+            overall_state = "in_progress"
+        else:
+            overall_state = "not_started"
+        assignment_cards.append(
+            AssignmentAnalytics(
+                **assignment.model_dump(),
+                problem_set_title=problem_set.title if problem_set else assignment.problem_set_id,
+                problem_count=len(problem_ids),
+                student_count=len(student_states),
+                completed_count=completed_count,
+                completion=(completed_count / len(student_states)) if student_states else 0.0,
+                status=overall_state,
+                state_counts=state_counts,
+                students=student_states,
+            )
+        )
+
+    return CoachAnalyticsResponse(
+        class_size=len(student_scope),
+        active_students=len({submission.user_id for submission in scoped_submissions}),
+        assignments=assignment_cards,
+        teams=team_scope,
+        tag_mastery=build_tag_mastery(scoped_submissions, problem_by_id),
+        type_mastery=build_type_mastery(scoped_submissions, problem_by_id),
+        activity_heatmap=build_activity_heatmap(scoped_submissions),
+        student_profiles=[
+            build_student_ability_profile(
+                student,
+                [submission for submission in scoped_submissions if submission.user_id == student.id],
+                problem_by_id,
+            )
+            for student in sorted(student_scope, key=lambda item: (item.display_name, item.id))
+        ],
+    )
 
 
 def normalize_blank(value: Any, case_sensitive: bool, trim_space: bool) -> str:

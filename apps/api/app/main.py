@@ -135,6 +135,7 @@ from .models import (
 from .rbac import role_has_permission, role_permission_matrix
 from .services import (
     build_offline_pack,
+    build_coach_analytics,
     build_contest_balloon,
     contest_submission_is_balloon_eligible,
     judge_objective,
@@ -2979,51 +2980,15 @@ def coach_analytics(
     user: User = Depends(require_permissions("analytics:read")),
     store: Repository = Depends(get_repository),
 ) -> CoachAnalyticsResponse:
-    submissions = store.list_submissions()
-    users = [u for u in store.list_users() if u.role == "student"]
-    participant_ids = {user.id for user in users}
-    tag_counts: dict[str, dict[str, int]] = {}
-    problems = {p.id: p for p in store.list_problems()}
-    for submission in submissions:
-        if submission.user_id not in participant_ids:
-            continue
-        problem = problems.get(submission.problem_id)
-        if not problem:
-            continue
-        for tag in problem.tags:
-            bucket = tag_counts.setdefault(tag, {"attempts": 0, "accepted": 0})
-            bucket["attempts"] += 1
-            if submission.status == "accepted":
-                bucket["accepted"] += 1
-    assignments = store.list_assignments()
-    teams = store.list_teams()
-    assignment_cards = []
-    for assignment in assignments:
-        problem_set = store.get_problem_set(assignment.problem_set_id)
-        problem_ids = set(problem_set.problem_ids if problem_set else [])
-        students = [u for u in users if not assignment.team_id or u.id in next((t.member_ids for t in teams if t.id == assignment.team_id), [])]
-        completed = 0
-        for student in students:
-            solved = {
-                s.problem_id
-                for s in submissions
-                if s.user_id == student.id and s.score == s.max_score and s.problem_id in problem_ids
-            }
-            if problem_ids and solved >= problem_ids:
-                completed += 1
-        assignment_cards.append(
-            {
-                **assignment.model_dump(mode="json"),
-                "problem_set_title": problem_set.title if problem_set else assignment.problem_set_id,
-                "completion": completed / len(students) if students else 0,
-            }
-        )
-    return CoachAnalyticsResponse(
-        class_size=len(users),
-        active_students=len({s.user_id for s in submissions if s.user_id in participant_ids}),
-        assignments=assignment_cards,
-        teams=teams,
-        tag_mastery=[{"tag": tag, **value} for tag, value in tag_counts.items()],
+    return build_coach_analytics(
+        coach=user,
+        users=store.list_users(),
+        teams=store.list_teams(),
+        assignments=store.list_assignments(),
+        problem_sets=store.list_problem_sets(),
+        problems=store.list_problems(),
+        submissions=store.list_submissions(),
+        now_value=now(),
     )
 
 
@@ -3053,8 +3018,15 @@ def create_assignment(
     user: User = Depends(require_permissions("assignment:manage")),
     store: Repository = Depends(get_repository),
 ) -> Assignment:
-    if not store.get_problem_set(payload.problem_set_id):
+    problem_set = store.get_problem_set(payload.problem_set_id)
+    if not problem_set:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem set not found")
+    if payload.team_id:
+        team = next((item for item in store.list_teams() if item.id == payload.team_id), None)
+        if not team:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+        if team.owner_id != user.id and not role_has_permission(user.role, "problem_set:edit:all"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     assignment = Assignment(
         id=f"A{1000 + len(store.list_assignments()) + 1}",
         created_by=user.id,

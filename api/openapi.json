@@ -1,6 +1,34 @@
 {
   "components": {
     "schemas": {
+      "ActivityHeatmapCell": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "active_students": {
+            "title": "Active Students",
+            "type": "integer"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "attempts",
+          "accepted",
+          "active_students"
+        ],
+        "title": "ActivityHeatmapCell",
+        "type": "object"
+      },
       "Assignment": {
         "properties": {
           "created_at": {
@@ -59,6 +87,10 @@
       },
       "AssignmentAnalytics": {
         "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
           "completion": {
             "title": "Completion",
             "type": "number"
@@ -85,6 +117,10 @@
             "title": "Id",
             "type": "string"
           },
+          "problem_count": {
+            "title": "Problem Count",
+            "type": "integer"
+          },
           "problem_set_id": {
             "title": "Problem Set Id",
             "type": "string"
@@ -92,6 +128,42 @@
           "problem_set_title": {
             "title": "Problem Set Title",
             "type": "string"
+          },
+          "state_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "not_started",
+                "in_progress",
+                "overdue",
+                "completed"
+              ]
+            },
+            "title": "State Counts",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "in_progress",
+              "overdue",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "student_count": {
+            "title": "Student Count",
+            "type": "integer"
+          },
+          "students": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentStudentStatus"
+            },
+            "title": "Students",
+            "type": "array"
           },
           "team_id": {
             "anyOf": [
@@ -118,7 +190,11 @@
           "created_by",
           "created_at",
           "problem_set_title",
-          "completion"
+          "problem_count",
+          "student_count",
+          "completed_count",
+          "completion",
+          "status"
         ],
         "title": "AssignmentAnalytics",
         "type": "object"
@@ -161,6 +237,67 @@
           "due_at"
         ],
         "title": "AssignmentCreate",
+        "type": "object"
+      },
+      "AssignmentStudentStatus": {
+        "properties": {
+          "completion": {
+            "title": "Completion",
+            "type": "number"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "last_submission_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Submission At"
+          },
+          "problem_count": {
+            "title": "Problem Count",
+            "type": "integer"
+          },
+          "school": {
+            "title": "School",
+            "type": "string"
+          },
+          "solved_count": {
+            "title": "Solved Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "in_progress",
+              "overdue",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "school",
+          "status",
+          "solved_count",
+          "problem_count",
+          "completion"
+        ],
+        "title": "AssignmentStudentStatus",
         "type": "object"
       },
       "AuditLog": {
@@ -442,6 +579,13 @@
             "title": "Active Students",
             "type": "integer"
           },
+          "activity_heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityHeatmapCell"
+            },
+            "title": "Activity Heatmap",
+            "type": "array"
+          },
           "assignments": {
             "items": {
               "$ref": "#/components/schemas/AssignmentAnalytics"
@@ -452,6 +596,13 @@
           "class_size": {
             "title": "Class Size",
             "type": "integer"
+          },
+          "student_profiles": {
+            "items": {
+              "$ref": "#/components/schemas/StudentAbilityProfile"
+            },
+            "title": "Student Profiles",
+            "type": "array"
           },
           "tag_mastery": {
             "items": {
@@ -465,6 +616,13 @@
               "$ref": "#/components/schemas/Team"
             },
             "title": "Teams",
+            "type": "array"
+          },
+          "type_mastery": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemTypeMastery"
+            },
+            "title": "Type Mastery",
             "type": "array"
           }
         },
@@ -4812,6 +4970,45 @@
         "title": "ProblemTestData",
         "type": "object"
       },
+      "ProblemTypeMastery": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "accuracy": {
+            "default": 0.0,
+            "title": "Accuracy",
+            "type": "number"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "problem_type": {
+            "enum": [
+              "code",
+              "blank",
+              "single_choice",
+              "multiple_choice"
+            ],
+            "title": "Problem Type",
+            "type": "string"
+          },
+          "solved": {
+            "title": "Solved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "problem_type",
+          "attempts",
+          "accepted",
+          "solved"
+        ],
+        "title": "ProblemTypeMastery",
+        "type": "object"
+      },
       "ProblemUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -5400,6 +5597,82 @@
           "score"
         ],
         "title": "StandingRow",
+        "type": "object"
+      },
+      "StudentAbilityProfile": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "accuracy": {
+            "title": "Accuracy",
+            "type": "number"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityHeatmapCell"
+            },
+            "title": "Heatmap",
+            "type": "array"
+          },
+          "last_submission_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Submission At"
+          },
+          "school": {
+            "title": "School",
+            "type": "string"
+          },
+          "solved": {
+            "title": "Solved",
+            "type": "integer"
+          },
+          "tag_mastery": {
+            "items": {
+              "$ref": "#/components/schemas/TagMastery"
+            },
+            "title": "Tag Mastery",
+            "type": "array"
+          },
+          "type_mastery": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemTypeMastery"
+            },
+            "title": "Type Mastery",
+            "type": "array"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "school",
+          "attempts",
+          "accepted",
+          "solved",
+          "accuracy"
+        ],
+        "title": "StudentAbilityProfile",
         "type": "object"
       },
       "Submission": {
@@ -6079,8 +6352,23 @@
             "title": "Accepted",
             "type": "integer"
           },
+          "accuracy": {
+            "default": 0.0,
+            "title": "Accuracy",
+            "type": "number"
+          },
           "attempts": {
             "title": "Attempts",
+            "type": "integer"
+          },
+          "solved": {
+            "default": 0,
+            "title": "Solved",
+            "type": "integer"
+          },
+          "student_count": {
+            "default": 0,
+            "title": "Student Count",
             "type": "integer"
           },
           "tag": {
