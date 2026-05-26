@@ -1211,6 +1211,54 @@ class StudentAbilityProfile(BaseModel):
     heatmap: list[ActivityHeatmapCell] = Field(default_factory=list)
 
 
+class CoachSimilarityStudent(BaseModel):
+    user_id: str
+    display_name: str
+    school: str
+    team_ids: list[str] = Field(default_factory=list)
+    team_names: list[str] = Field(default_factory=list)
+
+
+class CoachSimilarityFinding(BaseModel):
+    problem_id: str
+    problem_title: str
+    contest_id: str | None = None
+    contest_title: str | None = None
+    language: str
+    similarity: float = Field(ge=0, le=1)
+    shared_token_count: int = Field(ge=0)
+    token_count_a: int = Field(ge=0)
+    token_count_b: int = Field(ge=0)
+    submission_a_id: str
+    submission_b_id: str
+    submitted_at_a: datetime
+    submitted_at_b: datetime
+    status_a: SubmissionStatus
+    status_b: SubmissionStatus
+    student_a: CoachSimilarityStudent
+    student_b: CoachSimilarityStudent
+    reason: str
+
+
+class CoachSimilarityFilterOption(BaseModel):
+    id: str
+    title: str
+    count: int = Field(ge=0)
+
+
+class CoachSimilarityResponse(BaseModel):
+    generated_at: datetime
+    threshold: float = Field(ge=0, le=1)
+    limit: int = Field(ge=1)
+    problem_id: str | None = None
+    contest_id: str | None = None
+    scanned_submission_count: int = Field(ge=0)
+    candidate_pair_count: int = Field(ge=0)
+    findings: list[CoachSimilarityFinding] = Field(default_factory=list)
+    problems: list[CoachSimilarityFilterOption] = Field(default_factory=list)
+    contests: list[CoachSimilarityFilterOption] = Field(default_factory=list)
+
+
 class CoachAnalyticsResponse(BaseModel):
     class_size: int
     active_students: int

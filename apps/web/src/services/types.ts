@@ -642,6 +642,54 @@ export interface StudentAbilityProfile {
   heatmap: ActivityHeatmapCell[];
 }
 
+export interface CoachSimilarityStudent {
+  user_id: string;
+  display_name: string;
+  school: string;
+  team_ids: string[];
+  team_names: string[];
+}
+
+export interface CoachSimilarityFinding {
+  problem_id: string;
+  problem_title: string;
+  contest_id: string | null;
+  contest_title: string | null;
+  language: string;
+  similarity: number;
+  shared_token_count: number;
+  token_count_a: number;
+  token_count_b: number;
+  submission_a_id: string;
+  submission_b_id: string;
+  submitted_at_a: string;
+  submitted_at_b: string;
+  status_a: string;
+  status_b: string;
+  student_a: CoachSimilarityStudent;
+  student_b: CoachSimilarityStudent;
+  reason: string;
+}
+
+export interface CoachSimilarityFilterOption {
+  id: string;
+  title: string;
+  count: number;
+}
+
+export interface CoachSimilarityResponse {
+  generated_at: string;
+  threshold: number;
+  limit: number;
+  problem_id: string | null;
+  contest_id: string | null;
+  scanned_submission_count: number;
+  candidate_pair_count: number;
+  findings: CoachSimilarityFinding[];
+  problems: CoachSimilarityFilterOption[];
+  contests: CoachSimilarityFilterOption[];
+}
+
 export interface CoachAnalyticsResponse {
   class_size: number;
   active_students: number;
