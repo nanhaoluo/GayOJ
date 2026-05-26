@@ -51,10 +51,12 @@ from .models import (
     ContestDetail,
     ContestBalloon,
     ContestFreezeRequest,
+    ContestBoardResponse,
     ContestRejudgeResponse,
     ContestUnfreezeRequest,
     ContestPrintRequest,
     ContestPrintResponse,
+    ContestRollingResponse,
     ContestSubmitRequest,
     ContestBalloonUpdate,
     ContestJudgeMonitorResponse,
@@ -955,6 +957,30 @@ def can_view_full_contest_board(user: User | None) -> bool:
         role_has_permission(user.role, "contest:manage")
         or role_has_permission(user.role, "judge:monitor")
         or role_has_permission(user.role, "clarification:read:all")
+    )
+
+
+def contest_external_board_payload(
+    contest: Contest,
+    store: Repository,
+    *,
+    board_kind: str,
+    full_board: bool = False,
+) -> ContestBoardResponse:
+    return ContestBoardResponse(
+        contest=contest_detail(contest, store),
+        board_kind=board_kind,
+        standings=build_contest_standings(contest, store, full_board=full_board),
+        generated_at=now(),
+    )
+
+
+def contest_rolling_board_payload(contest: Contest, store: Repository) -> ContestRollingResponse:
+    return ContestRollingResponse(
+        contest=contest_detail(contest, store),
+        public_standings=build_contest_standings(contest, store, full_board=False),
+        final_standings=build_contest_standings(contest, store, full_board=True),
+        generated_at=now(),
     )
 
 
@@ -2361,6 +2387,44 @@ def standings(
     if user and user.role != "student" and not role_has_permission(user.role, "contest:manage") and not role_has_permission(user.role, "judge:monitor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
     return build_contest_standings(contest, store, full_board=can_view_full_contest_board(user))
+
+
+@app.get("/api/v1/contests/{contest_id}/external-board", response_model=ContestBoardResponse)
+def external_contest_board(
+    contest_id: str,
+    store: Repository = Depends(get_repository),
+) -> ContestBoardResponse:
+    contest = store.get_contest(contest_id)
+    if not contest or contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    return contest_external_board_payload(contest, store, board_kind="external", full_board=False)
+
+
+@app.get("/api/v1/contests/{contest_id}/live-board", response_model=ContestBoardResponse)
+def live_contest_board(
+    contest_id: str,
+    store: Repository = Depends(get_repository),
+) -> ContestBoardResponse:
+    contest = store.get_contest(contest_id)
+    if not contest or contest.visibility != "public":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    return contest_external_board_payload(contest, store, board_kind="live", full_board=False)
+
+
+@app.get("/api/v1/contests/{contest_id}/rolling-board", response_model=ContestRollingResponse)
+def rolling_contest_board(
+    contest_id: str,
+    user: User = Depends(get_current_user),
+    store: Repository = Depends(get_repository),
+) -> ContestRollingResponse:
+    contest = store.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found")
+    if not (role_has_permission(user.role, "judge:monitor") or role_has_permission(user.role, "contest:manage")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+    if not contest_has_ended(contest):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rolling board is only available after the contest ends")
+    return contest_rolling_board_payload(contest, store)
 
 
 @app.get("/api/v1/contests/{contest_id}/problems", response_model=list[ProblemDetail], response_model_exclude_none=True)

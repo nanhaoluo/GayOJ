@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
@@ -249,7 +249,7 @@ def test_contest_clarification_supports_problem_scope_private_public_and_broadca
     created = client.post(
         "/api/v1/contests/C1001/clarifications",
         headers=auth_headers("alice"),
-        json={"question": "P1001 的样例是否完整？", "problem_id": "P1001"},
+        json={"question": "P1001 鐨勬牱渚嬫槸鍚﹀畬鏁达紵", "problem_id": "P1001"},
     )
     assert created.status_code == 200, created.text
     clarification = created.json()
@@ -260,7 +260,7 @@ def test_contest_clarification_supports_problem_scope_private_public_and_broadca
     private_reply = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "这是私有回复", "public": False, "broadcast": False},
+        json={"answer": "杩欐槸绉佹湁鍥炲", "public": False, "broadcast": False},
     )
     assert private_reply.status_code == 200, private_reply.text
     private_body = private_reply.json()
@@ -273,14 +273,14 @@ def test_contest_clarification_supports_problem_scope_private_public_and_broadca
     owner_list = client.get("/api/v1/contests/C1001/clarifications", headers=auth_headers("alice"))
     assert owner_list.status_code == 200, owner_list.text
     owner_item = next(item for item in owner_list.json() if item["id"] == clarification_id)
-    assert owner_item["answer"] == "这是私有回复"
+    assert owner_item["answer"] == "杩欐槸绉佹湁鍥炲"
     assert owner_item["public"] is False
     assert owner_item["broadcast"] is False
 
     public_reply = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "这是公开回复", "public": True, "broadcast": False},
+        json={"answer": "杩欐槸鍏紑鍥炲", "public": True, "broadcast": False},
     )
     assert public_reply.status_code == 200, public_reply.text
     public_body = public_reply.json()
@@ -290,7 +290,7 @@ def test_contest_clarification_supports_problem_scope_private_public_and_broadca
     broadcast_reply = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "这是广播回复", "broadcast": True},
+        json={"answer": "杩欐槸骞挎挱鍥炲", "broadcast": True},
     )
     assert broadcast_reply.status_code == 200, broadcast_reply.text
     broadcast_body = broadcast_reply.json()
@@ -308,7 +308,7 @@ def test_contest_clarification_public_view_redacts_other_student_identity(client
     created = client.post(
         "/api/v1/contests/C1001/clarifications",
         headers=auth_headers("alice"),
-        json={"question": "这个问题想公开讨论"},
+        json={"question": "This question should be public."},
     )
     assert created.status_code == 200, created.text
     clarification_id = created.json()["id"]
@@ -316,7 +316,7 @@ def test_contest_clarification_public_view_redacts_other_student_identity(client
     replied = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "公开回复内容", "public": True},
+        json={"answer": "Public clarification reply", "public": True},
     )
     assert replied.status_code == 200, replied.text
 
@@ -331,14 +331,14 @@ def test_contest_clarification_public_view_redacts_other_student_identity(client
     public_item = next(item for item in other_student.json() if item["id"] == clarification_id)
     assert public_item["user_id"] == ""
     assert public_item["user_display_name"] == "匿名选手"
-    assert public_item["answer"] == "公开回复内容"
+    assert public_item["answer"] == "Public clarification reply"
 
 
 def test_contest_clarification_judge_list_includes_private_and_audit_fields(client: TestClient, auth_headers) -> None:
     created = client.post(
         "/api/v1/contests/C1001/clarifications",
         headers=auth_headers("alice"),
-        json={"question": "仅裁判和本人可见"},
+        json={"question": "浠呰鍒ゅ拰鏈汉鍙"},
     )
     assert created.status_code == 200, created.text
     clarification_id = created.json()["id"]
@@ -346,7 +346,7 @@ def test_contest_clarification_judge_list_includes_private_and_audit_fields(clie
     replied = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "内部说明", "public": False},
+        json={"answer": "鍐呴儴璇存槑", "public": False},
     )
     assert replied.status_code == 200, replied.text
 
@@ -473,7 +473,7 @@ def test_contest_clarification_rejects_problem_outside_contest(client: TestClien
     response = client.post(
         "/api/v1/contests/C1001/clarifications",
         headers=auth_headers("alice"),
-        json={"question": "P1004 不在这场比赛里", "problem_id": "P1004"},
+        json={"question": "P1004 is not part of this contest.", "problem_id": "P1004"},
     )
     assert response.status_code == 404
 
@@ -487,7 +487,7 @@ def test_contest_clarification_private_reply_stays_hidden_from_other_students(cl
     created = client.post(
         "/api/v1/contests/C1001/clarifications",
         headers=auth_headers("alice"),
-        json={"question": "仅本人可见"},
+        json={"question": "Only I should see this question."},
     )
     assert created.status_code == 200, created.text
     clarification_id = created.json()["id"]
@@ -495,7 +495,7 @@ def test_contest_clarification_private_reply_stays_hidden_from_other_students(cl
     replied = client.patch(
         f"/api/v1/clarifications/{clarification_id}",
         headers=auth_headers("judge"),
-        json={"answer": "私有答复", "public": False},
+        json={"answer": "绉佹湁绛斿", "public": False},
     )
     assert replied.status_code == 200, replied.text
 
@@ -823,7 +823,7 @@ def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store
             user_id="u-judge",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="accepted",
             created_at=start_at + timedelta(minutes=30),
@@ -836,7 +836,7 @@ def test_acm_standings_include_penalty_and_first_blood(client: TestClient, store
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="accepted",
             created_at=start_at + timedelta(minutes=40),
@@ -888,7 +888,7 @@ def test_acm_standings_hide_submissions_after_freeze(client: TestClient, store) 
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="wrong_answer",
             score=0,
@@ -902,7 +902,7 @@ def test_acm_standings_hide_submissions_after_freeze(client: TestClient, store) 
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="accepted",
             created_at=start_at + timedelta(minutes=70),
@@ -938,7 +938,7 @@ def test_acm_standings_show_full_board_to_judge_after_freeze(client: TestClient,
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="wrong_answer",
             score=0,
@@ -952,7 +952,7 @@ def test_acm_standings_show_full_board_to_judge_after_freeze(client: TestClient,
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="accepted",
             created_at=start_at + timedelta(minutes=70),
@@ -1098,7 +1098,7 @@ def test_oi_standings_use_highest_score_per_problem(client: TestClient, store) -
             user_id="u-student",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="wrong_answer",
             score=80,
@@ -1126,7 +1126,7 @@ def test_oi_standings_use_highest_score_per_problem(client: TestClient, store) -
             user_id="u-coach",
             contest_id="C1001",
             problem_id="P1002",
-            problem_title="完全图边数",
+            problem_title="Complete Graph Edges",
             problem_type="blank",
             status="wrong_answer",
             score=70,
@@ -1140,7 +1140,7 @@ def test_oi_standings_use_highest_score_per_problem(client: TestClient, store) -
             user_id="u-judge",
             contest_id="C1001",
             problem_id="P1003",
-            problem_title="二分查找适用条件",
+            problem_title="浜屽垎鏌ユ壘閫傜敤鏉′欢",
             problem_type="single_choice",
             status="accepted",
             score=100,
@@ -1225,3 +1225,149 @@ def test_oi_standings_hide_higher_score_after_freeze(client: TestClient, store) 
     assert alice["solved"] == 0
     assert alice["problems"]["P1001"]["score"] == 40
     assert alice["problems"]["P1001"]["attempts"] == 1
+
+
+def test_external_and_live_board_only_expose_public_frozen_view(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = True
+    contest.frozen_at = start_at + timedelta(minutes=60)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-BOARD-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="Complete Graph Edges",
+            problem_type="blank",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=30),
+            judged_at=start_at + timedelta(minutes=30),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-BOARD-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1002",
+            problem_title="Complete Graph Edges",
+            problem_type="blank",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=70),
+            judged_at=start_at + timedelta(minutes=70),
+        )
+    )
+
+    external = client.get("/api/v1/contests/C1001/external-board")
+    live = client.get("/api/v1/contests/C1001/live-board")
+    internal_judge = client.get("/api/v1/contests/C1001/standings", headers=auth_headers("judge"))
+
+    assert external.status_code == 200, external.text
+    assert live.status_code == 200, live.text
+    assert internal_judge.status_code == 200, internal_judge.text
+
+    external_payload = external.json()
+    live_payload = live.json()
+    judge_payload = internal_judge.json()
+
+    assert external_payload["board_kind"] == "external"
+    assert live_payload["board_kind"] == "live"
+    assert external_payload["contest"]["freeze_active"] is True
+    assert live_payload["contest"]["freeze_active"] is True
+
+    external_row = next(row for row in external_payload["standings"] if row["user_id"] == "u-student")
+    live_row = next(row for row in live_payload["standings"] if row["user_id"] == "u-student")
+    judge_row = next(row for row in judge_payload if row["user_id"] == "u-student")
+
+    assert external_row["solved"] == 0
+    assert external_row["problems"]["P1002"]["accepted_at"] is None
+    assert live_row == external_row
+    assert judge_row["solved"] == 1
+    assert judge_row["problems"]["P1002"]["accepted_at"] is not None
+
+
+def test_external_and_live_board_hide_private_contest(client: TestClient, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    contest.visibility = "private"
+    store.update_contest(contest)
+
+    external = client.get("/api/v1/contests/C1001/external-board")
+    live = client.get("/api/v1/contests/C1001/live-board")
+
+    assert external.status_code == 404
+    assert live.status_code == 404
+
+
+def test_rolling_board_requires_judge_or_manage_and_contest_end(client: TestClient, auth_headers, store) -> None:
+    contest = store.get_contest("C1001")
+    assert contest is not None
+    start_at = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    contest.start_at = start_at
+    contest.end_at = start_at + timedelta(hours=5)
+    contest.frozen = True
+    contest.frozen_at = start_at + timedelta(minutes=60)
+    store.update_contest(contest)
+
+    store.add_submission(
+        _contest_submission(
+            "S-ROLL-WA",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="wrong_answer",
+            score=0,
+            created_at=start_at + timedelta(minutes=20),
+            judged_at=start_at + timedelta(minutes=20),
+        )
+    )
+    store.add_submission(
+        _contest_submission(
+            "S-ROLL-AC",
+            user_id="u-student",
+            contest_id="C1001",
+            problem_id="P1001",
+            problem_title="A+B Problem",
+            problem_type="code",
+            status="accepted",
+            created_at=start_at + timedelta(minutes=80),
+            judged_at=start_at + timedelta(minutes=80),
+        )
+    )
+
+    anonymous = client.get("/api/v1/contests/C1001/rolling-board")
+    student = client.get("/api/v1/contests/C1001/rolling-board", headers=auth_headers("alice"))
+    judge_during = client.get("/api/v1/contests/C1001/rolling-board", headers=auth_headers("judge"))
+    admin_during = client.get("/api/v1/contests/C1001/rolling-board", headers=auth_headers("admin"))
+
+    assert anonymous.status_code == 401
+    assert student.status_code == 403
+    assert judge_during.status_code == 409
+    assert admin_during.status_code == 409
+
+    contest.end_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    store.update_contest(contest)
+
+    judge_after = client.get("/api/v1/contests/C1001/rolling-board", headers=auth_headers("judge"))
+    admin_after = client.get("/api/v1/contests/C1001/rolling-board", headers=auth_headers("admin"))
+
+    assert judge_after.status_code == 200, judge_after.text
+    assert admin_after.status_code == 200, admin_after.text
+
+    judge_payload = judge_after.json()
+    public_row = next(row for row in judge_payload["public_standings"] if row["user_id"] == "u-student")
+    final_row = next(row for row in judge_payload["final_standings"] if row["user_id"] == "u-student")
+
+    assert public_row["solved"] == 0
+    assert public_row["problems"]["P1001"]["accepted_at"] is None
+    assert final_row["solved"] == 1
+    assert final_row["problems"]["P1001"]["accepted_at"] is not None

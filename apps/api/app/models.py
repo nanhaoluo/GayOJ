@@ -569,6 +569,20 @@ class StandingRow(BaseModel):
     problems: dict[str, StandingProblemResult] = Field(default_factory=dict)
 
 
+class ContestBoardResponse(BaseModel):
+    contest: ContestDetail
+    board_kind: Literal["external", "live"]
+    standings: list[StandingRow] = Field(default_factory=list)
+    generated_at: datetime
+
+
+class ContestRollingResponse(BaseModel):
+    contest: ContestDetail
+    public_standings: list[StandingRow] = Field(default_factory=list)
+    final_standings: list[StandingRow] = Field(default_factory=list)
+    generated_at: datetime
+
+
 class RankingRow(BaseModel):
     user_id: str
     display_name: str
