@@ -19,6 +19,7 @@ JUDGE_QUEUE_MIGRATION = ROOT / "migrations" / "versions" / "0010_judge_queue_job
 COMPILER_CONFIG_MIGRATION = ROOT / "migrations" / "versions" / "0011_compiler_configs.sql"
 PARTICIPANT_BOUNDARY_MIGRATION = ROOT / "migrations" / "versions" / "0012_participant_role_boundaries.sql"
 CONTEST_ANNOUNCEMENTS_MIGRATION = ROOT / "migrations" / "versions" / "0015_contest_announcements.sql"
+SOLUTION_REACTIONS_MIGRATION = ROOT / "migrations" / "versions" / "0016_solution_reactions.sql"
 CHECK_SCRIPT = ROOT / "scripts" / "check-migrations.py"
 RUNNER = ROOT / "scripts" / "db-migrate.ps1"
 
@@ -247,6 +248,17 @@ def test_contest_announcements_migration_adds_table_and_indexes() -> None:
     assert "created_at timestamptz not null" in sql
     assert "idx_contest_announcements_contest_created" in sql
     assert "0015" in sql
+
+
+def test_solution_reactions_migration_adds_category_and_reaction_state() -> None:
+    sql = SOLUTION_REACTIONS_MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "alter table discussions" in sql
+    assert "solution_category text" in sql
+    assert "liked_by jsonb not null default '[]'::jsonb" in sql
+    assert "bookmarked_by jsonb not null default '[]'::jsonb" in sql
+    assert "idx_discussions_solution_category" in sql
+    assert "0016" in sql
 
 
 def test_migration_static_check_passes() -> None:

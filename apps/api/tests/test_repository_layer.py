@@ -66,6 +66,11 @@ def test_sqlite_repository_backfills_legacy_json_defaults(tmp_path: Path) -> Non
     assert repository.list_notifications("u-student")
     assert repository.get_problem("P1001").offline_enabled is False  # type: ignore[union-attr]
     assert repository.get_problem_set("PS1001").offline_enabled is True  # type: ignore[union-attr]
+    solution = repository.get_discussion("D1002")
+    assert solution is not None
+    assert solution.solution_category == "general"
+    assert solution.liked_by == []
+    assert solution.bookmarked_by == []
 
 
 def test_sqlite_repository_migrates_legacy_default_student_school(tmp_path: Path) -> None:

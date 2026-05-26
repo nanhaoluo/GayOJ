@@ -85,6 +85,7 @@ EXPECTED_INDEXES = [
     "idx_judge_queue_jobs_submission",
     "idx_problems_offline_enabled",
     "idx_problem_sets_offline_enabled",
+    "idx_discussions_solution_category",
 ]
 
 DANGEROUS_PATTERNS = [
@@ -169,6 +170,11 @@ def main() -> int:
     for token in ["offline_enabled boolean", "offline_policy jsonb"]:
         if token not in problem_sets_block:
             fail(f"problem_sets table must include {token}")
+
+    discussions_block = table_block(combined, "discussions").lower()
+    for token in ["solution_category text", "liked_by jsonb", "bookmarked_by jsonb"]:
+        if token not in discussions_block and token not in normalized:
+            fail(f"discussions table must include {token}")
 
     tags_block = table_block(combined, "tags").lower()
     problem_tags_block = table_block(combined, "problem_tags").lower()
@@ -260,6 +266,9 @@ def main() -> int:
         "user_roles",
         "problem_tags",
         "compiler_configs",
+        "solution_category",
+        "liked_by",
+        "bookmarked_by",
     ]:
         if token not in import_normalized:
             fail(f"P1-04 import script must mention {token}")
@@ -291,6 +300,9 @@ def main() -> int:
     for token in ["actor_id", "created_from", "created_to", "limit", "offset"]:
         if token not in store_source:
             fail(f"P1-06 audit log store query must support {token}")
+    for token in ["_migrate_discussions", "solution_category", "liked_by", "bookmarked_by"]:
+        if token not in store_source:
+            fail(f"P8-02 snapshot store must preserve solution reactions via {token}")
 
     print(f"migration check passed: {len(files)} file(s)")
     return 0

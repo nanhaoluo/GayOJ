@@ -72,7 +72,9 @@ from .models import (
     Discussion,
     DiscussionCreate,
     DiscussionListResponse,
+    DiscussionReactionResponse,
     DiscussionReplyCreate,
+    DiscussionView,
     DEFAULT_STUDENT_SCHOOL,
     HealthResponse,
     LoginRequest,
@@ -148,8 +150,10 @@ from .services import (
     coach_scope,
     contest_submission_is_balloon_eligible,
     discussion_matches_query,
+    discussion_view,
     judge_objective,
     make_submission_id,
+    normalize_solution_category,
     notification_stream_event,
     paginate_discussions,
     reconcile_contest_balloon,
@@ -913,6 +917,78 @@ def ensure_discussion_target_visible(payload: DiscussionCreate, user: User, stor
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discussion target is not visible")
         return
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target is not supported for this discussion type")
+
+
+def ensure_solution_discussion(discussion: Discussion) -> None:
+    if discussion.type != "solution":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only solution posts support this action")
+
+
+def sync_discussion_reactions(discussion: Discussion) -> Discussion:
+    liked_by: list[str] = []
+    seen_likes: set[str] = set()
+    for item in discussion.liked_by:
+        user_id = str(item).strip()
+        if user_id and user_id not in seen_likes:
+            seen_likes.add(user_id)
+            liked_by.append(user_id)
+    bookmarked_by: list[str] = []
+    seen_bookmarks: set[str] = set()
+    for item in discussion.bookmarked_by:
+        user_id = str(item).strip()
+        if user_id and user_id not in seen_bookmarks:
+            seen_bookmarks.add(user_id)
+            bookmarked_by.append(user_id)
+    discussion.liked_by = liked_by
+    discussion.bookmarked_by = bookmarked_by
+    discussion.likes = len(liked_by)
+    return discussion
+
+
+def react_to_solution(
+    discussion_id: str,
+    user: User,
+    store: Repository,
+    *,
+    reaction: str,
+    enabled: bool,
+) -> DiscussionReactionResponse:
+    discussion = store.get_discussion(discussion_id)
+    if not discussion or not discussion_visible_to_user(discussion, user, store):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discussion not found")
+    ensure_solution_discussion(discussion)
+    sync_discussion_reactions(discussion)
+    target = discussion.liked_by if reaction == "like" else discussion.bookmarked_by
+    action_names = {
+        ("like", True): "liked",
+        ("like", False): "unliked",
+        ("bookmark", True): "bookmarked",
+        ("bookmark", False): "unbookmarked",
+    }
+    if enabled:
+        changed = user.id not in target
+        if changed:
+            target.append(user.id)
+    else:
+        changed = user.id in target
+        if changed:
+            target[:] = [item for item in target if item != user.id]
+    discussion.updated_at = now()
+    sync_discussion_reactions(discussion)
+    updated = store.update_discussion(discussion)
+    store.add_audit(
+        user.id,
+        f"solution.{reaction}.{'add' if enabled else 'remove'}",
+        f"discussion:{discussion.id}",
+        {"changed": changed, "target_id": discussion.target_id},
+    )
+    if changed and enabled and reaction == "like" and discussion.author_id != user.id:
+        add_notification(store, discussion.author_id, "题解收到点赞", discussion.title, "reply")
+    return DiscussionReactionResponse(
+        discussion=discussion_view(updated, viewer_id=user.id),
+        action=action_names[(reaction, enabled)],  # type: ignore[arg-type]
+        changed=changed,
+    )
 
 
 def contest_judge_queue_summary(contest: Contest, store: Repository, *, limit: int = 10) -> ContestJudgeQueueSummary:
@@ -3744,6 +3820,7 @@ def update_problem_set_offline_policy(
 def list_discussions(
     type: str = Query(default=""),
     target_id: str = Query(default=""),
+    solution_category: str = Query(default=""),
     q: str = Query(default="", max_length=120),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -3755,12 +3832,15 @@ def list_discussions(
         items = [d for d in items if d.type == type]
     if target_id:
         items = [d for d in items if d.target_id == target_id]
+    if solution_category:
+        category = normalize_solution_category(solution_category)
+        items = [d for d in items if d.type == "solution" and normalize_solution_category(d.solution_category) == category]
     if q:
         items = [d for d in items if discussion_matches_query(d, q)]
-    return paginate_discussions(items, limit=limit, offset=offset)
+    return paginate_discussions(items, limit=limit, offset=offset, viewer_id=user.id if user else None)
 
 
-@app.post("/api/v1/discussions", response_model=Discussion)
+@app.post("/api/v1/discussions", response_model=DiscussionView)
 def create_discussion(
     payload: DiscussionCreate,
     user: User = Depends(require_permissions("discussion:write")),
@@ -3775,12 +3855,14 @@ def create_discussion(
         updated_at=now(),
         **payload.model_dump(),
     )
+    discussion.solution_category = normalize_solution_category(payload.solution_category) if payload.type == "solution" else None
+    sync_discussion_reactions(discussion)
     store.add_discussion(discussion)
     store.add_audit(user.id, "discussion.create", f"discussion:{discussion.id}", {"title": discussion.title})
-    return discussion
+    return discussion_view(discussion, viewer_id=user.id)
 
 
-@app.get("/api/v1/discussions/{discussion_id}", response_model=Discussion)
+@app.get("/api/v1/discussions/{discussion_id}", response_model=DiscussionView)
 def get_discussion(
     discussion_id: str,
     user: User | None = Depends(get_optional_user),
@@ -3789,10 +3871,10 @@ def get_discussion(
     discussion = store.get_discussion(discussion_id)
     if not discussion or not discussion_visible_to_user(discussion, user, store):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discussion not found")
-    return discussion
+    return discussion_view(discussion, viewer_id=user.id if user else None)
 
 
-@app.post("/api/v1/discussions/{discussion_id}/replies", response_model=Discussion)
+@app.post("/api/v1/discussions/{discussion_id}/replies", response_model=DiscussionView)
 def reply_discussion(
     discussion_id: str,
     payload: DiscussionReplyCreate,
@@ -3816,7 +3898,43 @@ def reply_discussion(
     if discussion.author_id != user.id:
         add_notification(store, discussion.author_id, "讨论收到新回复", discussion.title, "reply")
     store.add_audit(user.id, "discussion.reply", f"discussion:{discussion.id}")
-    return discussion
+    return discussion_view(discussion, viewer_id=user.id)
+
+
+@app.put("/api/v1/discussions/{discussion_id}/like", response_model=DiscussionReactionResponse)
+def like_solution(
+    discussion_id: str,
+    user: User = Depends(require_permissions("discussion:write")),
+    store: Repository = Depends(get_repository),
+) -> DiscussionReactionResponse:
+    return react_to_solution(discussion_id, user, store, reaction="like", enabled=True)
+
+
+@app.delete("/api/v1/discussions/{discussion_id}/like", response_model=DiscussionReactionResponse)
+def unlike_solution(
+    discussion_id: str,
+    user: User = Depends(require_permissions("discussion:write")),
+    store: Repository = Depends(get_repository),
+) -> DiscussionReactionResponse:
+    return react_to_solution(discussion_id, user, store, reaction="like", enabled=False)
+
+
+@app.put("/api/v1/discussions/{discussion_id}/bookmark", response_model=DiscussionReactionResponse)
+def bookmark_solution(
+    discussion_id: str,
+    user: User = Depends(require_permissions("discussion:write")),
+    store: Repository = Depends(get_repository),
+) -> DiscussionReactionResponse:
+    return react_to_solution(discussion_id, user, store, reaction="bookmark", enabled=True)
+
+
+@app.delete("/api/v1/discussions/{discussion_id}/bookmark", response_model=DiscussionReactionResponse)
+def unbookmark_solution(
+    discussion_id: str,
+    user: User = Depends(require_permissions("discussion:write")),
+    store: Repository = Depends(get_repository),
+) -> DiscussionReactionResponse:
+    return react_to_solution(discussion_id, user, store, reaction="bookmark", enabled=False)
 
 
 @app.get(
