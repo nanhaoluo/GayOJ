@@ -6,6 +6,8 @@ __pycache__/
 venv/
 .env
 .learnings/
+.pytest_cache/
+.codex-runtime/
 apps/api/storage/dev-db.json
 apps/api/storage/*.sqlite3
 apps/api/storage/*.sqlite3-wal
